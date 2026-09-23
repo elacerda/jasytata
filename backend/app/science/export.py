@@ -62,7 +62,7 @@ def build_export_csv(
         if tile.original_values and tile.original_values.get("NAME")
     }
     proposed_rows: list[dict[str, str]] = []
-    for offset, tile in enumerate(proposed_tiles):
+    for offset, tile in enumerate(tile for tile in proposed_tiles if tile.enabled):
         sequence = config.initial_sequence + offset
         name = f"{config.name_prefix}_{sequence:04d}"
         if name in occupied_names:

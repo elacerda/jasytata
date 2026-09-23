@@ -55,6 +55,7 @@ export default function AladinMap(props: AladinMapProps) {
   const cataloguesRef = useRef<Map<string, AladinLiteCatalogue>>(new Map());
   const datasetFootprintsRef = useRef<Map<string, AladinLiteOverlay>>(new Map());
   const proposalCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
+  const disabledCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const sourceLookupRef = useRef<WeakMap<AladinLiteSource, TileRecord>>(new WeakMap());
   const overlaysRef = useRef<AladinLiteOverlay[]>([]);
   const clickHandlerRef = useRef<(value: unknown) => void>(() => undefined);
@@ -99,7 +100,7 @@ export default function AladinMap(props: AladinMapProps) {
         resizeObserver = new ResizeObserver(() => redrawRef.current());
         resizeObserver.observe(containerRef.current);
         rebuildOverlays(instance, overlaysRef);
-        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, sourceLookupRef.current);
+        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
         redrawRef.current();
         if (propsRef.current.focusRequest > 0) {
           focusOnCatalogue(instance, propsRef.current.tiles);
@@ -136,7 +137,7 @@ export default function AladinMap(props: AladinMapProps) {
   useEffect(() => {
     const instance = aladinRef.current;
     if (!instance) return;
-    syncCatalogues(instance, props.datasets, props.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, sourceLookupRef.current);
+    syncCatalogues(instance, props.datasets, props.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
     redrawRef.current();
   }, [props.tiles, props.datasets]);
 
@@ -239,6 +240,7 @@ export default function AladinMap(props: AladinMapProps) {
     const proposedLayer = footprintLayers[1];
     const selectedLayer = footprintLayers[2];
     const regionLayer = footprintLayers[5];
+    const disabledLayer = footprintLayers[6];
     const anchorLayer = footprintLayers[3];
     const candidateLayer = footprintLayers[4];
     for (const layer of footprintLayers) layer.removeAll();
@@ -249,7 +251,8 @@ export default function AladinMap(props: AladinMapProps) {
         const layer = datasetFootprintsRef.current.get(dataset.id);
         dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => layer?.add(A.polyline(tileFootprint(tile, profile))));
       }
-      proposals.filter(visible).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
+      proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
+      proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => disabledLayer.add(A.polyline(tileFootprint(tile, profile))));
       current.tiles
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
         .slice(0, 100)
@@ -287,6 +290,7 @@ export default function AladinMap(props: AladinMapProps) {
  * @param catalogues - Persistent imported catalogue handles by dataset ID.
  * @param footprints - Persistent detailed-footprint overlays by dataset ID.
  * @param proposalRef - Native proposal catalogue handle.
+ * @param disabledRef - Native cross-marker catalogue for inactive proposals.
  * @param lookup - Native source to full application pointing index.
  */
 function syncCatalogues(
@@ -296,6 +300,7 @@ function syncCatalogues(
   catalogues: Map<string, AladinLiteCatalogue>,
   footprints: Map<string, AladinLiteOverlay>,
   proposalRef: { current: AladinLiteCatalogue | null },
+  disabledRef: { current: AladinLiteCatalogue | null },
   lookup: WeakMap<AladinLiteSource, TileRecord>,
 ) {
   for (const dataset of datasets) {
@@ -327,7 +332,8 @@ function syncCatalogues(
     if (dataset.visible) catalogue.show();
     else catalogue.hide();
   }
-  const proposals = tiles.filter((tile) => tile.source === "proposed");
+  const proposals = tiles.filter((tile) => tile.source === "proposed" && tile.enabled !== false);
+  const disabled = tiles.filter((tile) => tile.source === "proposed" && tile.enabled === false);
   if (proposals.length && !proposalRef.current) {
     proposalRef.current = A.catalog({
       name: "Proposed tiles",
@@ -351,6 +357,27 @@ function syncCatalogues(
       }),
     );
   }
+  if (disabled.length && !disabledRef.current) {
+    disabledRef.current = A.catalog({
+      name: "Disabled proposed tiles",
+      color: "#a7afb1",
+      sourceSize: 10,
+      shape: "cross",
+      displayLabel: false,
+      lineWidth: 2,
+    });
+    instance.addCatalog(disabledRef.current);
+  }
+  if (disabledRef.current) {
+    disabledRef.current.removeAll();
+    disabledRef.current.addSources(disabled.map((tile) => {
+      const source = A.source(tile.ra_deg, tile.dec_deg, {
+        RA: tile.ra_deg.toFixed(6), DEC: tile.dec_deg.toFixed(6), Dataset: "Disabled proposal",
+      });
+      lookup.set(source, tile);
+      return source;
+    }));
+  }
 }
 
 function rebuildOverlays(instance: AladinLiteInstance, refs: { current: AladinLiteOverlay[] }) {
@@ -361,6 +388,7 @@ function rebuildOverlays(instance: AladinLiteInstance, refs: { current: AladinLi
     { name: "Lattice anchors", color: "#d7a9ff", lineWidth: 2 },
     { name: "Candidate lattice", color: "#b0e47a", lineWidth: 1 },
     { name: "Selected sky polygon", color: "#f3ec65", lineWidth: 2.5 },
+    { name: "Disabled tile footprints", color: "#8c9799", lineWidth: 1 },
   ];
   refs.current = definitions.map((definition) => {
     const overlay = A.graphicOverlay(definition);

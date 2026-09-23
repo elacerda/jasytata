@@ -16,14 +16,16 @@ from app.models import (
     CenterParseResponse,
     CenterProposalRequest,
     CenterProposalResponse,
+    CoverageRequest,
     ExportRequest,
+    PlanMetrics,
     RegionPlanRequest,
     RegionPlanResponse,
 )
 from app.profiles import DEFAULT_PROFILE_ID, list_profiles
 from app.science.catalogue import make_center_proposals, parse_catalogue_csv, parse_center_text
 from app.science.export import build_export_csv
-from app.science.planner import plan_region
+from app.science.planner import measure_active_coverage, plan_region
 
 app = FastAPI(
     title="Tile Planner API",
@@ -201,6 +203,31 @@ async def plan_selected_region(request: RegionPlanRequest) -> RegionPlanResponse
     """
     try:
         return plan_region(request)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/coverage/region", response_model=PlanMetrics)
+async def coverage_for_active_proposal(request: CoverageRequest) -> PlanMetrics:
+    """Recompute coverage from enabled proposed tiles after manual editing.
+
+    Parameters
+    ----------
+    request : CoverageRequest
+        Selected ICRS polygon and current visible tile state.
+
+    Returns
+    -------
+    PlanMetrics
+        Updated sampled fractions and selected area.
+
+    Raises
+    ------
+    HTTPException
+        HTTP 422 for invalid proposed records or profiles.
+    """
+    try:
+        return measure_active_coverage(request)
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

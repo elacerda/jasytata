@@ -43,6 +43,7 @@ class TileRecord(BaseModel):
     epoch: str = ""
     status: str = ""
     source: TileSource
+    enabled: bool = True
     dataset_id: str | None = None
     group_id: str | None = None
     ra_column: str | None = None
@@ -67,6 +68,8 @@ class TileRecord(BaseModel):
         """
         if self.source == TileSource.ORIGINAL and self.original_values is None:
             raise ValueError("Original tiles must retain their original CSV values")
+        if self.source == TileSource.ORIGINAL and not self.enabled:
+            raise ValueError("Original catalogue tiles cannot be disabled")
         if self.source == TileSource.PROPOSED and self.generation_method is None:
             raise ValueError("Proposed tiles must specify a generation method")
         return self
@@ -248,6 +251,15 @@ class RegionPlanResponse(BaseModel):
     anchor_tile_ids: list[str]
     diagnostics: list[str]
     metrics: PlanMetrics
+
+
+class CoverageRequest(BaseModel):
+    """Recompute sampled polygon coverage for the user's active tile choices."""
+
+    polygon: SkyPolygon
+    profile_id: str = DEFAULT_PROFILE_ID
+    existing_tiles: list[TileRecord] = Field(max_length=20_000)
+    proposed_tiles: list[TileRecord] = Field(max_length=500)
 
 
 class ExportConfig(BaseModel):

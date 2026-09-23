@@ -10,6 +10,7 @@ import numpy as np
 
 from app.models import (
     CenterInput,
+    CoverageRequest,
     GenerationMethod,
     PlanMetrics,
     RegionBounds,
@@ -217,6 +218,47 @@ def plan_region(
         anchor_tile_ids=list(anchors),
         diagnostics=diagnostics,
         metrics=metrics,
+    )
+
+
+def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
+    """Measure enabled proposal coverage without generating replacement tiles.
+
+    Parameters
+    ----------
+    request : CoverageRequest
+        ICRS polygon, visible immutable pointings, and proposed centers in
+        decimal degrees. Disabled proposal centers are ignored.
+
+    Returns
+    -------
+    PlanMetrics
+        Sampled area, existing contribution, incremental active coverage,
+        and remaining area, with no inference anchors or candidates.
+
+    Raises
+    ------
+    ValueError
+        If a non-proposal record is supplied as an editable tile.
+    """
+    if any(tile.source != TileSource.PROPOSED for tile in request.proposed_tiles):
+        raise ValueError("Coverage edits may contain only proposed tiles")
+    profile = load_profile(request.profile_id)
+    grid = SamplingCoverageEngine().sample(request.polygon)
+    existing_mask = _covered_mask(grid, request.existing_tiles, profile)
+    enabled = [tile for tile in request.proposed_tiles if tile.enabled]
+    selected = [
+        (tile.ra_deg, tile.dec_deg, _tile_mask(grid, tile.ra_deg, tile.dec_deg, profile))
+        for tile in enabled
+    ]
+    return _measure_metrics(
+        selected,
+        existing_mask,
+        grid,
+        _contributing_tile_count(grid, request.existing_tiles, profile),
+        0,
+        0,
+        profile,
     )
 
 

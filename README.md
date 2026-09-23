@@ -11,7 +11,7 @@ The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use
 - Single sky-click proposals, pasted RA/DEC center imports, and native Aladin polygon selection with ICRS vertices.
 - `SPLUS_LEGACY_GRID_V1` geometry and a deterministic existing-grid inference layer.
 - Deterministic polygon-aware planning from all visible catalogue layers.
-- Proposal preview, accept/cancel, individual deletion, clear, and undo.
+- Proposal preview and acceptance, reversible per-tile enable/disable, Restore all, Remove all, and independent Clear proposal/Clear selection actions.
 - New-only and complete updated CSV exports with naming controls and collision validation.
 
 ## Architecture
@@ -26,7 +26,7 @@ reference/                  Legacy generator and representative source catalogue
 docs/ALGORITHM.md           Scientific and planner behavior
 ```
 
-The frontend keeps independent uploaded datasets and accepted proposals in client state. Each CSV creates a native Aladin catalogue layer with its own color and visibility; planning receives the union of visible dataset pointings. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus every source row's original CSV values and arbitrary non-coordinate metadata; every planning/export request carries its current session inputs. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
+The frontend keeps independent uploaded datasets and accepted proposals in client state. Each CSV creates a native Aladin catalogue layer with its own color and visibility; planning receives the union of visible dataset pointings and enabled proposal centers. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus every source row's original CSV values and arbitrary non-coordinate metadata; every planning/export request carries its current session inputs. Disabled proposals remain in memory and appear as crosses, but are excluded from planning, coverage, and export. Coverage is recomputed after manual edits without creating replacement tiles. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
 
 ## Observing profiles
 
@@ -93,6 +93,7 @@ PID,NAME,RA,DEC,EPOC,STATUS
 - `POST /api/centers/parse`
 - `POST /api/proposals/centers`
 - `POST /api/plan/region`
+- `POST /api/coverage/region`
 - `POST /api/export`
 
 All payloads use explicit Pydantic models. No API state is persisted between requests.

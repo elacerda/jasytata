@@ -2,6 +2,7 @@ import type {
   CenterInput,
   CatalogueResponse,
   ExportConfig,
+  PlanMetrics,
   SkyPolygon,
   RegionPlanResponse,
   TileRecord,
@@ -117,6 +118,27 @@ export async function planRegion(
       }),
     }),
   );
+}
+
+/** Recompute polygon coverage after manual proposal toggles.
+ *
+ * @param polygon - Ordered selected ICRS sky vertices.
+ * @param existingTiles - Visible immutable catalogue pointings.
+ * @param proposedTiles - Full proposal; only enabled centers contribute.
+ * @param profileId - Active profile identifier.
+ * @returns Updated sampled coverage metrics without replacement proposals.
+ */
+export async function measureCoverage(
+  polygon: SkyPolygon,
+  existingTiles: TileRecord[],
+  proposedTiles: TileRecord[],
+  profileId?: string,
+): Promise<PlanMetrics> {
+  return checked(await fetch("/api/coverage/region", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ polygon, existing_tiles: existingTiles, proposed_tiles: proposedTiles, profile_id: profileId }),
+  }));
 }
 
 /** Request a server-validated CSV and trigger a browser download.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import type {
   CenterInput,
@@ -48,8 +48,8 @@ export default function App() {
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [proposals, setProposals] = useState<TileRecord[]>([]);
-  const [undoStack, setUndoStack] = useState<TileRecord[][]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
+  const [activeMetrics, setActiveMetrics] = useState<PlanMetrics | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
@@ -65,6 +65,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLElement>(null);
+  const proposalBatchRef = useRef(0);
 
   const hasCatalogue = datasets.length > 0;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles), [datasets]);
@@ -73,6 +74,10 @@ export default function App() {
     ["PID", "NAME", "RA", "DEC", "EPOC", "STATUS"].every((key) => !!tile.original_values?.[key]),
   );
   const visibleTiles = useMemo(() => [...visibleOriginalTiles, ...proposals], [visibleOriginalTiles, proposals]);
+  const planningTiles = useMemo(() => [
+    ...visibleOriginalTiles,
+    ...proposals.filter((tile) => tile.enabled !== false),
+  ], [visibleOriginalTiles, proposals]);
   const mapTiles = useMemo(
     () => (pending ? [...visibleTiles, ...pending.tiles] : visibleTiles),
     [pending, visibleTiles],
@@ -92,6 +97,20 @@ export default function App() {
       setError(caught instanceof Error ? caught.message : "Could not load observing profile.");
     });
   }, []);
+
+  useEffect(() => {
+    if (!regionPolygon || !profile || !proposals.length) {
+      setActiveMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    void measureCoverage(regionPolygon, visibleOriginalTiles, proposals, profile.id)
+      .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
+      .catch((caught: unknown) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
+      });
+    return () => { cancelled = true; };
+  }, [regionPolygon, profile, proposals, visibleOriginalTiles]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -192,7 +211,7 @@ export default function App() {
     await runBusy(
       () => planRegion(
         regionPolygon,
-        visibleTiles,
+        planningTiles,
         profile?.id,
       ),
       (result: RegionPlanResponse) => {
@@ -215,12 +234,13 @@ export default function App() {
 
   function acceptPreview() {
     if (!pending) return;
+    const batch = ++proposalBatchRef.current;
     const proposalsToAdd = pending.tiles.map((tile) => ({
       ...tile,
-      id: `proposal-${crypto.randomUUID()}`,
+      id: `proposal-${batch}-${tile.id}`,
       source: "proposed" as const,
+      enabled: true,
     }));
-    setUndoStack((previous) => [...previous, proposals]);
     setProposals((previous) => [...previous, ...proposalsToAdd]);
     setPending(null);
     setSelectedTileId(null);
@@ -232,31 +252,28 @@ export default function App() {
     setNotice("Proposal preview cancelled.");
   }
 
-  function deleteProposal(id: string) {
-    setUndoStack((previous) => [...previous, proposals]);
-    setProposals((previous) => previous.filter((tile) => tile.id !== id));
-    if (selectedTileId === id) setSelectedTileId(null);
+  function toggleProposal(id: string) {
+    setProposals((previous) => previous.map((tile) => tile.id === id
+      ? { ...tile, enabled: tile.enabled === false }
+      : tile));
   }
 
   function clearProposals() {
-    if (!proposals.length) return;
-    setUndoStack((previous) => [...previous, proposals]);
     setProposals([]);
+    setPending(null);
     setSelectedTileId(null);
-    setNotice("Accepted proposals cleared. Undo restores the previous set.");
+    setNotice("Current proposal cleared. Selected polygon and catalogues remain.");
   }
 
-  function undo() {
-    if (!undoStack.length) return;
-    setProposals(undoStack[undoStack.length - 1]);
-    setUndoStack((previous) => previous.slice(0, -1));
-    setNotice("Last proposal edit undone.");
+  function setAllProposals(enabled: boolean) {
+    setProposals((previous) => previous.map((tile) => ({ ...tile, enabled })));
+    setNotice(enabled ? "All proposed tiles restored." : "All proposed tiles disabled; none will be exported.");
   }
 
   async function exportFile(kind: "new" | "updated") {
     if (!hasCatalogue) return;
     await runBusy(
-      () => downloadCatalogue(kind, originalTiles, proposals, exportConfig),
+      () => downloadCatalogue(kind, originalTiles, proposals.filter((tile) => tile.enabled !== false), exportConfig),
       () => setNotice(kind === "new" ? "new_tiles.csv downloaded." : "tiles_nc_updated.csv downloaded."),
     );
   }
@@ -449,9 +466,10 @@ export default function App() {
             ))}
             <LayerLegend
               color="var(--orange)"
-              label="Proposed tiles"
-              value={(proposals.length + (pending?.tiles.length ?? 0)).toString()}
+              label="Enabled proposals"
+              value={(proposals.filter((tile) => tile.enabled !== false).length + (pending?.tiles.length ?? 0)).toString()}
             />
+            {proposals.some((tile) => tile.enabled === false) && <LayerLegend color="#8c9799" label="Disabled proposals · crosses" value={proposals.filter((tile) => tile.enabled === false).length.toString()} />}
             {selectedTile && <LayerLegend color="var(--yellow)" label="Current selection" />}
             {pending && pending.anchorTileIds.length > 0 && <LayerLegend color="var(--violet)" label="Inference anchors" value={pending.anchorTileIds.length.toString()} />}
             {regionPolygon && <LayerLegend color="var(--yellow)" label="Selected polygon · finalized" />}
@@ -521,8 +539,8 @@ export default function App() {
             {selectedTile ? (
               <TileDetails
                 tile={selectedTile}
-                onDelete={proposals.some((tile) => tile.id === selectedTile.id)
-                  ? () => deleteProposal(selectedTile.id)
+                onToggle={proposals.some((tile) => tile.id === selectedTile.id)
+                  ? () => toggleProposal(selectedTile.id)
                   : undefined}
               />
             ) : (
@@ -568,24 +586,27 @@ export default function App() {
 
           <section className="panel-section accepted-section">
             <div className="accepted-heading">
-              <SectionHeading title="Accepted tiles" trailing={String(proposals.length)} />
+              <SectionHeading title="Generated proposal" trailing={String(proposals.length)} />
               <div className="accepted-actions">
-                <button className="icon-button" aria-label="Undo last proposal change" onClick={undo} disabled={!undoStack.length} title="Undo"><Icon name="undo" /></button>
-                <button className="icon-button danger-icon" aria-label="Clear accepted proposals" onClick={clearProposals} disabled={!proposals.length} title="Clear proposals"><Icon name="trash" /></button>
+                <button className="text-button" onClick={() => setAllProposals(true)} disabled={!proposals.length}>Restore all</button>
+                <button className="text-button" onClick={() => setAllProposals(false)} disabled={!proposals.length}>Remove all</button>
+                <button className="text-button" onClick={clearProposals} disabled={!proposals.length && !pending}>Clear proposal</button>
               </div>
             </div>
+            {proposals.length > 0 && <p className="panel-copy">{proposals.filter((tile) => tile.enabled !== false).length} enabled · {proposals.filter((tile) => tile.enabled === false).length} disabled</p>}
+            {activeMetrics && <MetricsPanel metrics={activeMetrics} />}
             {proposals.length ? (
               <div className="accepted-list">
                 {proposals.slice(-8).reverse().map((tile) => (
-                  <button className={`accepted-row ${tile.id === selectedTileId ? "is-selected" : ""}`} key={tile.id} onClick={() => setSelectedTileId(tile.id)}>
+                  <button className={`accepted-row ${tile.id === selectedTileId ? "is-selected" : ""} ${tile.enabled === false ? "is-disabled" : ""}`} key={tile.id} onClick={() => setSelectedTileId(tile.id)}>
                     <span className="accepted-swatch" />
-                    <span><strong>{tile.name}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
-                    <span className="accepted-type">{shortMethod(tile.generation_method)}</span>
+                    <span><strong>{tile.name || tile.id}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
+                    <span className="accepted-type">{tile.enabled === false ? "DISABLED" : shortMethod(tile.generation_method)}</span>
                   </button>
                 ))}
                 {proposals.length > 8 && <p className="more-row">Showing 8 of {proposals.length} accepted tiles</p>}
               </div>
-            ) : <p className="panel-copy">Accept a proposal to add tiles to the export set.</p>}
+            ) : <p className="panel-copy">Accept a proposal to edit and export its tile centers.</p>}
           </section>
 
           <section className="panel-section export-section">
@@ -615,7 +636,7 @@ function LayerLegend({ color, label, value }: { color: string; label: string; va
   return <div className="layer-row"><span className="layer-swatch" style={{ "--swatch": color } as CSSProperties} /><span>{label}</span>{value && <strong>{value}</strong>}</div>;
 }
 
-function TileDetails({ tile, onDelete }: { tile: TileRecord; onDelete?: () => void }) {
+function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => void }) {
   const metadata = Object.entries(tile.metadata).filter(([, value]) => value !== "");
   return (
     <div className="tile-detail-content">
@@ -628,8 +649,8 @@ function TileDetails({ tile, onDelete }: { tile: TileRecord; onDelete?: () => vo
         {metadata.map(([key, value]) => <DetailField key={key} label={key} value={String(value)} />)}
       </div>
       <div className="decimal-coordinate">ICRS · {formatRa(tile.ra_deg)}, {formatDec(tile.dec_deg)}</div>
-      <div className={`source-banner ${tile.source}`}><span className="status-dot" />{tile.source === "original" ? "Original catalogue tile · immutable" : `Proposed · ${shortMethod(tile.generation_method)}`}</div>
-      {onDelete && <button className="button button-danger button-full" onClick={onDelete}><Icon name="trash" /> Delete proposed tile</button>}
+      <div className={`source-banner ${tile.source}`}><span className="status-dot" />{tile.source === "original" ? "Original catalogue tile · immutable" : `Proposed · ${tile.enabled === false ? "disabled" : "enabled"} · ${shortMethod(tile.generation_method)}`}</div>
+      {onToggle && <button className="button button-outline button-full" onClick={onToggle}>{tile.enabled === false ? "Enable tile" : "Disable tile"}</button>}
     </div>
   );
 }

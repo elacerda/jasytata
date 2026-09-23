@@ -8,6 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   downloadCatalogue: vi.fn(),
   loadDefaultProfile: vi.fn(),
   loadReferenceCatalogue: vi.fn(),
+  measureCoverage: vi.fn(),
   parseCenters: vi.fn(),
   planRegion: vi.fn(),
   proposeCenters: vi.fn(),
@@ -152,11 +153,12 @@ describe("Tile Planner proposal workflow", () => {
       })),
     );
     apiMocks.downloadCatalogue.mockResolvedValue(undefined);
+    apiMocks.measureCoverage.mockResolvedValue(makePlan(2).metrics);
   });
 
   afterEach(() => cleanup());
 
-  it("plans a polygon, accepts, deletes, undoes, and exports", async () => {
+  it("plans a polygon, reversibly edits proposals, and exports enabled tiles", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: /load reference/i }));
@@ -175,10 +177,19 @@ describe("Tile Planner proposal workflow", () => {
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
     expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
-    await user.click(screen.getByRole("button", { name: /delete proposed tile/i }));
-    expect(screen.getByText("1", { selector: ".section-heading span" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Undo last proposal change" }));
-    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Disable tile" }));
+    expect(screen.getByRole("button", { name: "Enable tile" })).toBeTruthy();
+    expect(screen.getByText("DISABLED")).toBeTruthy();
+    expect(apiMocks.measureCoverage).toHaveBeenLastCalledWith(
+      expect.anything(), expect.anything(),
+      expect.arrayContaining([expect.objectContaining({ enabled: false })]), "splus-t80-south",
+    );
+    await user.click(screen.getByRole("button", { name: "Enable tile" }));
+    expect(screen.getByRole("button", { name: "Disable tile" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Remove all" }));
+    expect(screen.getByText("0 enabled · 2 disabled")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Restore all" }));
+    expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     await user.click(screen.getByRole("button", { name: /download updated catalogue/i }));
@@ -191,10 +202,12 @@ describe("Tile Planner proposal workflow", () => {
       { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
     );
 
-    await user.click(screen.getByRole("button", { name: "Clear accepted proposals" }));
+    await user.click(screen.getByRole("button", { name: "Clear proposal" }));
     expect(screen.getByText("0", { selector: ".section-heading span" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Undo last proposal change" }));
-    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.getByText(/4 vertices · finalized/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByText(/4 vertices · finalized/)).toBeNull();
+    expect(screen.getByText("1", { selector: ".summary-number" })).toBeTruthy();
   });
 
   it("previews single-tile placement and lets the user cancel it", async () => {
@@ -210,6 +223,25 @@ describe("Tile Planner proposal workflow", () => {
     );
     await user.click(screen.getByRole("button", { name: /cancel preview/i }));
     expect(screen.queryByText("Manual sky placement")).toBeNull();
+  });
+
+  it("keeps disabled tiles out of planning and preserves proposal on Clear selection", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    await user.click(screen.getByRole("button", { name: "Disable tile" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    const inputs = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
+    expect(inputs.some((tile) => tile.source === "proposed" && tile.enabled === false)).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.queryByText(/vertices · finalized/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    expect(screen.getByRole("button", { name: "Enable tile" })).toBeTruthy();
   });
 
   it("can export an unchanged catalogue and an empty new-tiles file", async () => {
@@ -242,7 +274,7 @@ describe("Tile Planner proposal workflow", () => {
     expect(await screen.findByText("SPLUS-d512")).toBeTruthy();
     expect(screen.getByText("-58:00:23")).toBeTruthy();
     expect(screen.getByText("Original catalogue tile · immutable")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /delete proposed tile/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /disable tile/i })).toBeNull();
   });
 
   it("offers coordinate-column mapping when a CSV cannot be inferred", async () => {

@@ -15,6 +15,8 @@ export interface TileRecord {
   epoch: string;
   status: string;
   source: TileSource;
+  /** Whether this proposed tile participates in the active solution. */
+  enabled?: boolean;
   generation_method: GenerationMethod | null;
   dataset_id?: string | null;
   dataset_name?: string | null;
