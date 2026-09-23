@@ -114,8 +114,11 @@ function makePlan(count: number): RegionPlanResponse {
       candidates_available: 9,
       new_tiles: count,
       selected_region_area_deg2: 59.91,
+      already_covered_fraction: 0.64,
       selected_region_coverage: 0.96,
       incremental_coverage: 0.32,
+      remaining_uncovered_fraction: 0.04,
+      remaining_uncovered_area_deg2: 2.3964,
       redundant_coverage: 0.12,
       outside_region_coverage_deg2: 3.64,
       sample_step_deg: 0.12,
@@ -132,10 +135,7 @@ describe("Tile Planner proposal workflow", () => {
       epoch: "J2000", algorithm: "SPLUS_LEGACY_GRID_V1",
     });
     apiMocks.loadReferenceCatalogue.mockResolvedValue(catalogue);
-    apiMocks.planRegion.mockImplementation(
-      async (_bounds: unknown, _tiles: unknown, mode: string, count?: number) =>
-        makePlan(mode === "fixed" ? count ?? 1 : 2),
-    );
+    apiMocks.planRegion.mockResolvedValue(makePlan(2));
     apiMocks.proposeCenters.mockImplementation(async (centers: CenterInput[], method: string) =>
       centers.map((center, index) => ({
         id: `manual-${index + 1}`,
@@ -156,45 +156,29 @@ describe("Tile Planner proposal workflow", () => {
 
   afterEach(() => cleanup());
 
-  it("plans, regenerates exact N, accepts, deletes, undoes, and exports", async () => {
+  it("plans a polygon, accepts, deletes, undoes, and exports", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: /load reference/i }));
     expect(await screen.findByText("1", { selector: ".summary-number" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(await screen.findByText("Existing grid extended")).toBeTruthy();
     expect(screen.getByText("59.91 deg²")).toBeTruthy();
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
       expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      "automatic",
-      undefined,
-      "splus-t80-south",
-    );
-
-    await user.click(screen.getByRole("button", { name: "Fixed N" }));
-    const countInput = screen.getByRole("spinbutton", { name: "Exact number of new tiles" });
-    await user.clear(countInput);
-    await user.type(countInput, "4");
-    await user.click(screen.getByRole("button", { name: "Find 4 new tiles" }));
-    await waitFor(() => expect(screen.getByText("NEW TILE CENTERS").nextElementSibling?.textContent).toBe("4"));
-    expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
-      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      "fixed",
-      4,
       "splus-t80-south",
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
-    expect(screen.getByText("4", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
     await user.click(screen.getByRole("button", { name: /delete proposed tile/i }));
-    expect(screen.getByText("3", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.getByText("1", { selector: ".section-heading span" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Undo last proposal change" }));
-    expect(screen.getByText("4", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     await user.click(screen.getByRole("button", { name: /download updated catalogue/i }));
@@ -210,7 +194,7 @@ describe("Tile Planner proposal workflow", () => {
     await user.click(screen.getByRole("button", { name: "Clear accepted proposals" }));
     expect(screen.getByText("0", { selector: ".section-heading span" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Undo last proposal change" }));
-    expect(screen.getByText("4", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
   });
 
   it("previews single-tile placement and lets the user cancel it", async () => {
@@ -300,15 +284,15 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByText("dr6.csv", { selector: ".tile-name-block span" })).toBeTruthy();
     expect(screen.getByText("good")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       expect.anything(), expect.arrayContaining([
         expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
-      ]), "automatic", undefined, "splus-t80-south",
+      ]), "splus-t80-south",
     );
     await user.click(firstToggle);
     expect((secondToggle as HTMLInputElement).checked).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     const plannedTiles = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
     expect(plannedTiles.some((tile) => tile.name === original.name)).toBe(false);
     expect(plannedTiles.some((tile) => tile.name === second.name)).toBe(true);

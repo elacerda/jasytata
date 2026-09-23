@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.profiles import DEFAULT_PROFILE_ID
 
@@ -210,33 +210,14 @@ class SkyPolygon(BaseModel):
         )
 
 
-class PlanningMode(StrEnum):
-    """Automatic coverage planning or exact-count planning."""
-
-    AUTOMATIC = "automatic"
-    FIXED = "fixed"
-
-
 class RegionPlanRequest(BaseModel):
-    """Input for planning additional tiles in a selected sky rectangle."""
+    """Input for covering an ICRS sky polygon with new profile tile centers."""
 
-    bounds: RegionBounds | None = None
-    polygon: SkyPolygon | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    polygon: SkyPolygon
     profile_id: str = DEFAULT_PROFILE_ID
     existing_tiles: list[TileRecord] = Field(max_length=20_000)
-    mode: PlanningMode = PlanningMode.AUTOMATIC
-    count: int | None = Field(default=None, ge=1, le=500)
-
-    @model_validator(mode="after")
-    def validate_mode_count(self) -> RegionPlanRequest:
-        """Require a fixed count exactly when fixed planning is requested."""
-        if self.mode == PlanningMode.FIXED and self.count is None:
-            raise ValueError("A positive tile count is required in fixed mode")
-        if self.mode == PlanningMode.AUTOMATIC and self.count is not None:
-            raise ValueError("Do not provide a tile count in automatic mode")
-        if (self.bounds is None) == (self.polygon is None):
-            raise ValueError("Provide exactly one selected polygon or legacy bounds")
-        return self
 
 
 class PlanMetrics(BaseModel):
@@ -247,8 +228,11 @@ class PlanMetrics(BaseModel):
     candidates_available: int
     new_tiles: int
     selected_region_area_deg2: float
+    already_covered_fraction: float
     selected_region_coverage: float
     incremental_coverage: float
+    remaining_uncovered_fraction: float
+    remaining_uncovered_area_deg2: float
     redundant_coverage: float
     outside_region_coverage_deg2: float
     sample_step_deg: float

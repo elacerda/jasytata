@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
@@ -11,7 +12,6 @@ from app.models import (
     CenterInput,
     GenerationMethod,
     PlanMetrics,
-    PlanningMode,
     RegionBounds,
     RegionPlanRequest,
     RegionPlanResponse,
@@ -32,7 +32,9 @@ OCCUPIED_CENTER_TOLERANCE_DEG = 0.12
 SAMPLE_STEP_DEG = 0.12
 MAX_CANDIDATES = 1200
 MAX_REGION_SAMPLES = 90_000
-AUTOMATIC_COVERAGE_TARGET = 0.95
+# Sampling cells cannot certify exact geometric completeness. The planner
+# stops at 99.5% selected-cell coverage or when no candidate adds 0.05%.
+AUTOMATIC_COVERAGE_TARGET = 0.995
 MIN_INCREMENTAL_GAIN = 0.0005
 
 
@@ -65,6 +67,35 @@ class _CoverageGrid:
     cell_area_deg2: float
 
 
+class CoverageEngine(Protocol):
+    """Replaceable selected-region sampling contract for the planner."""
+
+    def sample(self, polygon: SkyPolygon) -> _CoverageGrid:
+        """Represent the ordered ICRS polygon as weighted on-sky sample cells."""
+
+
+class SamplingCoverageEngine:
+    """Deterministic declination-weighted polygon coverage sampler."""
+
+    def sample(self, polygon: SkyPolygon) -> _CoverageGrid:
+        """Sample an ICRS polygon in degrees using a local RA/DEC grid."""
+        return _sample_region(polygon.bounds, polygon)
+
+
+def _expanded_bounds(bounds: RegionBounds, profile: TilingProfile) -> RegionBounds:
+    """Expand a polygon's acceleration bounds by half a profile footprint."""
+    center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
+    ra_margin = profile.tile_width_deg / (2 * max(math.cos(math.radians(center_dec)), 0.01))
+    if bounds.ra_span_deg + 2 * ra_margin > 180:
+        raise ValueError("Polygon plus tile margin spans more than 180 degrees in RA")
+    return RegionBounds(
+        ra_start_deg=(bounds.ra_start_deg - ra_margin) % 360,
+        ra_end_deg=(bounds.ra_end_deg + ra_margin) % 360,
+        dec_min_deg=max(-89.999, bounds.dec_min_deg - profile.tile_height_deg / 2),
+        dec_max_deg=min(89.999, bounds.dec_max_deg + profile.tile_height_deg / 2),
+    )
+
+
 def plan_region(
     request: RegionPlanRequest, profile: TilingProfile | None = None
 ) -> RegionPlanResponse:
@@ -73,7 +104,7 @@ def plan_region(
     Parameters
     ----------
     request : RegionPlanRequest
-        Selected sky bounds, existing catalogue tiles, and planning mode.
+        Ordered ICRS polygon vertices and all relevant existing pointings.
     profile : TilingProfile, optional
         Validated footprint and grid algorithm. Defaults to the installed
         profile identified by ``request.profile_id``.
@@ -87,12 +118,10 @@ def plan_region(
     Raises
     ------
     ValueError
-        If the region is too large to plan safely or fixed N exceeds the
-        number of centers that can add selected-region coverage.
+        If the selected region produces too many candidates or samples.
     """
     profile = profile or load_profile(request.profile_id)
-    bounds = request.polygon.bounds if request.polygon else request.bounds
-    assert bounds is not None
+    bounds = request.polygon.bounds
     region_center_ra = (bounds.ra_start_deg + bounds.ra_span_deg / 2) % 360
     region_center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
     local_tiles = _tiles_near_region(
@@ -102,18 +131,19 @@ def plan_region(
     if lattice is None:
         solution = "legacy_bounds_fallback"
         method = GenerationMethod.REGION_LEGACY
+        fallback_bounds = _expanded_bounds(bounds, profile)
         if profile.algorithm == "SPLUS_LEGACY_GRID_V1":
             raw_candidates = legacy_grid_centers(
-                (bounds.ra_start_deg, bounds.ra_end_deg),
-                (bounds.dec_min_deg, bounds.dec_max_deg),
-                wraps_ra=bounds.ra_start_deg > bounds.ra_end_deg,
+                (fallback_bounds.ra_start_deg, fallback_bounds.ra_end_deg),
+                (fallback_bounds.dec_min_deg, fallback_bounds.dec_max_deg),
+                wraps_ra=fallback_bounds.ra_start_deg > fallback_bounds.ra_end_deg,
             )
         else:
-            raw_candidates = rectangular_grid_centers(bounds, profile)
+            raw_candidates = rectangular_grid_centers(fallback_bounds, profile)
         anchors: tuple[str, ...] = ()
         diagnostics = [
             f"No reliable local lattice was found from {len(local_tiles)} nearby tiles; "
-            f"used {profile.algorithm} on the selected bounds."
+            f"used {profile.algorithm} around the selected polygon."
         ]
     else:
         solution = "extended_existing_grid"
@@ -134,7 +164,7 @@ def plan_region(
             f"area to at most {MAX_CANDIDATES}."
         )
     unique_candidates = _exclude_occupied(raw_candidates, request.existing_tiles, region_center_dec)
-    grid = _sample_region(bounds, request.polygon)
+    grid = SamplingCoverageEngine().sample(request.polygon)
     existing_mask = _covered_mask(grid, request.existing_tiles, profile)
     contributing_count = _contributing_tile_count(grid, request.existing_tiles, profile)
     candidate_masks = [_tile_mask(grid, ra, dec, profile) for ra, dec in unique_candidates]
@@ -143,38 +173,20 @@ def plan_region(
         if np.any(mask & ~existing_mask):
             useful.append((center, mask))
 
-    if request.mode == PlanningMode.FIXED:
-        count = request.count or 0
-        if count > len(useful):
-            raise ValueError(
-                f"Requested {count} new tiles, but only {len(useful)} non-occupied lattice centers "
-                "add coverage to the selected region."
-            )
-        chosen = _greedy_choose(useful, existing_mask, grid, count, profile)
-        if len(chosen) != count:
-            raise ValueError(
-                f"Requested {count} new tiles, but only {len(chosen)} centers add distinct "
-                "incremental coverage."
-            )
-    else:
-        chosen = _greedy_choose(
-            useful,
-            existing_mask,
-            grid,
-            profile=profile,
-            max_count=len(useful),
-            automatic_target=AUTOMATIC_COVERAGE_TARGET,
-        )
+    chosen = _greedy_choose(
+        useful,
+        existing_mask,
+        grid,
+        profile=profile,
+        max_count=len(useful),
+        automatic_target=AUTOMATIC_COVERAGE_TARGET,
+    )
 
     proposed = [
         TileRecord(
             id=f"proposal-region-{index:04d}",
-            pid="PROPOSED",
-            name=f"PROPOSED_{index:04d}",
             ra_deg=ra,
             dec_deg=dec,
-            epoch="2000",
-            status="-5",
             source=TileSource.PROPOSED,
             generation_method=method,
             metadata={"solution": solution},
@@ -193,7 +205,7 @@ def plan_region(
     )
     if not proposed and metrics.selected_region_coverage >= AUTOMATIC_COVERAGE_TARGET:
         diagnostics.append(
-            "Existing tiles already meet the automatic 95% selected-region coverage target."
+            "Existing tiles already meet the 99.5% sampled coverage target."
         )
     elif not proposed:
         diagnostics.append("No unoccupied lattice centers add sampled coverage to this region.")
@@ -241,6 +253,8 @@ def _infer_lattice(
         else:
             group = f"proposed:{tile.generation_method}"
         groups.setdefault(group, []).append(tile)
+    if len(groups) > 1:
+        groups["all-visible-pointings"] = list(tiles)
     candidates = [
         lattice
         for group_tiles in groups.values()
@@ -523,7 +537,7 @@ def _greedy_choose(
             gain = float(grid.weights[mask & uncovered].sum())
             overlap = float(grid.weights[mask & ~uncovered].sum())
             inside = max(float(grid.weights[mask].sum()), 1e-12)
-            outside_area = _outside_tile_area(ra, dec, grid, profile)
+            outside_area = _outside_tile_area(mask, grid, profile)
             scored.append((gain, -overlap / inside, -outside_area, -dec, -ra, index))
         best_score = max(scored)
         best_index = best_score[-1]
@@ -538,22 +552,10 @@ def _greedy_choose(
     return selected
 
 
-def _outside_tile_area(ra: float, dec: float, grid: _CoverageGrid, profile: TilingProfile) -> float:
-    """Estimate new tile area outside the selected rectangle in square degrees."""
-    half_width = profile.tile_width_deg / 2
-    half_height = profile.tile_height_deg / 2
-    ref_ra = grid.center_ra_deg
-    ref_dec = grid.center_dec_deg
-    center_x = _wrapped_ra_delta(ra, ref_ra) * math.cos(math.radians(ref_dec))
-    region_x_min = -grid.ra_span_deg * math.cos(math.radians(ref_dec)) / 2
-    region_x_max = -region_x_min
-    region_y_min = grid.dec_min_deg
-    region_y_max = grid.dec_max_deg
-    inside_x = max(
-        0.0, min(center_x + half_width, region_x_max) - max(center_x - half_width, region_x_min)
-    )
-    inside_y = max(0.0, min(dec + half_height, region_y_max) - max(dec - half_height, region_y_min))
-    return max(0.0, profile.tile_width_deg * profile.tile_height_deg - inside_x * inside_y)
+def _outside_tile_area(mask: np.ndarray, grid: _CoverageGrid, profile: TilingProfile) -> float:
+    """Estimate one footprint's area outside the actual selected polygon."""
+    selected_area = float(grid.weights[mask].sum()) * grid.cell_area_deg2
+    return max(0.0, profile.tile_width_deg * profile.tile_height_deg - selected_area)
 
 
 def _measure_metrics(
@@ -571,14 +573,15 @@ def _measure_metrics(
     proposed_sample_weight = 0.0
     redundant_sample_weight = 0.0
     outside_area = 0.0
-    for ra, dec, mask in selected:
+    for _ra, _dec, mask in selected:
         redundant_sample_weight += float(grid.weights[mask & covered].sum())
         proposed_sample_weight += float(grid.weights[mask].sum())
         new_covered |= mask & ~covered
         covered |= mask
-        outside_area += _outside_tile_area(ra, dec, grid, profile)
+        outside_area += _outside_tile_area(mask, grid, profile)
     total = max(grid.total_weight, 1e-12)
     total_coverage = float(grid.weights[covered].sum()) / total
+    already_covered = float(grid.weights[existing_mask].sum()) / total
     incremental = float(grid.weights[new_covered].sum()) / total
     redundant = redundant_sample_weight / max(proposed_sample_weight, 1e-12) if selected else 0.0
     area_deg2 = grid.total_weight * grid.cell_area_deg2
@@ -588,8 +591,11 @@ def _measure_metrics(
         candidates_available=candidates_available,
         new_tiles=len(selected),
         selected_region_area_deg2=round(area_deg2, 4),
+        already_covered_fraction=round(already_covered, 5),
         selected_region_coverage=round(total_coverage, 5),
         incremental_coverage=round(incremental, 5),
+        remaining_uncovered_fraction=round(max(0, 1 - total_coverage), 5),
+        remaining_uncovered_area_deg2=round(max(0, 1 - total_coverage) * area_deg2, 4),
         redundant_coverage=round(redundant, 5),
         outside_region_coverage_deg2=round(outside_area, 4),
         sample_step_deg=round(grid.step_deg, 4),

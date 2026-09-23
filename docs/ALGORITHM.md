@@ -48,7 +48,7 @@ Golden tests import and execute `reference/create_tiles.py` for RA 143°–151°
 
 ## 3. Local existing-grid inference
 
-The selected RA interval is interpreted eastward from `ra_start` to `ra_end` and must be at most 180°. For neighbor search, RA offsets are unwrapped around the selected-region center and projected to a local horizontal coordinate:
+The selected polygon is unwrapped around its local RA center and must span at most 180°. For neighbor search, RA offsets are projected to a local horizontal coordinate:
 
 ```text
 x = wrapped(α − α_center) cos(δ_center)
@@ -68,7 +68,7 @@ Candidate centers within 0.12° physical separation of an existing center are re
 
 ## 4. Coverage representation and scoring
 
-The region is sampled as uniform RA/DEC cell centers. Each sample is weighted by `cos(DEC)`, the spherical area element for a small RA/DEC cell. The minimum nominal sample pitch is 0.12°; very large regions increase the pitch as needed to keep the grid below 90,000 samples. A tile covers a sample when:
+The polygon's bounding rectangle is sampled as uniform RA/DEC cell centers; samples outside the polygon receive zero weight. Each interior sample is weighted by `cos(DEC)`, the spherical area element for a small RA/DEC cell. The minimum nominal sample pitch is 0.12°; very large regions increase the pitch as needed to keep the grid below 90,000 samples. A tile covers a selected sample when:
 
 ```text
 |sample_DEC − tile_DEC| ≤ 0.7 deg
@@ -77,9 +77,9 @@ The region is sampled as uniform RA/DEC cell centers. Each sample is weighted by
 
 All existing original and already accepted tiles are unioned before candidate selection. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints.
 
-Selection is deterministic greedy maximum incremental gain. Ties prefer, in order, less overlap with already covered selected-region samples, less approximate tile area outside the selected rectangle, then stable coordinate order. Candidate coordinates are never perturbed. The outside estimate intersects a tile's local 1.4° square with the selected local rectangle; overlapping outside tile areas are summed, so this is an estimate of exported new footprint area rather than a spherical union.
+Selection is deterministic greedy maximum incremental gain. Ties prefer, in order, less overlap with already covered selected-region samples, less estimated tile area outside the selected polygon, then stable coordinate order. Candidate coordinates are never perturbed. Outside area is estimated from sampled polygon cells covered by each tile; overlapping outside tile areas are summed, so this is an estimate of exported new footprint area rather than a spherical union.
 
-Automatic mode stops at 95% total selected-region coverage or when the best remaining gain is below 0.05% of the selected area. Fixed mode requests exactly N proposal records, not N including existing tiles. Every chosen center must add at least the same 0.05% sampled-region threshold on top of the already covered region; if fewer than N unoccupied/useful candidates remain, the API returns HTTP 422 with the available count instead of fabricating centers.
+Planning stops at 99.5% total sampled polygon coverage or when the best remaining gain is below 0.05% of the selected area. Every chosen center must add at least that much selected-area coverage. The stop threshold is a sampling tolerance, not a completeness guarantee.
 
 Returned metrics include selected region area, existing tiles contributing sample coverage, anchor count, candidate count, new tile count, final selected-region coverage, incremental proposal coverage, redundant proposed footprint fraction, outside-region tile area, and sample pitch.
 
@@ -90,4 +90,3 @@ Original catalogue records retain the original strings for exactly `PID,NAME,RA,
 ## 6. Deliberate limitations
 
 This planner is designed for the near-axis-aligned T80/S-PLUS mosaic at ordinary survey declinations. It does not use full spherical polygon clipping, infer a rotated lattice, or model exact HEALPix footprints. The coverage score is a reproducible planning estimate and must be checked against the survey's final operational acceptance criteria before treating it as a formal completeness statement. Near the celestial poles, the RA/DEC rectangle approximation is not suitable; selected regions are validated to avoid the exact poles but the recommended operating area remains the southern survey footprint.
-

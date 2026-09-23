@@ -9,14 +9,13 @@ import pytest
 
 from app.models import (
     GenerationMethod,
-    PlanningMode,
-    RegionBounds,
     RegionPlanRequest,
+    SkyPolygon,
     TileRecord,
     TileSource,
 )
 from app.science.catalogue import parse_catalogue_csv
-from app.science.geometry import CENTER_SPACING_DEG, legacy_grid_centers
+from app.science.geometry import CENTER_SPACING_DEG
 from app.science.planner import INFERENCE_TOLERANCE_DEG, plan_region
 
 
@@ -57,6 +56,16 @@ def local_grid() -> list[TileRecord]:
     return tiles
 
 
+def rectangle(ra_start: float, ra_end: float, dec_min: float, dec_max: float) -> SkyPolygon:
+    """Represent rectangular regression regions as ordered celestial vertices."""
+    return SkyPolygon(vertices=[
+        {"ra_deg": ra_start, "dec_deg": dec_min},
+        {"ra_deg": ra_end, "dec_deg": dec_min},
+        {"ra_deg": ra_end, "dec_deg": dec_max},
+        {"ra_deg": ra_start, "dec_deg": dec_max},
+    ])
+
+
 def test_reference_catalogue_inference_tolerance_is_calibrated() -> None:
     """The 0.05-degree tolerance covers measured local S-PLUS spacings."""
     from pathlib import Path
@@ -93,9 +102,8 @@ def test_real_reference_catalogue_extends_a_southern_edge_region() -> None:
     reference = Path(__file__).resolve().parents[2] / "reference" / "tiles_nc.csv"
     catalogue = parse_catalogue_csv(reference.read_bytes())
     request = RegionPlanRequest(
-        bounds=RegionBounds(ra_start_deg=120, ra_end_deg=135, dec_min_deg=-61, dec_max_deg=-57),
+        polygon=rectangle(120, 135, -61, -57),
         existing_tiles=catalogue["tiles"],
-        mode=PlanningMode.AUTOMATIC,
     )
     response = plan_region(request)
     assert response.solution == "extended_existing_grid"
@@ -107,50 +115,11 @@ def test_real_reference_catalogue_extends_a_southern_edge_region() -> None:
     )
 
 
-def test_fixed_n_against_reference_catalogue_returns_exact_new_count() -> None:
-    """Fixed-N remains exact when planning against the real supplied rows."""
-    from pathlib import Path
-
-    reference = Path(__file__).resolve().parents[2] / "reference" / "tiles_nc.csv"
-    catalogue = parse_catalogue_csv(reference.read_bytes())
-    bounds = RegionBounds(ra_start_deg=120, ra_end_deg=135, dec_min_deg=-61, dec_max_deg=-57)
-    first = plan_region(
-        RegionPlanRequest(
-            bounds=bounds,
-            existing_tiles=catalogue["tiles"],
-            mode=PlanningMode.FIXED,
-            count=4,
-        )
-    )
-    second = plan_region(
-        RegionPlanRequest(
-            bounds=bounds,
-            existing_tiles=catalogue["tiles"],
-            mode=PlanningMode.FIXED,
-            count=5,
-        )
-    )
-    assert len(first.tiles) == 4
-    assert len(second.tiles) == 5
-    assert [(tile.ra_deg, tile.dec_deg) for tile in first.tiles] == [
-        (tile.ra_deg, tile.dec_deg)
-        for tile in plan_region(
-            RegionPlanRequest(
-                bounds=bounds,
-                existing_tiles=catalogue["tiles"],
-                mode=PlanningMode.FIXED,
-                count=4,
-            )
-        ).tiles
-    ]
-
-
 def test_existing_grid_is_inferred_from_multiple_anchors() -> None:
     """Neighboring rows and columns extend the known grid into uncovered sky."""
     request = RegionPlanRequest(
-        bounds=RegionBounds(ra_start_deg=156, ra_end_deg=161, dec_min_deg=-30.8, dec_max_deg=-27.6),
+        polygon=rectangle(156, 161, -30.8, -27.6),
         existing_tiles=local_grid(),
-        mode=PlanningMode.AUTOMATIC,
     )
     response = plan_region(request)
     assert response.solution == "extended_existing_grid"
@@ -165,9 +134,8 @@ def test_existing_grid_is_inferred_from_multiple_anchors() -> None:
 def test_insufficient_anchors_fall_back_to_legacy_bounds() -> None:
     """A single nearby tile cannot define a phase and therefore is not trusted."""
     request = RegionPlanRequest(
-        bounds=RegionBounds(ra_start_deg=143, ra_end_deg=151, dec_min_deg=-40, dec_max_deg=-20),
+        polygon=rectangle(143, 151, -40, -20),
         existing_tiles=[original(1, 150, -30)],
-        mode=PlanningMode.AUTOMATIC,
     )
     response = plan_region(request)
     assert response.solution == "legacy_bounds_fallback"
@@ -178,52 +146,22 @@ def test_insufficient_anchors_fall_back_to_legacy_bounds() -> None:
 
 def test_existing_centers_are_excluded_from_fallback_candidates() -> None:
     """A candidate already occupied by an existing tile is never proposed."""
-    bounds = RegionBounds(ra_start_deg=143, ra_end_deg=151, dec_min_deg=-40, dec_max_deg=-20)
-    first_legacy = legacy_grid_centers((143, 151), (-40, -20))[0]
-    occupied = original(1, *first_legacy)
-    response = plan_region(RegionPlanRequest(bounds=bounds, existing_tiles=[occupied]))
+    polygon = rectangle(143, 151, -40, -20)
+    empty_plan = plan_region(RegionPlanRequest(polygon=polygon, existing_tiles=[]))
+    candidate = empty_plan.candidate_centers[0]
+    occupied = original(1, candidate.ra_deg, candidate.dec_deg)
+    response = plan_region(RegionPlanRequest(polygon=polygon, existing_tiles=[occupied]))
     assert all(
         math.hypot(tile.ra_deg - occupied.ra_deg, tile.dec_deg - occupied.dec_deg) > 0.12
         for tile in response.tiles
     )
 
 
-def test_fixed_n_is_exact_and_deterministic() -> None:
-    """Repeated fixed-N requests return exactly N centers in the same order."""
-    request = RegionPlanRequest(
-        bounds=RegionBounds(ra_start_deg=156, ra_end_deg=161, dec_min_deg=-30.8, dec_max_deg=-27.6),
-        existing_tiles=local_grid(),
-        mode=PlanningMode.FIXED,
-        count=3,
-    )
-    first = plan_region(request)
-    second = plan_region(request)
-    assert len(first.tiles) == 3
-    assert first.metrics.new_tiles == 3
-    assert [(tile.ra_deg, tile.dec_deg) for tile in first.tiles] == [
-        (tile.ra_deg, tile.dec_deg) for tile in second.tiles
-    ]
-    assert first.metrics.selected_region_coverage == second.metrics.selected_region_coverage
-
-
-def test_fixed_n_rejects_count_above_available_lattice_positions() -> None:
-    """The planner reports useful candidate capacity instead of inventing centers."""
-    request = RegionPlanRequest(
-        bounds=RegionBounds(ra_start_deg=156, ra_end_deg=157, dec_min_deg=-30.8, dec_max_deg=-30.1),
-        existing_tiles=local_grid(),
-        mode=PlanningMode.FIXED,
-        count=20,
-    )
-    with pytest.raises(ValueError, match="only .* lattice centers add coverage"):
-        plan_region(request)
-
-
 def test_automatic_mode_is_deterministic_and_reports_coverage_metrics() -> None:
     """Automatic solutions and all required coverage metrics are stable."""
     request = RegionPlanRequest(
-        bounds=RegionBounds(ra_start_deg=156, ra_end_deg=161, dec_min_deg=-30.8, dec_max_deg=-27.6),
+        polygon=rectangle(156, 161, -30.8, -27.6),
         existing_tiles=local_grid(),
-        mode=PlanningMode.AUTOMATIC,
     )
     first = plan_region(request)
     second = plan_region(request)
@@ -235,3 +173,36 @@ def test_automatic_mode_is_deterministic_and_reports_coverage_metrics() -> None:
     assert 0 <= first.metrics.selected_region_coverage <= 1
     assert 0 <= first.metrics.incremental_coverage <= 1
     assert first.metrics.outside_region_coverage_deg2 >= 0
+    assert first.metrics.already_covered_fraction > 0
+    assert first.metrics.remaining_uncovered_fraction == pytest.approx(
+        1 - first.metrics.selected_region_coverage, abs=1e-5
+    )
+
+
+def test_multiple_datasets_can_anchor_and_cover_one_polygon() -> None:
+    """Distinct catalogue identities together supply anchors and occupied coverage."""
+    tiles = local_grid()
+    for index, tile in enumerate(tiles):
+        tile.dataset_id = "first" if index % 2 else "second"
+        tile.group_id = tile.dataset_id
+    polygon = rectangle(153, 159, -31, -27)
+    response = plan_region(RegionPlanRequest(polygon=polygon, existing_tiles=tiles))
+    assert response.solution == "extended_existing_grid"
+    assert {tile.dataset_id for tile in tiles if tile.id in response.anchor_tile_ids} == {
+        "first", "second"
+    }
+    assert response.metrics.existing_tiles_contributing > 0
+
+
+def test_concave_polygon_does_not_fill_empty_bounding_corner() -> None:
+    """An L-shaped region excludes candidate positions in its empty corner."""
+    polygon = SkyPolygon(vertices=[
+        {"ra_deg": ra, "dec_deg": dec}
+        for ra, dec in [(150, -31), (156, -31), (156, -29),
+                        (152, -29), (152, -25), (150, -25)]
+    ])
+    response = plan_region(RegionPlanRequest(polygon=polygon, existing_tiles=[]))
+    assert response.solution == "legacy_bounds_fallback"
+    assert response.tiles
+    assert all(not (tile.ra_deg > 153.5 and tile.dec_deg > -27.5) for tile in response.tiles)
+    assert response.metrics.selected_region_coverage > 0.9

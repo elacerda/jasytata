@@ -210,43 +210,27 @@ def test_health_reference_upload_and_updated_export_reload() -> None:
     )
 
 
-def test_real_catalogue_region_automatic_and_exact_fixed_n_api_workflow() -> None:
-    """A real overlap-region request infers anchors and honors changing fixed N."""
+def test_real_catalogue_polygon_planning_api_workflow() -> None:
+    """A real overlap polygon infers anchors and returns sampled area metrics."""
     catalogue = client.get("/api/catalogue/reference").json()
     payload = {
-        "bounds": {
-            "ra_start_deg": 120,
-            "ra_end_deg": 135,
-            "dec_min_deg": -61,
-            "dec_max_deg": -57,
-        },
+        "polygon": {"vertices": [
+            {"ra_deg": 120, "dec_deg": -61},
+            {"ra_deg": 135, "dec_deg": -61},
+            {"ra_deg": 135, "dec_deg": -57},
+            {"ra_deg": 120, "dec_deg": -57},
+        ]},
         "existing_tiles": catalogue["tiles"],
     }
-    automatic = client.post("/api/plan/region", json_body={**payload, "mode": "automatic"})
+    automatic = client.post("/api/plan/region", json_body=payload)
     assert automatic.status_code == 200, automatic.text[:500]
     automatic_body = automatic.json()
     assert automatic_body["solution"] == "extended_existing_grid"
     assert automatic_body["anchor_tile_ids"]
     assert automatic_body["tiles"]
     assert automatic_body["metrics"]["existing_tiles_contributing"] > 0
-
-    fixed_four = client.post(
-        "/api/plan/region",
-        json_body={**payload, "mode": "fixed", "count": 4},
-    )
-    fixed_five = client.post(
-        "/api/plan/region",
-        json_body={**payload, "mode": "fixed", "count": 5},
-    )
-    assert fixed_four.status_code == fixed_five.status_code == 200
-    assert fixed_four.json()["metrics"]["new_tiles"] == 4
-    assert fixed_five.json()["metrics"]["new_tiles"] == 5
-    over_limit = client.post(
-        "/api/plan/region",
-        json_body={**payload, "mode": "fixed", "count": 100},
-    )
-    assert over_limit.status_code == 422
-    assert "only" in over_limit.json()["detail"]
+    assert automatic_body["metrics"]["selected_region_coverage"] > 0.9
+    assert automatic_body["metrics"]["remaining_uncovered_area_deg2"] >= 0
 
 
 def test_built_frontend_and_client_route_are_served_when_available() -> None:

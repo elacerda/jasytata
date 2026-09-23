@@ -186,7 +186,7 @@ async def plan_selected_region(request: RegionPlanRequest) -> RegionPlanResponse
     Parameters
     ----------
     request : RegionPlanRequest
-        Eastward RA/DEC bounds, all current tile centers, and planning mode.
+        Ordered ICRS polygon vertices, all relevant pointings, and profile.
 
     Returns
     -------
@@ -197,7 +197,7 @@ async def plan_selected_region(request: RegionPlanRequest) -> RegionPlanResponse
     Raises
     ------
     HTTPException
-        HTTP 422 for a region too large to plan or an unavailable fixed count.
+        HTTP 422 for a region too large to plan.
     """
     try:
         return plan_region(request)

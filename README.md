@@ -6,11 +6,11 @@ The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use
 
 ## Features
 
-- Aladin Lite v3 pan, zoom, ICRS position inspection, native catalogue layers, zoom-dependent tile footprints, region bounds, anchors, and candidate lattice positions.
+- Aladin Lite v3 pan, zoom, ICRS position inspection, native catalogue layers, zoom-dependent tile footprints, polygon selection, anchors, and candidate lattice positions.
 - Multiple simultaneous CSV datasets with distinct colors, independent visibility, and source metadata inspection.
-- Single sky-click proposals, pasted RA/DEC center imports, and rectangular region selection using Aladin's pixel-to-world conversion.
+- Single sky-click proposals, pasted RA/DEC center imports, and native Aladin polygon selection with ICRS vertices.
 - `SPLUS_LEGACY_GRID_V1` geometry and a deterministic existing-grid inference layer.
-- Automatic planning and exact fixed-N planning. N counts only new proposal tiles.
+- Deterministic polygon-aware planning from all visible catalogue layers.
 - Proposal preview, accept/cancel, individual deletion, clear, and undo.
 - New-only and complete updated CSV exports with naming controls and collision validation.
 
@@ -72,7 +72,7 @@ The explicit compatibility algorithm is `SPLUS_LEGACY_GRID_V1`. It keeps the leg
 
 For selected regions near a regular catalogue lattice, the planner checks neighboring original/accepted centers within three tile widths, fits row/column phases using multiple neighbor pairs, and continues that local pattern. The catalogue-calibrated inference tolerance is 0.05° (3 arcmin). If there are too few consistent anchors, the response explicitly reports `legacy_bounds_fallback` and uses `SPLUS_LEGACY_GRID_V1` on the selected bounds. Candidate centers remain on the inferred lattice; coverage scoring chooses among them without moving their coordinates.
 
-Automatic mode adds tiles until sampled selected-region coverage reaches 95% or no candidate makes a useful contribution. Fixed mode returns exactly N new tiles or rejects the request if fewer than N non-occupied lattice candidates add incremental selected-area coverage. Existing footprints are counted before proposal scoring. See [docs/ALGORITHM.md](docs/ALGORITHM.md) for projection assumptions, inference, thresholds, score ordering, and known limits.
+The planner adds useful lattice centers until sampled selected-polygon coverage reaches 99.5% or no candidate makes a meaningful contribution. Existing footprints are counted before proposal scoring. Polygon bounds accelerate candidate generation; sample scoring uses only the polygon interior. See [docs/ALGORITHM.md](docs/ALGORITHM.md) for projection assumptions, inference, thresholds, score ordering, and known limits.
 
 ## Export
 
@@ -106,12 +106,12 @@ make typecheck
 make build
 ```
 
-Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, lattice inference/fallback, occupied-center exclusion, deterministic exact-N and automatic planning, export schema, name collision checks, and reload round trips. Frontend tests cover RA-wrap selection bounds, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, independent native Aladin catalogue visibility, and source metadata.
+Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, polygon validation and sampling, lattice inference/fallback, occupied-center exclusion, deterministic planning, export schema, name collision checks, and reload round trips. Frontend tests cover RA-wrap polygon selection, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, independent native Aladin catalogue visibility, and source metadata.
 
 ## Known limits
 
 - Tile boundaries and coverage scores use an axis-aligned 1.4° RA/DEC rectangle approximation rather than a full spherical polygon intersection.
 - The region planner uses a dense, declination-weighted sample grid capped at 90,000 points; the returned coverage is an estimate, not a survey-completeness certification.
-- Region selection is limited to an eastward RA interval no wider than 180° and declinations strictly between the poles. The current planner models the approximately axis-aligned S-PLUS grid and does not infer rotated or warped survey tilings.
+- Region selection supports simple polygons with a local RA span no wider than 180° and declinations strictly between the poles. The current planner models the approximately axis-aligned S-PLUS grid and does not infer rotated or warped survey tilings.
 - Sessions are client/in-memory only. Reloading the browser discards accepted proposals; export before closing the session.
 - The initial UI uses Aladin Lite's DSS2 color HiPS background; access to remote HiPS tiles depends on network availability.

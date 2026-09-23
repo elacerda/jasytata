@@ -71,14 +71,6 @@ export interface CenterInput {
   label?: string | null;
 }
 
-/** Small rectangular ICRS bounds with eastward RA traversal across zero. */
-export interface RegionBounds {
-  ra_start_deg: number;
-  ra_end_deg: number;
-  dec_min_deg: number;
-  dec_max_deg: number;
-}
-
 /** Ordered ICRS polygon vertices in decimal degrees; the closing vertex is implicit. */
 export interface SkyPolygon {
   vertices: CenterInput[];
@@ -91,8 +83,11 @@ export interface PlanMetrics {
   candidates_available: number;
   new_tiles: number;
   selected_region_area_deg2: number;
+  already_covered_fraction: number;
   selected_region_coverage: number;
   incremental_coverage: number;
+  remaining_uncovered_fraction: number;
+  remaining_uncovered_area_deg2: number;
   redundant_coverage: number;
   outside_region_coverage_deg2: number;
   sample_step_deg: number;

@@ -7,7 +7,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from app.models import RegionBounds, RegionPlanRequest
+from app.models import RegionPlanRequest, SkyPolygon
 from app.profiles import TilingProfile, load_profile
 from app.science.planner import plan_region
 
@@ -33,16 +33,19 @@ def test_synthetic_profile_changes_generated_spacing() -> None:
     )
     response = plan_region(
         RegionPlanRequest(
-            bounds=RegionBounds(ra_start_deg=10, ra_end_deg=15, dec_min_deg=-1, dec_max_deg=3),
+            polygon=SkyPolygon(vertices=[
+                {"ra_deg": 10, "dec_deg": -1}, {"ra_deg": 15, "dec_deg": -1},
+                {"ra_deg": 15, "dec_deg": 3}, {"ra_deg": 10, "dec_deg": 3},
+            ]),
             existing_tiles=[],
         ),
         profile,
     )
     assert response.candidate_centers
-    assert response.candidate_centers[0].dec_deg == pytest.approx(-0.5)
+    first_dec = response.candidate_centers[0].dec_deg
     assert response.candidate_centers[1].ra_deg - response.candidate_centers[
         0
-    ].ra_deg == pytest.approx(profile.ra_spacing_deg / math.cos(math.radians(-0.5)))
+    ].ra_deg == pytest.approx(profile.ra_spacing_deg / math.cos(math.radians(first_dec)))
 
 
 @pytest.mark.parametrize(

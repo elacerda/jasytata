@@ -98,15 +98,12 @@ export async function proposeCenters(
  *
  * @param polygon - Ordered ICRS vertices in decimal degrees.
  * @param existingTiles - Original catalogue plus accepted proposals.
- * @param mode - Automatic coverage target or exact new-tile count.
- * @param count - Exact number of new tiles for fixed mode.
+ * @param profileId - Active observing profile identifier.
  * @returns Auditable solution with selected centers, anchors, diagnostics, and metrics.
  */
 export async function planRegion(
   polygon: SkyPolygon,
   existingTiles: TileRecord[],
-  mode: "automatic" | "fixed",
-  count?: number,
   profileId?: string,
 ): Promise<RegionPlanResponse> {
   return checked(
@@ -117,8 +114,6 @@ export async function planRegion(
         polygon,
         existing_tiles: existingTiles,
         profile_id: profileId,
-        mode,
-        ...(mode === "fixed" ? { count } : {}),
       }),
     }),
   );

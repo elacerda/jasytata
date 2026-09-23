@@ -115,7 +115,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .segmented-control button { min-height: 29px; color: #6c7e83; border: 0; border-radius: 3px; background: transparent; font-size: 10px; font-weight: 620; cursor: pointer; }
 .segmented-control button.is-selected { color: #21454a; background: #fff; box-shadow: 0 1px 2px #19383d14; }
 .field-label { display: grid; gap: 5px; color: #75878c; font-size: 9px; font-weight: 650; }
-.fixed-count-field { grid-template-columns: 1fr auto; align-items: center; margin-top: 10px; }
 .stepper { height: 30px; display: flex; align-items: stretch; overflow: hidden; border: 1px solid #cbd7d9; border-radius: 4px; background: #fff; }
 .stepper button { width: 29px; border: 0; background: #f2f6f6; color: #3c666c; font-size: 16px; cursor: pointer; }
 .stepper button:disabled { color: #aeb9bb; cursor: default; }

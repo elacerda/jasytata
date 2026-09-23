@@ -56,8 +56,6 @@ export default function App() {
   const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectingRegion, setSelectingRegion] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
-  const [planningMode, setPlanningMode] = useState<"automatic" | "fixed">("automatic");
-  const [fixedN, setFixedN] = useState("4");
   const [showLattice, setShowLattice] = useState(true);
   const [importText, setImportText] = useState("");
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
@@ -195,8 +193,6 @@ export default function App() {
       () => planRegion(
         regionPolygon,
         visibleTiles,
-        planningMode,
-        planningMode === "fixed" ? normalizedFixedCount(fixedN) : undefined,
         profile?.id,
       ),
       (result: RegionPlanResponse) => {
@@ -271,10 +267,6 @@ export default function App() {
       [field]: field === "initial_sequence" ? Number(value) : value,
     }));
   }
-
-  const planLabel = planningMode === "automatic"
-    ? "Generate automatic plan"
-    : `Find ${normalizedFixedCount(fixedN)} new tiles`;
 
   return (
     <main className="app-shell">
@@ -407,30 +399,8 @@ export default function App() {
               <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
             )}
             <button className="text-button" onClick={() => { setRegionPolygon(null); setSelectingRegion(false); setNotice("Selected polygon cleared; catalogues and proposals remain."); }} disabled={!regionPolygon}>Clear selection</button>
-            <div className="segmented-control" role="group" aria-label="Planning mode">
-              <button className={planningMode === "automatic" ? "is-selected" : ""} onClick={() => setPlanningMode("automatic")}>Automatic</button>
-              <button className={planningMode === "fixed" ? "is-selected" : ""} onClick={() => setPlanningMode("fixed")}>Fixed N</button>
-            </div>
-            {planningMode === "fixed" && (
-              <label className="field-label fixed-count-field">
-                New tiles
-                <span className="stepper">
-                  <button aria-label="Decrease new tile count" onClick={() => setFixedN((count) => String(Math.max(1, normalizedFixedCount(count) - 1)))} disabled={normalizedFixedCount(fixedN) <= 1}>−</button>
-                  <input
-                    type="number"
-                    min="1"
-                    max="500"
-                    value={fixedN}
-                    onChange={(event) => setFixedN(event.target.value)}
-                    onBlur={() => setFixedN((count) => String(normalizedFixedCount(count)))}
-                    aria-label="Exact number of new tiles"
-                  />
-                  <button aria-label="Increase new tile count" onClick={() => setFixedN((count) => String(Math.min(500, normalizedFixedCount(count) + 1)))}>+</button>
-                </span>
-              </label>
-            )}
             <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || busy}>
-              {busy ? <span className="spinner" /> : <Icon name="spark" />}{planLabel}
+              {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
             <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>
           </section>
@@ -675,8 +645,10 @@ function MetricsPanel({ metrics }: { metrics: PlanMetrics }) {
       <Metric label="Existing contributors" value={String(metrics.existing_tiles_contributing)} />
       <Metric label="Inference anchors" value={String(metrics.anchor_tiles_used)} />
       <Metric label="New tiles" value={String(metrics.new_tiles)} emphasis />
+      <Metric label="Already covered" value={`${(metrics.already_covered_fraction * 100).toFixed(1)}%`} />
       <Metric label="Final region coverage" value={`${(metrics.selected_region_coverage * 100).toFixed(1)}%`} emphasis />
       <Metric label="Incremental new coverage" value={`${(metrics.incremental_coverage * 100).toFixed(1)}%`} />
+      <Metric label="Remaining uncovered" value={`${(metrics.remaining_uncovered_fraction * 100).toFixed(1)}% · ${metrics.remaining_uncovered_area_deg2.toFixed(2)} deg²`} />
       <Metric label="Redundant proposal coverage" value={`${(metrics.redundant_coverage * 100).toFixed(1)}%`} />
       <Metric label="Outside selected area" value={`${metrics.outside_region_coverage_deg2.toFixed(2)} deg²`} />
       <div className="metric-footnote">Dense sample step {metrics.sample_step_deg.toFixed(2)}° · {metrics.candidates_available} available centers</div>
@@ -736,8 +708,4 @@ function formatDec(value: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return `${sign}${String(degrees).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function normalizedFixedCount(value: string) {
-  return Math.min(500, Math.max(1, Math.trunc(Number(value) || 1)));
 }
