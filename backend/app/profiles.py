@@ -18,7 +18,8 @@ class TilingProfile(BaseModel):
     All widths and heights are on-sky degrees. ``effective_overlap_arcsec``
     is the actual edge overlap in arcseconds on each grid axis; it does not
     expose the legacy source helper's fourfold base-overlap convention.
-    Positions are ICRS equatorial RA/DEC decimal degrees at J2000.
+    Positions are ICRS equatorial RA/DEC decimal degrees. Export epoch is a
+    catalogue label, not an ICRS equinox or a coordinate transformation.
     """
 
     id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
@@ -28,7 +29,8 @@ class TilingProfile(BaseModel):
     tile_height_deg: float = Field(gt=0, le=180)
     effective_overlap_arcsec: float = Field(ge=0)
     coordinate_frame: str = "icrs"
-    epoch: str = "J2000"
+    export_epoch_default: str = "2000"
+    export_epoch_options: list[str] = Field(default_factory=lambda: ["2000"], min_length=1)
     algorithm: str
 
     @model_validator(mode="after")
@@ -43,12 +45,19 @@ class TilingProfile(BaseModel):
         Raises
         ------
         ValueError
-            If the algorithm, frame, epoch, or physical spacing is unsupported.
+        If the algorithm, frame, export epoch, or spacing is unsupported.
         """
         if self.algorithm not in SUPPORTED_ALGORITHMS:
             raise ValueError(f"Unsupported tiling algorithm: {self.algorithm}")
-        if self.coordinate_frame.lower() != "icrs" or self.epoch.upper() != "J2000":
-            raise ValueError("Only ICRS/J2000 profiles are currently supported")
+        if self.coordinate_frame.lower() != "icrs":
+            raise ValueError("Only ICRS profiles are currently supported")
+        if (
+            not self.export_epoch_default.strip()
+            or self.export_epoch_default not in self.export_epoch_options
+            or len(set(self.export_epoch_options)) != len(self.export_epoch_options)
+            or any(not option.strip() for option in self.export_epoch_options)
+        ):
+            raise ValueError("Export epoch default must be one of the unique allowed options")
         overlap_deg = self.effective_overlap_arcsec / 3600
         if overlap_deg >= min(self.tile_width_deg, self.tile_height_deg):
             raise ValueError("Effective overlap must be smaller than both tile dimensions")

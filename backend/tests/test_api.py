@@ -126,8 +126,8 @@ class _ASGIClient:
 client = _ASGIClient()
 
 
-def test_health_reference_upload_and_updated_export_reload() -> None:
-    """The real reference catalogue can be exported and parsed over the API."""
+def test_health_reference_upload_and_generic_export_reload() -> None:
+    """Reference and generic CSVs load; enabled new tile export reloads."""
     assert client.get("/api/health").json()["status"] == "ok"
     reference = Path(__file__).resolve().parents[2] / "reference" / "tiles_nc.csv"
     bundled = client.get("/api/catalogue/reference")
@@ -150,64 +150,36 @@ def test_health_reference_upload_and_updated_export_reload() -> None:
     center = centers.json()["centers"][1]
     proposal = {
         "id": "proposal-api-1",
-        "pid": "PROPOSED",
-        "name": "PROPOSED_0001",
         "ra_deg": center["ra_deg"],
         "dec_deg": center["dec_deg"],
-        "epoch": "2000",
-        "status": "-5",
         "source": "proposed",
         "generation_method": "imported_centers",
         "original_values": None,
         "metadata": {},
     }
-    export_config = {
-        "pid": "SPLUS",
-        "name_prefix": "SPLUS_NEW",
-        "initial_sequence": 8,
-        "epoch": "2000",
-        "status": "-5",
-    }
     new_only = client.post(
         "/api/export",
         json_body={
-            "kind": "new",
-            "original_tiles": source_tiles,
             "proposed_tiles": [proposal],
-            "config": export_config,
+            "profile_id": "splus-t80-south",
+            "coordinate_format": "decimal",
         },
     )
     assert new_only.status_code == 200
     assert "new_tiles.csv" in new_only.headers["content-disposition"]
     new_rows = list(csv.DictReader(new_only.text.splitlines()))
     assert len(new_rows) == 1
-    assert list(new_rows[0]) == ["PID", "NAME", "RA", "DEC", "EPOC", "STATUS"]
-
-    exported = client.post(
-        "/api/export",
-        json_body={
-            "kind": "updated",
-            "original_tiles": source_tiles,
-            "proposed_tiles": [proposal],
-            "config": export_config,
-        },
-    )
-    assert exported.status_code == 200
-    assert "tiles_nc_updated.csv" in exported.headers["content-disposition"]
-    rows = list(csv.DictReader(exported.text.splitlines()))
-    assert list(rows[0]) == ["PID", "NAME", "RA", "DEC", "EPOC", "STATUS"]
-    assert rows[-1]["NAME"] == "SPLUS_NEW_0008"
+    assert list(new_rows[0]) == ["RA", "DEC", "EPOCH"]
+    assert new_rows[0]["EPOCH"] == "2000"
     reloaded = client.post(
         "/api/catalogue/parse",
-        files={"file": ("tiles_nc_updated.csv", exported.content, "text/csv")},
+        files={"file": ("new_tiles.csv", new_only.content, "text/csv")},
     )
     assert reloaded.status_code == 200
     reloaded_catalogue = reloaded.json()
-    assert reloaded_catalogue["row_count"] == 4775
-    assert (
-        reloaded_catalogue["tiles"][0]["original_values"]
-        == parsed_catalogue["tiles"][0]["original_values"]
-    )
+    assert reloaded_catalogue["row_count"] == 1
+    assert reloaded_catalogue["tiles"][0]["ra_deg"] == pytest.approx(center["ra_deg"])
+    assert parsed_catalogue["tiles"][0]["original_values"] == source_tiles[0]["original_values"]
 
 
 def test_real_catalogue_polygon_planning_api_workflow() -> None:
@@ -231,6 +203,74 @@ def test_real_catalogue_polygon_planning_api_workflow() -> None:
     assert automatic_body["metrics"]["existing_tiles_contributing"] > 0
     assert automatic_body["metrics"]["selected_region_coverage"] > 0.9
     assert automatic_body["metrics"]["remaining_uncovered_area_deg2"] >= 0
+
+
+def test_two_catalogues_polygon_edit_and_export_http_round_trip() -> None:
+    """Reference and generic pointings jointly cover a polygon through HTTP."""
+    reference = client.get("/api/catalogue/reference").json()["tiles"]
+    generic_csv = b"RA,DEC,quality\n125,-59,good\n126.4,-59,good\n125,-57.6,good\n"
+    generic_response = client.post(
+        "/api/catalogue/parse",
+        files={"file": ("second.csv", generic_csv, "text/csv")},
+    )
+    assert generic_response.status_code == 200
+    generic = generic_response.json()["tiles"]
+    assert all(tile["metadata"]["quality"] == "good" for tile in generic)
+    for tile in generic:
+        tile["id"] = f"second:{tile['id']}"
+    polygon = {"vertices": [
+        {"ra_deg": 120, "dec_deg": -61}, {"ra_deg": 135, "dec_deg": -61},
+        {"ra_deg": 135, "dec_deg": -57}, {"ra_deg": 120, "dec_deg": -57},
+    ]}
+    existing_tiles = reference + generic
+    plan = client.post("/api/plan/region", json_body={
+        "polygon": polygon, "existing_tiles": existing_tiles,
+    })
+    assert plan.status_code == 200, plan.text[:500]
+    solution = plan.json()
+    assert solution["solution"] in {"extended_existing_grid", "legacy_bounds_fallback"}
+    assert solution["metrics"]["existing_tiles_contributing"] > 0
+    assert solution["tiles"]
+    coverage_payload = {
+        "polygon": polygon,
+        "existing_tiles": existing_tiles,
+        "proposed_tiles": solution["tiles"],
+    }
+    baseline = client.post("/api/coverage/region", json_body=coverage_payload)
+    assert baseline.status_code == 200
+    disabled = [dict(tile) for tile in solution["tiles"]]
+    disabled[0]["enabled"] = False
+    edited = client.post("/api/coverage/region", json_body={
+        **coverage_payload, "proposed_tiles": disabled,
+    })
+    assert edited.status_code == 200
+    assert edited.json()["new_tiles"] == len(disabled) - 1
+    assert edited.json()["selected_region_coverage"] < baseline.json()["selected_region_coverage"]
+    restored = client.post("/api/coverage/region", json_body=coverage_payload)
+    assert restored.json()["selected_region_coverage"] == baseline.json()[
+        "selected_region_coverage"
+    ]
+    removed_all = client.post("/api/coverage/region", json_body={
+        **coverage_payload,
+        "proposed_tiles": [{**tile, "enabled": False} for tile in solution["tiles"]],
+    })
+    assert removed_all.json()["new_tiles"] == 0
+    assert removed_all.json()["selected_region_coverage"] == pytest.approx(
+        removed_all.json()["already_covered_fraction"]
+    )
+    exported = client.post("/api/export", json_body={
+        "proposed_tiles": disabled, "coordinate_format": "decimal",
+    })
+    assert exported.status_code == 200
+    rows = list(csv.DictReader(exported.text.splitlines()))
+    assert len(rows) == len(disabled) - 1
+    assert list(rows[0]) == ["RA", "DEC", "EPOCH"]
+    reloaded = client.post("/api/catalogue/parse", files={
+        "file": ("new_tiles.csv", exported.content, "text/csv"),
+    })
+    assert reloaded.status_code == 200
+    assert reloaded.json()["row_count"] == len(rows)
+    assert "quality" not in rows[0]
 
 
 def test_built_frontend_and_client_route_are_served_when_available() -> None:

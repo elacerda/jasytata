@@ -7,7 +7,7 @@ import type {
   CenterInput,
   CatalogueDataset,
   CatalogueResponse,
-  ExportConfig,
+  CoordinateFormat,
   PlanMetrics,
   SkyPolygon,
   RegionPlanResponse,
@@ -32,13 +32,6 @@ interface ColumnMapping {
   raUnit: "auto" | "degrees" | "hours";
 }
 
-const EMPTY_EXPORT: ExportConfig = {
-  pid: "SPLUS",
-  name_prefix: "SPLUS_NEW",
-  initial_sequence: 1,
-  epoch: "2000",
-  status: "-5",
-};
 const EMPTY_CENTERS: CenterInput[] = [];
 const EMPTY_IDS: string[] = [];
 
@@ -49,6 +42,7 @@ export default function App() {
   const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
+  const [proposalContext, setProposalContext] = useState<ProposalPreview | null>(null);
   const [activeMetrics, setActiveMetrics] = useState<PlanMetrics | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
@@ -59,7 +53,8 @@ export default function App() {
   const [showLattice, setShowLattice] = useState(true);
   const [importText, setImportText] = useState("");
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
-  const [exportConfig, setExportConfig] = useState(EMPTY_EXPORT);
+  const [exportEpoch, setExportEpoch] = useState("");
+  const [coordinateFormat, setCoordinateFormat] = useState<CoordinateFormat>("decimal");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -70,9 +65,7 @@ export default function App() {
   const hasCatalogue = datasets.length > 0;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles), [datasets]);
   const visibleOriginalTiles = useMemo(() => datasets.filter((dataset) => dataset.visible).flatMap((dataset) => dataset.tiles), [datasets]);
-  const legacyExportCompatible = datasets.length === 1 && originalTiles.every((tile) =>
-    ["PID", "NAME", "RA", "DEC", "EPOC", "STATUS"].every((key) => !!tile.original_values?.[key]),
-  );
+  const enabledProposals = useMemo(() => proposals.filter((tile) => tile.enabled !== false), [proposals]);
   const visibleTiles = useMemo(() => [...visibleOriginalTiles, ...proposals], [visibleOriginalTiles, proposals]);
   const planningTiles = useMemo(() => [
     ...visibleOriginalTiles,
@@ -82,18 +75,23 @@ export default function App() {
     () => (pending ? [...visibleTiles, ...pending.tiles] : visibleTiles),
     [pending, visibleTiles],
   );
+  const activeContext = pending ?? proposalContext;
   const selectedTile = useMemo(
     () => mapTiles.find((tile) => tile.id === selectedTileId) ?? null,
     [mapTiles, selectedTileId],
   );
   const anchors = useMemo(() => {
-    if (!pending) return [];
-    const ids = new Set(pending.anchorTileIds);
+    const context = pending ?? proposalContext;
+    if (!context) return [];
+    const ids = new Set(context.anchorTileIds);
     return mapTiles.filter((tile) => ids.has(tile.id));
-  }, [pending, mapTiles]);
+  }, [pending, proposalContext, mapTiles]);
 
   useEffect(() => {
-    void loadDefaultProfile().then(setProfile).catch((caught: unknown) => {
+    void loadDefaultProfile().then((loaded) => {
+      setProfile(loaded);
+      setExportEpoch(loaded.export_epoch_default);
+    }).catch((caught: unknown) => {
       setError(caught instanceof Error ? caught.message : "Could not load observing profile.");
     });
   }, []);
@@ -242,6 +240,7 @@ export default function App() {
       enabled: true,
     }));
     setProposals((previous) => [...previous, ...proposalsToAdd]);
+    setProposalContext(pending);
     setPending(null);
     setSelectedTileId(null);
     setNotice(`${proposalsToAdd.length} proposed tile${proposalsToAdd.length === 1 ? "" : "s"} accepted.`);
@@ -261,6 +260,7 @@ export default function App() {
   function clearProposals() {
     setProposals([]);
     setPending(null);
+    setProposalContext(null);
     setSelectedTileId(null);
     setNotice("Current proposal cleared. Selected polygon and catalogues remain.");
   }
@@ -270,19 +270,12 @@ export default function App() {
     setNotice(enabled ? "All proposed tiles restored." : "All proposed tiles disabled; none will be exported.");
   }
 
-  async function exportFile(kind: "new" | "updated") {
-    if (!hasCatalogue) return;
+  async function exportFile() {
+    if (!profile || !enabledProposals.length) return;
     await runBusy(
-      () => downloadCatalogue(kind, originalTiles, proposals.filter((tile) => tile.enabled !== false), exportConfig),
-      () => setNotice(kind === "new" ? "new_tiles.csv downloaded." : "tiles_nc_updated.csv downloaded."),
+      () => downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat),
+      () => setNotice("new_tiles.csv downloaded."),
     );
-  }
-
-  function updateExport(field: keyof ExportConfig, value: string) {
-    setExportConfig((previous) => ({
-      ...previous,
-      [field]: field === "initial_sequence" ? Number(value) : value,
-    }));
   }
 
   return (
@@ -471,11 +464,11 @@ export default function App() {
             />
             {proposals.some((tile) => tile.enabled === false) && <LayerLegend color="#8c9799" label="Disabled proposals · crosses" value={proposals.filter((tile) => tile.enabled === false).length.toString()} />}
             {selectedTile && <LayerLegend color="var(--yellow)" label="Current selection" />}
-            {pending && pending.anchorTileIds.length > 0 && <LayerLegend color="var(--violet)" label="Inference anchors" value={pending.anchorTileIds.length.toString()} />}
+            {activeContext?.anchorTileIds.length ? <LayerLegend color="var(--violet)" label="Inference anchors" value={activeContext.anchorTileIds.length.toString()} /> : null}
             {regionPolygon && <LayerLegend color="var(--yellow)" label="Selected polygon · finalized" />}
-            {pending?.candidateCenters.length ? (
+            {activeContext?.candidateCenters.length ? (
               <>
-                <LayerLegend color="var(--green)" label="Candidate lattice" value={pending.candidateCenters.length.toString()} />
+                <LayerLegend color="var(--green)" label="Candidate lattice" value={activeContext.candidateCenters.length.toString()} />
                 <label className="toggle-row">
                   <span>Show inferred grid</span>
                   <input type="checkbox" checked={showLattice} onChange={(event) => setShowLattice(event.target.checked)} />
@@ -514,8 +507,8 @@ export default function App() {
             focusRequest={focusRequest}
             selectedTileId={selectedTileId}
             selectedPolygon={regionPolygon}
-            anchorTileIds={pending?.anchorTileIds ?? EMPTY_IDS}
-            candidateCenters={pending?.candidateCenters ?? EMPTY_CENTERS}
+            anchorTileIds={activeContext?.anchorTileIds ?? EMPTY_IDS}
+            candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
             showLattice={showLattice}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
@@ -597,10 +590,10 @@ export default function App() {
             {activeMetrics && <MetricsPanel metrics={activeMetrics} />}
             {proposals.length ? (
               <div className="accepted-list">
-                {proposals.slice(-8).reverse().map((tile) => (
+                {proposals.slice(-8).reverse().map((tile, index) => (
                   <button className={`accepted-row ${tile.id === selectedTileId ? "is-selected" : ""} ${tile.enabled === false ? "is-disabled" : ""}`} key={tile.id} onClick={() => setSelectedTileId(tile.id)}>
                     <span className="accepted-swatch" />
-                    <span><strong>{tile.name || tile.id}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
+                    <span><strong>{tile.name || `Proposed tile ${proposals.length - index}`}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
                     <span className="accepted-type">{tile.enabled === false ? "DISABLED" : shortMethod(tile.generation_method)}</span>
                   </button>
                 ))}
@@ -610,17 +603,23 @@ export default function App() {
           </section>
 
           <section className="panel-section export-section">
-            <SectionHeading title="Export catalogue" />
+            <SectionHeading title="Export new tiles" />
+            <p className="panel-copy">{proposals.length} generated · {enabledProposals.length} enabled · {proposals.length - enabledProposals.length} disabled</p>
             <div className="export-fields">
-              <label className="field-label">PID<input value={exportConfig.pid} onChange={(event) => updateExport("pid", event.target.value)} /></label>
-              <label className="field-label">Name prefix<input value={exportConfig.name_prefix} onChange={(event) => updateExport("name_prefix", event.target.value)} /></label>
-              <label className="field-label">First sequence<input type="number" min="0" value={exportConfig.initial_sequence} onChange={(event) => updateExport("initial_sequence", event.target.value)} /></label>
-              <label className="field-label">EPOC<input value={exportConfig.epoch} onChange={(event) => updateExport("epoch", event.target.value)} /></label>
-              <label className="field-label">STATUS<input value={exportConfig.status} onChange={(event) => updateExport("status", event.target.value)} /></label>
+              <label className="field-label">Coordinates
+                <select aria-label="Export coordinates" value={coordinateFormat} onChange={(event) => setCoordinateFormat(event.target.value as CoordinateFormat)}>
+                  <option value="decimal">Decimal degrees</option>
+                  <option value="sexagesimal">Sexagesimal</option>
+                </select>
+              </label>
+              <label className="field-label">Epoch
+                <select aria-label="Export epoch" value={exportEpoch} onChange={(event) => setExportEpoch(event.target.value)}>
+                  {profile?.export_epoch_options.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
             </div>
-            <button className="button button-outline button-full" onClick={() => void exportFile("new")} disabled={!hasCatalogue || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <button className="button button-download button-full" onClick={() => void exportFile("updated")} disabled={!hasCatalogue || !legacyExportCompatible || busy}><Icon name="download" /> Download updated catalogue</button>
-            <p className="fine-print">Legacy six-column updated export is available for S-PLUS-compatible catalogues. Generic export follows in Run B.</p>
+            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !profile || busy}><Icon name="download" /> Download new_tiles.csv</button>
+            <p className="fine-print">{profile?.display_name ?? "Loading profile"} · ICRS RA/DEC · EPOCH {exportEpoch || "…"}. Export contains enabled proposals only.</p>
           </section>
         </aside>
       </section>
@@ -640,7 +639,7 @@ function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => vo
   const metadata = Object.entries(tile.metadata).filter(([, value]) => value !== "");
   return (
     <div className="tile-detail-content">
-      <div className="tile-name-block"><strong>{tile.name || tile.id}</strong><span>{tile.dataset_name ?? (tile.source === "proposed" ? "Proposal" : "Catalogue")}</span></div>
+      <div className="tile-name-block"><strong>{tile.name || (tile.source === "proposed" ? "Proposed tile" : "Catalogue tile")}</strong><span>{tile.dataset_name ?? (tile.source === "proposed" ? "Proposal" : "Catalogue")}</span></div>
       <div className="detail-grid">
         <DetailField label="RA" value={`${tile.ra_deg.toFixed(6)}°`} />
         <DetailField label="DEC" value={`${tile.dec_deg.toFixed(6)}°`} />

@@ -1,7 +1,7 @@
 import type {
   CenterInput,
   CatalogueResponse,
-  ExportConfig,
+  CoordinateFormat,
   PlanMetrics,
   SkyPolygon,
   RegionPlanResponse,
@@ -143,22 +143,22 @@ export async function measureCoverage(
 
 /** Request a server-validated CSV and trigger a browser download.
  *
- * @param kind - New-only proposal rows or complete original-plus-proposal catalogue.
- * @param originalTiles - Immutable original rows with their raw CSV field values.
- * @param proposedTiles - Accepted proposal rows.
- * @param config - PID, name sequence, EPOC, and STATUS controls.
+ * @param proposedTiles - Accepted enabled proposal positions.
+ * @param profileId - Active observing profile.
+ * @param epoch - Profile-approved descriptive catalogue epoch.
+ * @param coordinateFormat - Decimal degrees or sexagesimal RA/DEC.
  * @returns A promise that resolves after the browser download is triggered.
  */
 export async function downloadCatalogue(
-  kind: "new" | "updated",
-  originalTiles: TileRecord[],
   proposedTiles: TileRecord[],
-  config: ExportConfig,
+  profileId: string,
+  epoch: string,
+  coordinateFormat: CoordinateFormat,
 ): Promise<void> {
   const response = await fetch("/api/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, original_tiles: originalTiles, proposed_tiles: proposedTiles, config }),
+    body: JSON.stringify({ proposed_tiles: proposedTiles, profile_id: profileId, epoch, coordinate_format: coordinateFormat }),
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
@@ -168,7 +168,7 @@ export async function downloadCatalogue(
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = kind === "new" ? "new_tiles.csv" : "tiles_nc_updated.csv";
+  link.download = "new_tiles.csv";
   document.body.appendChild(link);
   link.click();
   link.remove();

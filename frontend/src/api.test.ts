@@ -1,16 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { downloadCatalogue, uploadCatalogue } from "./api";
-import type { ExportConfig, TileRecord } from "./types";
+import type { TileRecord } from "./types";
 
-const exportConfig: ExportConfig = {
-  pid: "SPLUS",
-  name_prefix: "SPLUS_NEW",
-  initial_sequence: 1,
-  epoch: "2000",
-  status: "-5",
-};
-
-const originals: TileRecord[] = [];
 const proposals: TileRecord[] = [];
 
 describe("CSV browser download", () => {
@@ -33,7 +24,7 @@ describe("CSV browser download", () => {
   });
 
   it("posts export metadata and triggers a named download from the CSV response", async () => {
-    const csv = "PID,NAME,RA,DEC,EPOC,STATUS\r\n";
+    const csv = "RA,DEC,EPOCH\r\n";
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(csv, {
         status: 200,
@@ -57,17 +48,17 @@ describe("CSV browser download", () => {
         expect(this.href).toBe("blob:t80-test");
       });
 
-    await downloadCatalogue("new", originals, proposals, exportConfig);
+    await downloadCatalogue(proposals, "splus-t80-south", "2000", "decimal");
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/export",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          kind: "new",
-          original_tiles: originals,
           proposed_tiles: proposals,
-          config: exportConfig,
+          profile_id: "splus-t80-south",
+          epoch: "2000",
+          coordinate_format: "decimal",
         }),
       }),
     );

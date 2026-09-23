@@ -80,35 +80,39 @@ def parse_dec_degrees(value: str) -> float:
     return float(degrees)
 
 
-def format_ra_degrees(ra_deg: float) -> str:
-    """Format RA as sexagesimal hours with integer-second precision.
+def format_ra_degrees(ra_deg: float, *, precision: int = 0) -> str:
+    """Format RA as sexagesimal hours with configurable second precision.
 
     Parameters
     ----------
     ra_deg : float
         Right ascension in decimal degrees.
+    precision : int, default=0
+        Number of decimal places for the seconds field.
 
     Returns
     -------
     str
-        ``HH:MM:SS`` formatted RA, rounded by Astropy to the nearest second.
+        ``HH:MM:SS`` formatted RA, rounded by Astropy at the chosen precision.
     """
     return Longitude(ra_deg * u.deg).to_string(
         unit=u.hourangle,
         sep=":",
         fields=3,
-        precision=0,
+        precision=precision,
         pad=True,
     )
 
 
-def format_dec_degrees(dec_deg: float) -> str:
-    """Format DEC as sexagesimal degrees with integer-second precision.
+def format_dec_degrees(dec_deg: float, *, precision: int = 0) -> str:
+    """Format DEC as sexagesimal degrees with configurable second precision.
 
     Parameters
     ----------
     dec_deg : float
         Declination in decimal degrees.
+    precision : int, default=0
+        Number of decimal places for the seconds field.
 
     Returns
     -------
@@ -119,6 +123,6 @@ def format_dec_degrees(dec_deg: float) -> str:
         unit=u.deg,
         sep=":",
         fields=3,
-        precision=0,
+        precision=precision,
         pad=True,
     )

@@ -8,7 +8,7 @@ import io
 import pytest
 from pydantic import ValidationError
 
-from app.models import CoverageRequest, ExportConfig, SkyPolygon, TileRecord, TileSource
+from app.models import CoverageRequest, ExportRequest, SkyPolygon, TileRecord, TileSource
 from app.science.export import build_export_csv
 from app.science.planner import measure_active_coverage
 
@@ -46,7 +46,7 @@ def test_disabled_tiles_are_excluded_from_export_and_originals_are_immutable() -
         id="p2", ra_deg=151, dec_deg=-30,
         source=TileSource.PROPOSED, generation_method="manual", enabled=False,
     )
-    text = build_export_csv([], [first, second], ExportConfig(pid="X", name_prefix="NEW"), "new")
+    text = build_export_csv(ExportRequest(proposed_tiles=[first, second]))
     rows = list(csv.DictReader(io.StringIO(text)))
     assert len(rows) == 1
     with pytest.raises(ValidationError, match="cannot be disabled"):

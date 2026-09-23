@@ -234,38 +234,31 @@ async def coverage_for_active_proposal(request: CoverageRequest) -> PlanMetrics:
 
 @app.post("/api/export")
 async def export_catalogue(request: ExportRequest) -> Response:
-    """Return a new-only or complete updated six-column CSV download.
+    """Return enabled proposed positions as a generic ICRS CSV download.
 
     Parameters
     ----------
     request : ExportRequest
-        Original source values, accepted proposal records, and naming controls.
+        Proposed centers, profile epoch, and coordinate representation.
 
     Returns
     -------
     Response
-        UTF-8 CSV response with a download filename and the exact six-column
-        source schema.
+        UTF-8 CSV response with a ``new_tiles.csv`` download filename.
 
     Raises
     ------
     HTTPException
-        HTTP 422 for invalid rows or generated NAME collisions.
+        HTTP 422 for no enabled tiles or an invalid epoch.
     """
     try:
-        contents = build_export_csv(
-            request.original_tiles,
-            request.proposed_tiles,
-            request.config,
-            request.kind,
-        )
+        contents = build_export_csv(request)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    filename = "new_tiles.csv" if request.kind == "new" else "tiles_nc_updated.csv"
     return Response(
         content=contents.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": 'attachment; filename="new_tiles.csv"'},
     )
 
 

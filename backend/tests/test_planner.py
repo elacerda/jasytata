@@ -31,12 +31,9 @@ def original(index: int, ra: float, dec: float) -> TileRecord:
     }
     return TileRecord(
         id=f"original-{index}",
-        pid="SPLUS",
         name=values["NAME"],
         ra_deg=ra,
         dec_deg=dec,
-        epoch="2000",
-        status="1",
         source=TileSource.ORIGINAL,
         group_id="synthetic-splus",
         original_values=values,
@@ -77,7 +74,8 @@ def test_reference_catalogue_inference_tolerance_is_calibrated() -> None:
     local_tiles = [
         tile
         for tile in catalogue["tiles"]
-        if tile.pid == "SPLUS" and 118 <= tile.ra_deg <= 138 and -62 <= tile.dec_deg <= -57
+        if tile.metadata.get("PID") == "SPLUS" and 118 <= tile.ra_deg <= 138
+        and -62 <= tile.dec_deg <= -57
     ]
     row_groups: dict[float, list[TileRecord]] = {}
     for tile in local_tiles:

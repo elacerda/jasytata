@@ -44,3 +44,11 @@ def test_polygon_area_is_not_bounding_box_area() -> None:
     rectangle_area = rectangle.metrics.selected_region_area_deg2
     assert triangle.metrics.selected_region_area_deg2 < rectangle_area * 0.6
     assert 0 < concave.metrics.selected_region_area_deg2 < rectangle_area
+
+
+def test_small_valid_polygon_keeps_interior_samples() -> None:
+    """A sub-pitch triangular region remains plannable instead of disappearing."""
+    region = polygon([(150, -30), (150.03, -30), (150, -29.97)])
+    plan = plan_region(RegionPlanRequest(polygon=region, existing_tiles=[]))
+    assert plan.metrics.selected_region_area_deg2 > 0
+    assert plan.tiles

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.profiles import DEFAULT_PROFILE_ID
 
@@ -27,21 +27,18 @@ class TileSource(StrEnum):
 
 
 class TileRecord(BaseModel):
-    """A canonical ICRS pointing with optional legacy display and export fields.
+    """A canonical ICRS pointing with source provenance and display fields.
 
     Coordinates are ICRS RA/DEC decimal degrees. ``metadata`` stores arbitrary
     non-coordinate CSV columns; ``original_values`` stores every source field
-    verbatim for display or compatible export. Neither metadata nor legacy
+    verbatim for display. Neither metadata nor source
     display fields participate in geometric calculations.
     """
 
     id: str
-    pid: str = ""
     name: str = ""
     ra_deg: float = Field(ge=0, lt=360)
     dec_deg: float = Field(ge=-90, le=90)
-    epoch: str = ""
-    status: str = ""
     source: TileSource
     enabled: bool = True
     dataset_id: str | None = None
@@ -262,45 +259,12 @@ class CoverageRequest(BaseModel):
     proposed_tiles: list[TileRecord] = Field(max_length=500)
 
 
-class ExportConfig(BaseModel):
-    """Metadata to assign to accepted proposal rows during CSV export."""
-
-    pid: str = Field(min_length=1, max_length=64)
-    name_prefix: str = Field(min_length=1, max_length=64)
-    initial_sequence: int = Field(default=1, ge=0, le=99_999_999)
-    epoch: str = Field(default="2000", min_length=1, max_length=32)
-    status: str = Field(default="-5", min_length=1, max_length=32)
-
-    @field_validator("pid", "name_prefix", "epoch", "status")
-    @classmethod
-    def require_nonblank_metadata(cls, value: str) -> str:
-        """Trim export metadata and reject empty or newline-only values.
-
-        Parameters
-        ----------
-        value : str
-            New-row metadata supplied by the user.
-
-        Returns
-        -------
-        str
-            The trimmed field value.
-
-        Raises
-        ------
-        ValueError
-            If a required metadata value is blank or contains line breaks.
-        """
-        normalized = value.strip()
-        if not normalized or "\n" in normalized or "\r" in normalized:
-            raise ValueError("Export metadata must be non-empty and contain no line breaks")
-        return normalized
-
-
 class ExportRequest(BaseModel):
-    """Rows and naming controls for one of the two CSV download variants."""
+    """Active proposal positions and profile-driven generic CSV settings."""
 
-    original_tiles: list[TileRecord] = Field(max_length=20_000)
+    model_config = ConfigDict(extra="forbid")
+
     proposed_tiles: list[TileRecord] = Field(max_length=500)
-    config: ExportConfig
-    kind: str = Field(pattern="^(new|updated)$")
+    profile_id: str = DEFAULT_PROFILE_ID
+    epoch: str | None = None
+    coordinate_format: str = Field(default="decimal", pattern="^(decimal|sexagesimal)$")

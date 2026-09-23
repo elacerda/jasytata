@@ -18,6 +18,8 @@ def test_default_profile_preserves_reference_geometry() -> None:
     assert profile.algorithm == "SPLUS_LEGACY_GRID_V1"
     assert profile.tile_width_deg == profile.tile_height_deg == 1.4
     assert profile.effective_overlap_arcsec == 120
+    assert profile.export_epoch_default == "2000"
+    assert profile.export_epoch_options == ["2000"]
     assert profile.ra_spacing_deg == pytest.approx(1.4 - 120 / 3600)
 
 
@@ -54,6 +56,7 @@ def test_synthetic_profile_changes_generated_spacing() -> None:
         {"effective_overlap_arcsec": 3600},
         {"algorithm": "unknown"},
         {"coordinate_frame": "galactic"},
+        {"export_epoch_default": "2050"},
         {"tile_width_deg": -1},
     ],
 )

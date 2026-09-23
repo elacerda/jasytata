@@ -16,7 +16,7 @@ Astronomers and survey operators planning additional sky coverage from existing 
 
 ## Product Purpose
 
-Load a tile catalogue, inspect its sky footprint, design new tile centers, and export accepted additions. The current export schema preserves the bundled S-PLUS catalogue format.
+Load one or more tile catalogues, inspect their sky footprints, select a polygon, edit new tile centers, and export enabled additions as generic RA/DEC CSV.
 
 ## Positioning
 
@@ -24,11 +24,11 @@ The planner can extend a locally inferred S-PLUS tile lattice from multiple cata
 
 ## Operating Context
 
-Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial coordinates, tile footprints, local survey geometry, and proposed export metadata. Aladin Lite provides independent native catalogue layers in the interactive sky view.
+Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial coordinates, tile footprints, local survey geometry, and profile-driven export epoch metadata. Aladin Lite provides independent native catalogue layers and polygon interaction in the sky view.
 
 ## Capabilities and Constraints
 
-- Original catalogue rows are immutable and semantically preserved in updated exports.
+- Original catalogue rows are immutable and their source metadata remains available for inspection.
 - Proposals remain separate until accepted; editing state is client/in-memory only and is not persisted across reloads.
 - The no-database MVP exposes parsing, planning, and export through a stateless FastAPI API.
 - The planner uses a documented local tangent approximation and dense sampled coverage estimates; it is not a spherical polygon certification engine.

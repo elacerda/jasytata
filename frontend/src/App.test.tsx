@@ -60,12 +60,9 @@ vi.mock("./AladinMap", async () => {
 
 const original: TileRecord = {
   id: "original-1",
-  pid: "SPLUS",
   name: "SPLUS-d512",
   ra_deg: 120.875,
   dec_deg: -58.0064,
-  epoch: "2000",
-  status: "1",
   source: "original",
   generation_method: null,
   original_values: {
@@ -91,12 +88,9 @@ const catalogue: CatalogueResponse = {
 function makePlan(count: number): RegionPlanResponse {
   const tiles = Array.from({ length: count }, (_, index) => ({
     id: `preview-${index + 1}`,
-    pid: "PROPOSED",
     name: `PROPOSED_${String(index + 1).padStart(4, "0")}`,
     ra_deg: 121 + index,
     dec_deg: -60,
-    epoch: "2000",
-    status: "-5",
     source: "proposed" as const,
     generation_method: "region_extended" as const,
     original_values: null,
@@ -133,19 +127,16 @@ describe("Tile Planner proposal workflow", () => {
     apiMocks.loadDefaultProfile.mockResolvedValue({
       id: "splus-t80-south", display_name: "S-PLUS / T80-South", tile_width_deg: 1.4,
       tile_height_deg: 1.4, effective_overlap_arcsec: 120, coordinate_frame: "icrs",
-      epoch: "J2000", algorithm: "SPLUS_LEGACY_GRID_V1",
+      export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "SPLUS_LEGACY_GRID_V1",
     });
     apiMocks.loadReferenceCatalogue.mockResolvedValue(catalogue);
     apiMocks.planRegion.mockResolvedValue(makePlan(2));
     apiMocks.proposeCenters.mockImplementation(async (centers: CenterInput[], method: string) =>
       centers.map((center, index) => ({
         id: `manual-${index + 1}`,
-        pid: "PROPOSED",
         name: `PROPOSED_${String(index + 1).padStart(4, "0")}`,
         ra_deg: center.ra_deg,
         dec_deg: center.dec_deg,
-        epoch: "2000",
-        status: "-5",
         source: "proposed",
         generation_method: method,
         original_values: null,
@@ -192,14 +183,10 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
-    await user.click(screen.getByRole("button", { name: /download updated catalogue/i }));
-    expect(apiMocks.downloadCatalogue).toHaveBeenCalledTimes(2);
-    expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
-      1,
-      "new",
-      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      expect.arrayContaining([expect.objectContaining({ source: "proposed" })]),
-      { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledOnce();
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
+      "splus-t80-south", "2000", "decimal",
     );
 
     await user.click(screen.getByRole("button", { name: "Clear proposal" }));
@@ -244,26 +231,30 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByRole("button", { name: "Enable tile" })).toBeTruthy();
   });
 
-  it("can export an unchanged catalogue and an empty new-tiles file", async () => {
+  it("disables generic download when there is no active proposal", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: /load reference/i }));
-    await user.click(screen.getByRole("button", { name: /download updated catalogue/i }));
+    expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
+    expect(apiMocks.downloadCatalogue).not.toHaveBeenCalled();
+  });
+
+  it("uses the profile epoch and selected sexagesimal representation", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    expect((screen.getByRole("combobox", { name: "Export epoch" }) as HTMLSelectElement).value).toBe("2000");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Export coordinates" }), "sexagesimal");
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
-    expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
-      1,
-      "updated",
-      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      [],
-      { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ enabled: true })]),
+      "splus-t80-south", "2000", "sexagesimal",
     );
-    expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
-      2,
-      "new",
-      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      [],
-      { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
-    );
+    await user.click(screen.getByRole("button", { name: "Remove all" }));
+    expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
   });
 
   it("inspects original tile metadata without offering to edit or delete it", async () => {
@@ -296,7 +287,7 @@ describe("Tile Planner proposal workflow", () => {
     const user = userEvent.setup();
     const second: TileRecord = {
       ...original, id: "original-2", name: "DR6 field", ra_deg: 124, dec_deg: -59,
-      pid: "", epoch: "", status: "", metadata: { quality: "good", release: "DR6" },
+      metadata: { quality: "good", release: "DR6" },
       original_values: { ra_deg: "124", dec_deg: "-59", quality: "good", release: "DR6" },
       ra_column: "ra_deg", dec_column: "dec_deg",
     };

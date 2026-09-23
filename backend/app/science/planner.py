@@ -33,6 +33,7 @@ OCCUPIED_CENTER_TOLERANCE_DEG = 0.12
 SAMPLE_STEP_DEG = 0.12
 MAX_CANDIDATES = 1200
 MAX_REGION_SAMPLES = 90_000
+MIN_POLYGON_SAMPLES_PER_AXIS = 8
 # Sampling cells cannot certify exact geometric completeness. The planner
 # stops at 99.5% selected-cell coverage or when no candidate adds 0.05%.
 AUTOMATIC_COVERAGE_TARGET = 0.995
@@ -489,6 +490,17 @@ def _sample_region(bounds: RegionBounds, polygon: SkyPolygon | None = None) -> _
         step *= scale
         rows = max(1, math.ceil(height_deg / step))
         cols = max(1, math.ceil(bounds.ra_span_deg / step))
+    if polygon is not None:
+        # Keep narrow but valid polygons measurable even below the nominal
+        # 0.12-degree pitch; the bbox still only accelerates ray casting.
+        rows = max(rows, MIN_POLYGON_SAMPLES_PER_AXIS)
+        cols = max(cols, MIN_POLYGON_SAMPLES_PER_AXIS)
+        while rows * cols > MAX_REGION_SAMPLES:
+            if rows >= cols:
+                rows -= 1
+            else:
+                cols -= 1
+    step = max(height_deg / rows, bounds.ra_span_deg / cols)
     dec_values = bounds.dec_min_deg + (np.arange(rows) + 0.5) * height_deg / rows
     ra_offsets = (np.arange(cols) + 0.5) * bounds.ra_span_deg / cols
     ra_grid = (bounds.ra_start_deg + ra_offsets[None, :]) % 360

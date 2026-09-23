@@ -9,7 +9,6 @@ import re
 from app.models import CenterInput, GenerationMethod, TileRecord, TileSource
 from app.science.coordinates import parse_dec_degrees, parse_ra_degrees
 
-REQUIRED_COLUMNS = ("PID", "NAME", "RA", "DEC", "EPOC", "STATUS")
 RA_ALIASES = {
     "ra", "ra_deg", "radeg", "ra_hours", "ra_icrs", "raj2000",
     "right_ascension", "rightascension",
@@ -106,12 +105,9 @@ def parse_catalogue_csv(
             tiles.append(
                 TileRecord(
                     id=f"original-{row_number - 1}",
-                    pid=row.get("PID", ""),
                     name=row.get("NAME", f"Row {row_number - 1}"),
                     ra_deg=ra_deg,
                     dec_deg=dec_deg,
-                    epoch=row.get("EPOC", ""),
-                    status=row.get("STATUS", ""),
                     source=TileSource.ORIGINAL,
                     dataset_id=filename,
                     group_id=f"{filename}:{row.get('PID', '')}",
@@ -215,18 +211,13 @@ def make_center_proposals(
     Returns
     -------
     list[TileRecord]
-        Proposed records with stable session-local identifiers and provisional
-        names. Final PID, NAME, EPOC, and STATUS are assigned at export time.
+        Proposed positions with stable session-local identifiers and origin.
     """
     return [
         TileRecord(
             id=f"proposal-{generation_method.value}-{index:04d}",
-            pid="PROPOSED",
-            name=f"PROPOSED_{index:04d}",
             ra_deg=center.ra_deg,
             dec_deg=center.dec_deg,
-            epoch="2000",
-            status="-5",
             source=TileSource.PROPOSED,
             generation_method=generation_method,
             metadata={"label": center.label or ""},

@@ -5,5 +5,6 @@ tile_width_deg: 1.4
 tile_height_deg: 1.4
 effective_overlap_arcsec: 120
 coordinate_frame: icrs
-epoch: J2000
+export_epoch_default: "2000"
+export_epoch_options: ["2000"]
 algorithm: SPLUS_LEGACY_GRID_V1

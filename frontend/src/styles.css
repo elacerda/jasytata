@@ -241,9 +241,8 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 
 .export-section { padding-bottom: 23px; }
 .export-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 8px; margin-bottom: 11px; }
-.export-fields .field-label:first-child, .export-fields .field-label:nth-child(2) { grid-column: span 2; }
-.export-fields input { width: 100%; height: 30px; padding: 0 8px; border: 1px solid #ccd8da; border-radius: 4px; background: #fff; color: #36545a; font: 10px var(--mono); }
-.export-fields input:focus { border-color: #5d9da2; }
+.export-fields select { width: 100%; height: 30px; padding: 0 8px; border: 1px solid #ccd8da; border-radius: 4px; background: #fff; color: #36545a; font: 10px var(--mono); }
+.export-fields select:focus { border-color: #5d9da2; }
 
 @media (max-width: 1180px) {
   .workspace { grid-template-columns: minmax(205px, 225px) minmax(360px, 1fr) minmax(255px, 275px); }

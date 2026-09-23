@@ -3,17 +3,14 @@ export type GenerationMethod = "manual" | "imported_centers" | "region_legacy" |
 /** Distinguishes immutable source rows from session proposal rows. */
 export type TileSource = "original" | "proposed";
 
-/** Catalogue tile in client state, with original string values retained for export. */
+/** Catalogue tile in client state, with original string values retained for inspection. */
 export interface TileRecord {
   id: string;
-  pid: string;
   name: string;
   /** Canonical right ascension in ICRS decimal degrees, normalized to [0, 360). */
   ra_deg: number;
   /** Canonical declination in ICRS decimal degrees, in [-90, 90]. */
   dec_deg: number;
-  epoch: string;
-  status: string;
   source: TileSource;
   /** Whether this proposed tile participates in the active solution. */
   enabled?: boolean;
@@ -60,7 +57,8 @@ export interface TilingProfile {
   tile_height_deg: number;
   effective_overlap_arcsec: number;
   coordinate_frame: string;
-  epoch: string;
+  export_epoch_default: string;
+  export_epoch_options: string[];
   algorithm: string;
 }
 
@@ -106,11 +104,5 @@ export interface RegionPlanResponse {
   metrics: PlanMetrics;
 }
 
-/** Metadata assigned to newly serialized CSV rows. */
-export interface ExportConfig {
-  pid: string;
-  name_prefix: string;
-  initial_sequence: number;
-  epoch: string;
-  status: string;
-}
+/** Coordinate representation accepted by the generic CSV exporter. */
+export type CoordinateFormat = "decimal" | "sexagesimal";

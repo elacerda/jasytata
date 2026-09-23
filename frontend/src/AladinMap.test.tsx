@@ -36,13 +36,13 @@ vi.mock("aladin-lite", () => ({ default: {
 const profile: TilingProfile = {
   id: "splus-t80-south", display_name: "S-PLUS / T80-South", tile_width_deg: 1.4,
   tile_height_deg: 1.4, effective_overlap_arcsec: 120, coordinate_frame: "icrs",
-  epoch: "J2000", algorithm: "SPLUS_LEGACY_GRID_V1",
+  export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "SPLUS_LEGACY_GRID_V1",
 };
 
 function dataset(id: string, filename: string, visible = true): CatalogueDataset {
   const tile: TileRecord = {
-    id: `${id}:1`, name: filename, pid: "", ra_deg: 150, dec_deg: -30,
-    epoch: "", status: "", source: "original", generation_method: null,
+    id: `${id}:1`, name: filename, ra_deg: 150, dec_deg: -30,
+    source: "original", generation_method: null,
     dataset_id: id, dataset_name: filename, original_values: { ra: "150", dec: "-30" },
     metadata: { quality: "good" },
   };

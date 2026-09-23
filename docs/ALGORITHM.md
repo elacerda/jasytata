@@ -64,7 +64,7 @@ The tolerance is `τ = 0.05°` (3 arcmin). This was calibrated against nearest-n
 
 At least two compatible neighbor pairs and three distinct anchor tiles are required. The DEC and physical RA spacings are robust medians of the observed compatible steps (falling back to the other axis when one direction has no pair). The DEC phase is a circular mean modulo the inferred DEC spacing. RA phases are inferred row-by-row modulo the declination-corrected RA step; phases between anchor rows are interpolated cyclically. This preserves the observed local phase instead of restarting at the selection boundary. Candidate centers are extrapolated over the selected region plus a half-tile margin. They remain at those inferred lattice coordinates; optimization never continuously shifts a center.
 
-Candidate centers within 0.12° physical separation of an existing center are removed as occupied. When inference does not meet the anchor count and phase-residual checks, the planner reports `legacy_bounds_fallback` and calls `SPLUS_LEGACY_GRID_V1` on the selected bounds. A successful fit is reported as `extended_existing_grid`, with stable anchor IDs and the inferred spacings included in diagnostics.
+Candidate centers within 0.12° physical separation of an existing center are removed as occupied. When inference does not meet the anchor count and phase-residual checks, the planner reports `legacy_bounds_fallback` and calls `SPLUS_LEGACY_GRID_V1` on polygon bounds expanded by half a tile. The bounds accelerate lattice construction; polygon samples decide whether each candidate contributes. A successful fit is reported as `extended_existing_grid`, with stable anchor IDs and the inferred spacings included in diagnostics.
 
 ## 4. Coverage representation and scoring
 
@@ -81,11 +81,11 @@ Selection is deterministic greedy maximum incremental gain. Ties prefer, in orde
 
 Planning stops at 99.5% total sampled polygon coverage or when the best remaining gain is below 0.05% of the selected area. Every chosen center must add at least that much selected-area coverage. The stop threshold is a sampling tolerance, not a completeness guarantee.
 
-Returned metrics include selected region area, existing tiles contributing sample coverage, anchor count, candidate count, new tile count, final selected-region coverage, incremental proposal coverage, redundant proposed footprint fraction, outside-region tile area, and sample pitch.
+Returned metrics include selected polygon area, existing tiles contributing sample coverage, anchor count, candidate count, new tile count, already-covered and final coverage fractions, incremental proposal coverage, remaining uncovered fraction and area, redundant proposed footprint fraction, outside-polygon tile area, and sample pitch. Manual enable/disable changes call the coverage endpoint to recompute these figures without replanning.
 
 ## 5. Export integrity
 
-Original catalogue records retain the original strings for exactly `PID,NAME,RA,DEC,EPOC,STATUS`. They are emitted unchanged and are never regenerated from decimal coordinates. New proposals receive export metadata only at download time. Astropy serializes RA to three sexagesimal hour fields and DEC to three sexagesimal degree fields, rounded to integer seconds. Before writing either file, generated names are checked against every original name and all earlier names in the export sequence. Both export variants use the six-column source schema and are covered by parser round-trip tests.
+Original catalogue records retain every source CSV string and arbitrary non-coordinate metadata for display. Generated records contain only ICRS positions, an enabled flag, and generation provenance. Generic export writes currently enabled centers with `RA,DEC,EPOCH`: decimal-degree RA/DEC at eight fractional digits by default, or Astropy-formatted sexagesimal hour-angle RA and degree DEC at millisecond precision. The EPOCH value comes from the active profile's allowed export labels. It does not change ICRS coordinates or imply a particular equinox. Both representations are covered by importer round-trip tests.
 
 ## 6. Deliberate limitations
 

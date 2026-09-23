@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.models import ExportConfig, GenerationMethod, TileRecord, TileSource
-from app.science.catalogue import REQUIRED_COLUMNS, parse_catalogue_csv, parse_center_text
+from app.models import ExportRequest, GenerationMethod, TileRecord, TileSource
+from app.science.catalogue import parse_catalogue_csv, parse_center_text
 from app.science.coordinates import (
     format_dec_degrees,
     format_ra_degrees,
@@ -32,12 +32,9 @@ def original_tile(name: str = "HYDRA_0011") -> TileRecord:
     }
     return TileRecord(
         id="original-1",
-        pid=raw["PID"],
         name=raw["NAME"],
         ra_deg=parse_ra_degrees(raw["RA"]),
         dec_deg=parse_dec_degrees(raw["DEC"]),
-        epoch=raw["EPOC"],
-        status=raw["STATUS"],
         source=TileSource.ORIGINAL,
         original_values=raw,
     )
@@ -47,12 +44,8 @@ def proposed_tile() -> TileRecord:
     """Return one proposed record for the exporter."""
     return TileRecord(
         id="proposal-1",
-        pid="PROPOSED",
-        name="PROPOSED_0001",
         ra_deg=150.5,
         dec_deg=-24.25,
-        epoch="2000",
-        status="-5",
         source=TileSource.PROPOSED,
         generation_method=GenerationMethod.MANUAL,
     )
@@ -142,41 +135,32 @@ def test_center_text_accepts_sexagesimal_decimal_and_csv_header() -> None:
         parse_center_text("10:00:00 -30:00:00\n\ninvalid")
 
 
-def test_export_has_exact_schema_and_round_trips_originals_and_new_rows() -> None:
-    """Updated CSV preserves original fields and can be reloaded by this parser."""
-    originals = [original_tile()]
-    proposals = [proposed_tile()]
-    config = ExportConfig(
-        pid="SPLUS", name_prefix="SPLUS_NEW", initial_sequence=1, epoch="2000", status="-5"
-    )
-    updated = build_export_csv(originals, proposals, config, "updated")
-    new_only = build_export_csv(originals, proposals, config, "new")
-    assert next(csv.reader(io.StringIO(updated))) == list(REQUIRED_COLUMNS)
-    assert next(csv.reader(io.StringIO(new_only))) == list(REQUIRED_COLUMNS)
-    loaded = parse_catalogue_csv(updated.encode("utf-8"))
-    assert loaded["row_count"] == 2
-    assert loaded["tiles"][0].original_values == originals[0].original_values
-    assert loaded["tiles"][1].name == "SPLUS_NEW_0001"
-    assert loaded["tiles"][1].original_values["RA"] == "10:02:00"
-    new_rows = list(csv.DictReader(io.StringIO(new_only)))
-    assert len(new_rows) == 1
-    assert new_rows[0]["STATUS"] == "-5"
-    assert new_rows[0]["EPOC"] == "2000"
+def test_generic_decimal_export_round_trips_without_imported_metadata() -> None:
+    """RA/DEC/EPOCH rows reload and never inherit source operational columns."""
+    contents = build_export_csv(ExportRequest(proposed_tiles=[proposed_tile()]))
+    assert next(csv.reader(io.StringIO(contents))) == ["RA", "DEC", "EPOCH"]
+    rows = list(csv.DictReader(io.StringIO(contents)))
+    assert rows == [{"RA": "150.50000000", "DEC": "-24.25000000", "EPOCH": "2000"}]
+    loaded = parse_catalogue_csv(contents.encode("utf-8"))
+    assert loaded["row_count"] == 1
+    assert loaded["tiles"][0].ra_deg == pytest.approx(150.5)
+    assert loaded["tiles"][0].dec_deg == pytest.approx(-24.25)
+    assert loaded["tiles"][0].metadata == {"EPOCH": "2000"}
 
 
-def test_export_rejects_name_collision() -> None:
-    """A generated name cannot collide with an existing catalogue NAME."""
-    colliding = original_tile("SPLUS_NEW_0001")
-    config = ExportConfig(pid="SPLUS", name_prefix="SPLUS_NEW", initial_sequence=1)
-    with pytest.raises(ValueError, match="NAME collision: 'SPLUS_NEW_0001'"):
-        build_export_csv([colliding], [proposed_tile()], config, "updated")
-
-
-def test_export_rejects_incomplete_rows_and_blank_new_metadata() -> None:
-    """Malformed caller rows cannot create an updated CSV the parser cannot reload."""
-    config = ExportConfig(pid="SPLUS", name_prefix="SPLUS_NEW")
-    malformed = original_tile().model_copy(update={"original_values": {"PID": "SPLUS"}})
-    with pytest.raises(ValueError, match="missing required source values"):
-        build_export_csv([malformed], [proposed_tile()], config, "updated")
-    with pytest.raises(ValidationError, match="Export metadata must be non-empty"):
-        ExportConfig(pid="SPLUS", name_prefix=" ")
+def test_sexagesimal_export_round_trips_and_rejects_invalid_epoch() -> None:
+    """Astropy sexagesimal conversion reloads under Gate 3 coordinate rules."""
+    contents = build_export_csv(ExportRequest(
+        proposed_tiles=[proposed_tile()], coordinate_format="sexagesimal"
+    ))
+    rows = list(csv.DictReader(io.StringIO(contents)))
+    assert rows[0]["RA"].startswith("10:02:00")
+    assert rows[0]["DEC"].startswith("-24:15:00")
+    loaded = parse_catalogue_csv(contents.encode("utf-8"))
+    assert loaded["tiles"][0].ra_deg == pytest.approx(150.5, abs=1e-5)
+    with pytest.raises(ValueError, match="not allowed"):
+        build_export_csv(ExportRequest(proposed_tiles=[proposed_tile()], epoch="2050"))
+    with pytest.raises(ValueError, match="Enable at least one"):
+        build_export_csv(ExportRequest(proposed_tiles=[]))
+    with pytest.raises(ValidationError, match="coordinate_format"):
+        ExportRequest(proposed_tiles=[proposed_tile()], coordinate_format="invalid")
