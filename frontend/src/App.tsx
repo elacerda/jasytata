@@ -206,6 +206,7 @@ export default function App() {
 
   async function handlePlanRegion() {
     if (!regionPolygon || !hasCatalogue) return;
+    setSelectingRegion(false);
     await runBusy(
       () => planRegion(
         regionPolygon,
@@ -263,6 +264,13 @@ export default function App() {
     setProposalContext(null);
     setSelectedTileId(null);
     setNotice("Current proposal cleared. Selected polygon and catalogues remain.");
+  }
+
+  function beginRegionSelection() {
+    setMapMode("idle");
+    setSelectingRegion(true);
+    setSelectionRequest((previous) => previous + 1);
+    setNotice("Click successive sky points, then double-click to close the polygon.");
   }
 
   function setAllProposals(enabled: boolean) {
@@ -364,6 +372,7 @@ export default function App() {
                 onClick={() => {
                   if (!hasCatalogue) setError("Load a catalogue before proposing tiles.");
                   else {
+                    setSelectingRegion(false);
                     setMapMode("add-tile");
                     setNotice("Click a position on the sky to preview one new tile.");
                   }
@@ -374,7 +383,7 @@ export default function App() {
                 <span><strong>Single tile</strong><small>Click a sky position</small></span>
                 <Icon name="chevron" />
               </button>
-              <button className="mode-button" onClick={() => { setParsedCenters(null); importRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={!hasCatalogue || busy}>
+              <button className="mode-button" onClick={() => { setSelectingRegion(false); setMapMode("idle"); setParsedCenters(null); importRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={!hasCatalogue || busy}>
                 <span className="mode-icon"><Icon name="list" /></span>
                 <span><strong>Import centers</strong><small>Paste RA / DEC pairs</small></span>
                 <Icon name="chevron" />
@@ -383,11 +392,7 @@ export default function App() {
                 className="mode-button"
                 onClick={() => {
                   if (!hasCatalogue) setError("Load a catalogue before selecting a region.");
-                  else {
-                    setSelectingRegion(true);
-                    setSelectionRequest((previous) => previous + 1);
-                    setNotice("Click successive sky points, then double-click to close the polygon.");
-                  }
+                  else beginRegionSelection();
                 }}
                 disabled={!hasCatalogue || busy}
               >
@@ -403,7 +408,7 @@ export default function App() {
             {regionPolygon ? (
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
-                <button className="text-button" onClick={() => setSelectionRequest((previous) => previous + 1)}>Redraw polygon</button>
+                <button className="text-button" onClick={beginRegionSelection}>Redraw polygon</button>
               </div>
             ) : (
               <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
@@ -503,6 +508,7 @@ export default function App() {
             datasets={datasets}
             profile={profile}
             mode={mapMode}
+            selectingRegion={selectingRegion}
             selectionRequest={selectionRequest}
             focusRequest={focusRequest}
             selectedTileId={selectedTileId}

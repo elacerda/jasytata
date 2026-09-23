@@ -17,6 +17,7 @@ interface AladinMapProps {
   datasets: CatalogueDataset[];
   profile: TilingProfile | null;
   mode: MapMode;
+  selectingRegion: boolean;
   selectionRequest: number;
   focusRequest: number;
   selectedTileId: string | null;
@@ -65,6 +66,7 @@ export default function AladinMap(props: AladinMapProps) {
     () => undefined,
   );
   const selectionTokenRef = useRef(0);
+  const selectionActiveRef = useRef(false);
   const [isSelecting, setIsSelecting] = useState(false);
   propsRef.current = props;
 
@@ -153,9 +155,19 @@ export default function AladinMap(props: AladinMapProps) {
     focusOnCatalogue(instance, tiles);
   }, [props.focusRequest]);
 
+  useEffect(() => {
+    if (props.selectingRegion || !selectionActiveRef.current) return;
+    aladinRef.current?.fire("default");
+    selectionActiveRef.current = false;
+    setIsSelecting(false);
+  }, [props.selectingRegion]);
+
   selectionHandlerRef.current = (instance, request) => {
     if (!request || request === selectionTokenRef.current) return;
     selectionTokenRef.current = request;
+    if (!propsRef.current.selectingRegion) return;
+    if (selectionActiveRef.current) instance.fire("default");
+    selectionActiveRef.current = true;
     setIsSelecting(true);
     void instance
       .select("poly", (selection) => {
@@ -168,9 +180,11 @@ export default function AladinMap(props: AladinMapProps) {
             throw new Error("The selected polygon extends outside the sky projection.");
           }
           propsRef.current.onRegionSelect(skyPolygonFromVertices(vertices));
+          selectionActiveRef.current = false;
           setIsSelecting(false);
           redrawRef.current();
         } catch (error) {
+          selectionActiveRef.current = false;
           setIsSelecting(false);
           propsRef.current.onError(
             error instanceof Error ? error.message : "Could not read the selected sky polygon.",
@@ -178,6 +192,8 @@ export default function AladinMap(props: AladinMapProps) {
         }
       })
       .catch((error: unknown) => {
+        selectionActiveRef.current = false;
+        instance.fire("default");
         setIsSelecting(false);
         propsRef.current.onError(
           error instanceof Error ? error.message : "Could not start map selection.",

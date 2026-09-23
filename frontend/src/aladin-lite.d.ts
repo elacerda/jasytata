@@ -43,6 +43,8 @@ declare module "aladin-lite" {
       mode: "poly",
       callback: (selection: { vertices: Array<{ x: number; y: number }> }) => void,
     ): Promise<void>;
+    /** Return the viewport to pan mode and cancel any active native selector. */
+    fire(event: "default"): void;
     /** Move the view center to ICRS decimal degrees. */
     gotoRaDec(ra: number, dec: number): void;
     /** Set the horizontal field of view in degrees. */
