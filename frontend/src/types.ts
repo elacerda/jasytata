@@ -16,7 +16,11 @@ export interface TileRecord {
   status: string;
   source: TileSource;
   generation_method: GenerationMethod | null;
-  /** Unmodified PID, NAME, RA, DEC, EPOC, and STATUS values for original rows. */
+  dataset_id?: string | null;
+  group_id?: string | null;
+  ra_column?: string | null;
+  dec_column?: string | null;
+  /** Every unmodified CSV field for original rows. */
   original_values: Record<string, string> | null;
   metadata: Record<string, string | number | boolean>;
 }
@@ -27,6 +31,10 @@ export interface CatalogueResponse {
   row_count: number;
   tiles: TileRecord[];
   warnings: string[];
+  columns?: string[];
+  ra_column?: string | null;
+  dec_column?: string | null;
+  needs_mapping?: boolean;
 }
 
 /** Validated observing geometry supplied by the backend profile registry. */

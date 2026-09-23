@@ -26,21 +26,26 @@ class TileSource(StrEnum):
 
 
 class TileRecord(BaseModel):
-    """A tile center with original strings for semantic catalogue export.
+    """A canonical ICRS pointing with optional legacy display and export fields.
 
-    Coordinates are canonical ICRS RA/DEC decimal degrees. The optional
-    ``original_values`` mapping stores the six input CSV fields verbatim so
-    uploaded rows are never regenerated from rounded coordinates.
+    Coordinates are ICRS RA/DEC decimal degrees. ``metadata`` stores arbitrary
+    non-coordinate CSV columns; ``original_values`` stores every source field
+    verbatim for display or compatible export. Neither metadata nor legacy
+    display fields participate in geometric calculations.
     """
 
     id: str
-    pid: str
-    name: str
+    pid: str = ""
+    name: str = ""
     ra_deg: float = Field(ge=0, lt=360)
     dec_deg: float = Field(ge=-90, le=90)
-    epoch: str = "2000"
-    status: str = "-5"
+    epoch: str = ""
+    status: str = ""
     source: TileSource
+    dataset_id: str | None = None
+    group_id: str | None = None
+    ra_column: str | None = None
+    dec_column: str | None = None
     generation_method: GenerationMethod | None = None
     original_values: dict[str, str] | None = None
     metadata: dict[str, str | float | int | bool] = Field(default_factory=dict)
@@ -67,12 +72,16 @@ class TileRecord(BaseModel):
 
 
 class CatalogueResponse(BaseModel):
-    """Parsed catalogue returned by the upload endpoint."""
+    """Parsed catalogue or a coordinate-column mapping request."""
 
     filename: str
     row_count: int
     tiles: list[TileRecord]
     warnings: list[str] = Field(default_factory=list)
+    columns: list[str] = Field(default_factory=list)
+    ra_column: str | None = None
+    dec_column: str | None = None
+    needs_mapping: bool = False
 
 
 class CenterInput(BaseModel):

@@ -6,7 +6,7 @@ import mimetypes
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -47,9 +47,10 @@ async def profiles() -> dict:
     dict
         Default profile identifier and installed profile records.
     """
-    return {"default_profile_id": DEFAULT_PROFILE_ID, "profiles": [
-        profile.model_dump() for profile in list_profiles()
-    ]}
+    return {
+        "default_profile_id": DEFAULT_PROFILE_ID,
+        "profiles": [profile.model_dump() for profile in list_profiles()],
+    }
 
 
 @app.get("/api/health")
@@ -65,13 +66,22 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/catalogue/parse", response_model=CatalogueResponse)
-async def parse_catalogue(file: Annotated[UploadFile, File()]) -> CatalogueResponse:
-    """Validate and parse a six-column T80/S-PLUS CSV upload.
+async def parse_catalogue(
+    file: Annotated[UploadFile, File()],
+    ra_column: Annotated[str | None, Form()] = None,
+    dec_column: Annotated[str | None, Form()] = None,
+    ra_unit: Annotated[str, Form()] = "auto",
+) -> CatalogueResponse:
+    """Parse a CSV upload or request an explicit coordinate-column mapping.
 
     Parameters
     ----------
     file : UploadFile
-        UTF-8 CSV upload whose fields use the original T80 column names.
+        UTF-8 CSV containing coordinate columns and arbitrary metadata.
+    ra_column, dec_column : str, optional
+        Explicit coordinate column names selected by the user.
+    ra_unit : str
+        Auto, degrees, or hours interpretation for numeric RA values.
 
     Returns
     -------
@@ -81,13 +91,17 @@ async def parse_catalogue(file: Annotated[UploadFile, File()]) -> CatalogueRespo
     Raises
     ------
     HTTPException
-        HTTP 422 for a non-CSV filename, incomplete schema, or invalid row.
+        HTTP 422 for a non-CSV filename or invalid selected row.
     """
     if file.filename and not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=422, detail="Upload a CSV file")
     contents = await file.read()
     try:
-        return CatalogueResponse(**parse_catalogue_csv(contents, file.filename or "catalogue.csv"))
+        return CatalogueResponse(
+            **parse_catalogue_csv(
+                contents, file.filename or "catalogue.csv", ra_column, dec_column, ra_unit
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

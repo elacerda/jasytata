@@ -22,6 +22,14 @@ interface ProposalPreview {
   solution: string;
 }
 
+interface ColumnMapping {
+  file: File;
+  columns: string[];
+  raColumn: string;
+  decColumn: string;
+  raUnit: "auto" | "degrees" | "hours";
+}
+
 const EMPTY_EXPORT: ExportConfig = {
   pid: "SPLUS",
   name_prefix: "SPLUS_NEW",
@@ -35,6 +43,7 @@ const EMPTY_IDS: string[] = [];
 /** Render the stateless catalogue, sky planning, proposal, and export workspace. */
 export default function App() {
   const [catalogue, setCatalogue] = useState<CatalogueResponse | null>(null);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [undoStack, setUndoStack] = useState<TileRecord[][]>([]);
@@ -58,6 +67,9 @@ export default function App() {
   const importRef = useRef<HTMLElement>(null);
 
   const originalTiles = useMemo(() => catalogue?.tiles ?? [], [catalogue]);
+  const legacyExportCompatible = originalTiles.every((tile) =>
+    ["PID", "NAME", "RA", "DEC", "EPOC", "STATUS"].every((key) => !!tile.original_values?.[key]),
+  );
   const visibleTiles = useMemo(() => [...originalTiles, ...proposals], [originalTiles, proposals]);
   const mapTiles = useMemo(
     () => (pending ? [...visibleTiles, ...pending.tiles] : visibleTiles),
@@ -106,6 +118,8 @@ export default function App() {
   }
 
   function applyCatalogue(result: CatalogueResponse) {
+    if (result.needs_mapping) return;
+    setColumnMapping(null);
     setCatalogue(result);
     setFocusRequest((previous) => previous + 1);
     setProposals([]);
@@ -119,8 +133,21 @@ export default function App() {
 
   async function handleUpload(file?: File) {
     if (!file) return;
-    await runBusy(() => uploadCatalogue(file), applyCatalogue);
+    await runBusy(() => uploadCatalogue(file), (result) => {
+      if (result.needs_mapping) {
+        setColumnMapping({ file, columns: result.columns ?? [], raColumn: "", decColumn: "", raUnit: "auto" });
+        setNotice("Choose the RA and DEC columns for this catalogue.");
+      } else applyCatalogue(result);
+    });
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function applyColumnMapping() {
+    if (!columnMapping || !columnMapping.raColumn || !columnMapping.decColumn) return;
+    await runBusy(
+      () => uploadCatalogue(columnMapping.file, columnMapping),
+      applyCatalogue,
+    );
   }
 
   async function stageCenters(centers: CenterInput[], method: "manual" | "imported_centers"): Promise<boolean> {
@@ -299,6 +326,31 @@ export default function App() {
               <span className="summary-label">original tile centers</span>
             </div>
             <p className="panel-copy">Original catalogue rows stay unchanged. New tiles remain separate until accepted.</p>
+            {columnMapping && (
+              <div className="column-mapping">
+                <strong>Map coordinates in {columnMapping.file.name}</strong>
+                <label>RA column
+                  <select aria-label="RA column" value={columnMapping.raColumn} onChange={(event) => setColumnMapping({ ...columnMapping, raColumn: event.target.value })}>
+                    <option value="">Choose RA</option>
+                    {columnMapping.columns.map((column) => <option key={column} value={column}>{column}</option>)}
+                  </select>
+                </label>
+                <label>DEC column
+                  <select aria-label="DEC column" value={columnMapping.decColumn} onChange={(event) => setColumnMapping({ ...columnMapping, decColumn: event.target.value })}>
+                    <option value="">Choose DEC</option>
+                    {columnMapping.columns.map((column) => <option key={column} value={column}>{column}</option>)}
+                  </select>
+                </label>
+                <label>Numeric RA unit
+                  <select aria-label="Numeric RA unit" value={columnMapping.raUnit} onChange={(event) => setColumnMapping({ ...columnMapping, raUnit: event.target.value as ColumnMapping["raUnit"] })}>
+                    <option value="auto">Auto: decimal degrees, sexagesimal hours</option>
+                    <option value="degrees">Degrees</option>
+                    <option value="hours">Hours</option>
+                  </select>
+                </label>
+                <button className="button button-primary button-full" disabled={!columnMapping.raColumn || !columnMapping.decColumn || columnMapping.raColumn === columnMapping.decColumn || busy} onClick={() => void applyColumnMapping()}>Load mapped catalogue</button>
+              </div>
+            )}
           </section>
 
           <section className="panel-section">
@@ -563,8 +615,8 @@ export default function App() {
               <label className="field-label">STATUS<input value={exportConfig.status} onChange={(event) => updateExport("status", event.target.value)} /></label>
             </div>
             <button className="button button-outline button-full" onClick={() => void exportFile("new")} disabled={!catalogue || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <button className="button button-download button-full" onClick={() => void exportFile("updated")} disabled={!catalogue || busy}><Icon name="download" /> Download updated catalogue</button>
-            <p className="fine-print">Six columns · original rows preserved · NAME collisions are checked before download.</p>
+            <button className="button button-download button-full" onClick={() => void exportFile("updated")} disabled={!catalogue || !legacyExportCompatible || busy}><Icon name="download" /> Download updated catalogue</button>
+            <p className="fine-print">Legacy six-column updated export is available for S-PLUS-compatible catalogues. Generic export follows in Run B.</p>
           </section>
         </aside>
       </section>
@@ -581,17 +633,18 @@ function LayerLegend({ color, label, value }: { color: string; label: string; va
 }
 
 function TileDetails({ tile, onDelete }: { tile: TileRecord; onDelete?: () => void }) {
-  const values = tile.original_values;
+  const metadata = Object.entries(tile.metadata).filter(([, value]) => value !== "");
   return (
     <div className="tile-detail-content">
-      <div className="tile-name-block"><strong>{values?.NAME ?? tile.name}</strong><span>{values?.PID ?? tile.pid}</span></div>
+      <div className="tile-name-block"><strong>{tile.name || tile.id}</strong><span>{tile.dataset_id ?? (tile.source === "proposed" ? "Proposal" : "Catalogue")}</span></div>
       <div className="detail-grid">
-        <DetailField label="RA" value={values?.RA ?? formatRa(tile.ra_deg)} />
-        <DetailField label="DEC" value={values?.DEC ?? formatDec(tile.dec_deg)} />
-        <DetailField label="EPOC" value={values?.EPOC ?? tile.epoch} />
-        <DetailField label="STATUS" value={values?.STATUS ?? tile.status} />
+        <DetailField label="RA" value={`${tile.ra_deg.toFixed(6)}°`} />
+        <DetailField label="DEC" value={`${tile.dec_deg.toFixed(6)}°`} />
+        {tile.ra_column && tile.original_values?.[tile.ra_column] && <DetailField label={`Source ${tile.ra_column}`} value={tile.original_values[tile.ra_column]} />}
+        {tile.dec_column && tile.original_values?.[tile.dec_column] && <DetailField label={`Source ${tile.dec_column}`} value={tile.original_values[tile.dec_column]} />}
+        {metadata.map(([key, value]) => <DetailField key={key} label={key} value={String(value)} />)}
       </div>
-      <div className="decimal-coordinate">ICRS · {tile.ra_deg.toFixed(6)}°, {tile.dec_deg.toFixed(6)}°</div>
+      <div className="decimal-coordinate">ICRS · {formatRa(tile.ra_deg)}, {formatDec(tile.dec_deg)}</div>
       <div className={`source-banner ${tile.source}`}><span className="status-dot" />{tile.source === "original" ? "Original catalogue tile · immutable" : `Proposed · ${shortMethod(tile.generation_method)}`}</div>
       {onDelete && <button className="button button-danger button-full" onClick={onDelete}><Icon name="trash" /> Delete proposed tile</button>}
     </div>

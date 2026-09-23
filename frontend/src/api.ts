@@ -30,14 +30,23 @@ async function checked<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-/** Upload a six-column catalogue and preserve original CSV field values.
+/** Upload a catalogue and preserve original CSV field values.
  *
  * @param file - CSV selected by the user.
+ * @param mapping - Optional user-selected coordinate headers and RA unit.
  * @returns Parsed catalogue with decimal-degree coordinates.
  */
-export async function uploadCatalogue(file: File): Promise<CatalogueResponse> {
+export async function uploadCatalogue(
+  file: File,
+  mapping?: { raColumn: string; decColumn: string; raUnit: "auto" | "degrees" | "hours" },
+): Promise<CatalogueResponse> {
   const form = new FormData();
   form.append("file", file);
+  if (mapping) {
+    form.append("ra_column", mapping.raColumn);
+    form.append("dec_column", mapping.decColumn);
+    form.append("ra_unit", mapping.raUnit);
+  }
   return checked(await fetch("/api/catalogue/parse", { method: "POST", body: form }));
 }
 

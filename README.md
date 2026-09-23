@@ -2,7 +2,7 @@
 
 Tile Planner displays astronomical catalogue footprints on an Aladin Lite sky map and prepares auditable tile proposals. Its bundled S-PLUS/T80-South catalogue is the initial compatibility profile. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
 
-The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. The current importer accepts another CSV with the same six-column schema.
+The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. Other CSV files need only RA and DEC columns.
 
 ## Features
 
@@ -25,7 +25,7 @@ reference/                  Legacy generator and representative source catalogue
 docs/ALGORITHM.md           Scientific and planner behavior
 ```
 
-The frontend keeps the uploaded catalogue and accepted proposals in client state. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus each source row's original six CSV values; every planning/export request carries its current session inputs. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
+The frontend keeps the uploaded catalogue and accepted proposals in client state. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus every source row's original CSV values and arbitrary non-coordinate metadata; every planning/export request carries its current session inputs. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
 
 ## Observing profiles
 
@@ -54,14 +54,14 @@ The sky imagery comes from Aladin Lite's configured HiPS survey service, so the 
 
 ## Input catalogue
 
-CSV header (case-sensitive):
+The bundled S-PLUS example uses:
 
 ```csv
 PID,NAME,RA,DEC,EPOC,STATUS
 HYDRA,HYDRA_0011,10:03:05,-23:54:31,2000,1
 ```
 
-RA sexagesimal values are interpreted as hours; decimal RA values are interpreted as degrees. DEC sexagesimal and decimal values use degrees. Astropy converts coordinates to canonical decimal degrees for planning. The parser requires exactly these six columns, reports row-specific coordinate errors, and preserves each source row's semantic field values for updated export.
+The importer discovers common RA and DEC headers, including `ra`, `ra_deg`, `dec`, and `dec_deg`, without requiring any other column. Ambiguous or unrecognized headers prompt for a RA/DEC column choice and a numeric RA unit. Colon-separated RA sexagesimal values are hours; decimal RA values are degrees unless the selected unit or `ra_hours` header explicitly declares hours. DEC sexagesimal and decimal values use degrees. Astropy converts coordinates to canonical ICRS decimal degrees. Every other column remains attached as metadata and all original values are retained. Invalid rows report their CSV line number.
 
 Center import accepts comma, semicolon, or whitespace separated RA/DEC pairs, one per line. It accepts sexagesimal RA + DEC and decimal-degree RA + DEC; a `RA,DEC` heading may be included.
 
@@ -81,7 +81,7 @@ The two downloads always have exactly this header:
 PID,NAME,RA,DEC,EPOC,STATUS
 ```
 
-`new_tiles.csv` contains accepted proposed tiles only. `tiles_nc_updated.csv` contains original rows first, with their values preserved, followed by the accepted proposals. New rows receive the configured PID, prefix + zero-padded sequence, EPOC, and STATUS (default `-5`). RA is written as integer-second sexagesimal hours and DEC as integer-second sexagesimal degrees. Export fails with a useful message if any generated NAME collides with an existing or earlier new NAME. Both downloads can be parsed again by this application.
+`new_tiles.csv` contains accepted proposed tiles only. `tiles_nc_updated.csv` contains original S-PLUS-compatible rows first, with their values preserved, followed by the accepted proposals. The current updated export remains specific to the six-column S-PLUS schema; generic export is planned for the next development run. New rows receive the configured PID, prefix + zero-padded sequence, EPOC, and STATUS (default `-5`). RA is written as integer-second sexagesimal hours and DEC as integer-second sexagesimal degrees. Export fails with a useful message if any generated NAME collides with an existing or earlier new NAME. Both downloads can be parsed again by this application.
 
 ## API
 

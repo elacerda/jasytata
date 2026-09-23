@@ -10,10 +10,18 @@ from app.models import CenterInput, GenerationMethod, TileRecord, TileSource
 from app.science.coordinates import parse_dec_degrees, parse_ra_degrees
 
 REQUIRED_COLUMNS = ("PID", "NAME", "RA", "DEC", "EPOC", "STATUS")
+RA_ALIASES = {"ra", "ra_deg", "radeg", "right_ascension", "rightascension", "ra_hours"}
+DEC_ALIASES = {"dec", "dec_deg", "decdeg", "declination"}
 
 
-def parse_catalogue_csv(contents: bytes, filename: str = "catalogue.csv") -> dict:
-    """Parse the six-column T80/S-PLUS catalogue schema.
+def parse_catalogue_csv(
+    contents: bytes,
+    filename: str = "catalogue.csv",
+    ra_column: str | None = None,
+    dec_column: str | None = None,
+    ra_unit: str = "auto",
+) -> dict:
+    """Parse a CSV of ICRS pointings while retaining arbitrary source fields.
 
     Parameters
     ----------
@@ -21,70 +29,113 @@ def parse_catalogue_csv(contents: bytes, filename: str = "catalogue.csv") -> dic
         UTF-8 CSV file contents, optionally with a byte-order mark.
     filename : str, default="catalogue.csv"
         Filename retained in the API response.
+    ra_column, dec_column : str, optional
+        Explicit header names chosen when discovery is ambiguous.
+    ra_unit : {"auto", "degrees", "hours"}
+        RA input convention. In auto mode, colon-separated sexagesimal values
+        are hours and decimal values are degrees. ``ra_hours`` declares hours.
 
     Returns
     -------
     dict
-        Catalogue response data with canonical coordinates and untouched
-        source fields for each original row.
+        Catalogue response with canonical coordinates and untouched source
+        fields, or ``needs_mapping`` and available columns when safe automatic
+        discovery is impossible.
 
     Raises
     ------
     ValueError
-        If the schema is incomplete or an individual row has an invalid value.
+        If a selected column, unit, or individual row is invalid.
     """
     try:
         text = contents.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValueError("CSV must be UTF-8 encoded") from exc
     reader = csv.DictReader(io.StringIO(text, newline=""))
-    headers = tuple((header or "").strip() for header in (reader.fieldnames or []))
-    missing = [column for column in REQUIRED_COLUMNS if column not in headers]
-    if missing:
-        raise ValueError(f"Missing required columns: {', '.join(missing)}")
-    if len(headers) != len(REQUIRED_COLUMNS) or set(headers) != set(REQUIRED_COLUMNS):
-        extras = [column for column in headers if column not in REQUIRED_COLUMNS]
-        if extras:
-            raise ValueError(
-                f"Unexpected columns: {', '.join(extras)}; expected the six-column schema"
-            )
-        raise ValueError("The catalogue must contain each required column exactly once")
+    headers = [(header or "").strip() for header in (reader.fieldnames or [])]
+    if not headers or any(not header for header in headers) or len(set(headers)) != len(headers):
+        raise ValueError("CSV must have unique, non-empty column headers")
+    if ra_unit not in {"auto", "degrees", "hours"}:
+        raise ValueError("RA unit must be auto, degrees, or hours")
+    if (ra_column is None) != (dec_column is None):
+        raise ValueError("Choose both RA and DEC columns")
+    if ra_column is None:
+        ra_matches = [
+            header for header in headers if header.lower().replace(" ", "_") in RA_ALIASES
+        ]
+        dec_matches = [
+            header for header in headers if header.lower().replace(" ", "_") in DEC_ALIASES
+        ]
+        if len(ra_matches) != 1 or len(dec_matches) != 1:
+            return {
+                "filename": filename,
+                "row_count": 0,
+                "tiles": [],
+                "warnings": [],
+                "columns": headers,
+                "ra_column": None,
+                "dec_column": None,
+                "needs_mapping": True,
+            }
+        ra_column, dec_column = ra_matches[0], dec_matches[0]
+    if ra_column not in headers or dec_column not in headers or ra_column == dec_column:
+        raise ValueError("Selected RA and DEC columns must be distinct CSV headers")
+    if ra_unit == "auto" and ra_column.lower().replace(" ", "_") == "ra_hours":
+        ra_unit = "hours"
 
     tiles: list[TileRecord] = []
     for row_number, raw_row in enumerate(reader, start=2):
         if raw_row is None or all(not (value or "").strip() for value in raw_row.values()):
             continue
         if None in raw_row:
-            raise ValueError(f"Row {row_number}: too many CSV values for the six-column schema")
+            raise ValueError(f"Row {row_number}: too many CSV values")
         row = {
             str(key).strip(): value if value is not None else "" for key, value in raw_row.items()
         }
-        missing_values = [key for key in REQUIRED_COLUMNS if not row.get(key, "").strip()]
+        missing_values = [key for key in (ra_column, dec_column) if not row.get(key, "").strip()]
         if missing_values:
             raise ValueError(
                 f"Row {row_number}: empty required value in {', '.join(missing_values)}"
             )
         try:
-            ra_deg = parse_ra_degrees(row["RA"])
-            dec_deg = parse_dec_degrees(row["DEC"])
+            ra_deg = parse_ra_degrees(row[ra_column], unit=ra_unit)
+            dec_deg = parse_dec_degrees(row[dec_column])
             tiles.append(
                 TileRecord(
                     id=f"original-{row_number - 1}",
-                    pid=row["PID"],
-                    name=row["NAME"],
+                    pid=row.get("PID", ""),
+                    name=row.get("NAME", f"Row {row_number - 1}"),
                     ra_deg=ra_deg,
                     dec_deg=dec_deg,
-                    epoch=row["EPOC"],
-                    status=row["STATUS"],
+                    epoch=row.get("EPOC", ""),
+                    status=row.get("STATUS", ""),
                     source=TileSource.ORIGINAL,
-                    original_values={key: row[key] for key in REQUIRED_COLUMNS},
+                    dataset_id=filename,
+                    group_id=f"{filename}:{row.get('PID', '')}",
+                    ra_column=ra_column,
+                    dec_column=dec_column,
+                    original_values=row,
+                    metadata={
+                        key: value
+                        for key, value in row.items()
+                        if key not in (ra_column, dec_column)
+                    },
                 )
             )
         except ValueError as exc:
             raise ValueError(f"Row {row_number}: {exc}") from exc
     if not tiles:
         raise ValueError("Catalogue contains no tile rows")
-    return {"filename": filename, "row_count": len(tiles), "tiles": tiles, "warnings": []}
+    return {
+        "filename": filename,
+        "row_count": len(tiles),
+        "tiles": tiles,
+        "warnings": [],
+        "columns": headers,
+        "ra_column": ra_column,
+        "dec_column": dec_column,
+        "needs_mapping": False,
+    }
 
 
 def parse_center_text(text: str) -> list[CenterInput]:

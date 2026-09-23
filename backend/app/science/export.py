@@ -43,7 +43,7 @@ def build_export_csv(
     """
     if kind not in {"new", "updated"}:
         raise ValueError("Export kind must be 'new' or 'updated'")
-    for tile in original_tiles:
+    for tile in original_tiles if kind == "updated" else []:
         values = tile.original_values
         if tile.source != TileSource.ORIGINAL or values is None:
             raise ValueError(
@@ -57,7 +57,10 @@ def build_export_csv(
     if any(tile.source != TileSource.PROPOSED for tile in proposed_tiles):
         raise ValueError("Only proposed tiles can be included in the new catalogue rows")
 
-    occupied_names = {tile.original_values["NAME"] for tile in original_tiles}
+    occupied_names = {
+        tile.original_values["NAME"] for tile in original_tiles
+        if tile.original_values and tile.original_values.get("NAME")
+    }
     proposed_rows: list[dict[str, str]] = []
     for offset, tile in enumerate(proposed_tiles):
         sequence = config.initial_sequence + offset

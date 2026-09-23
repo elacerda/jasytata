@@ -234,7 +234,7 @@ def _infer_lattice(
     groups: dict[str, list[TileRecord]] = {}
     for tile in tiles:
         if tile.source == TileSource.ORIGINAL:
-            group = f"original:{tile.pid}"
+            group = f"original:{tile.group_id or tile.dataset_id or tile.id}"
         else:
             group = f"proposed:{tile.generation_method}"
         groups.setdefault(group, []).append(tile)

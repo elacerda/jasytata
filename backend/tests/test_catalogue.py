@@ -75,11 +75,45 @@ def test_supplied_catalogue_loads_with_preserved_values() -> None:
 
 
 def test_catalogue_schema_and_row_parsing_errors_are_useful() -> None:
-    """Missing columns and malformed coordinates identify the problem row."""
-    with pytest.raises(ValueError, match="Missing required columns: STATUS"):
-        parse_catalogue_csv(b"PID,NAME,RA,DEC,EPOC\nP,N,10:00:00,-30:00:00,2000\n")
+    """Optional metadata is accepted and malformed coordinates identify the row."""
+    assert (
+        parse_catalogue_csv(b"PID,NAME,RA,DEC,EPOC\nP,N,10:00:00,-30:00:00,2000\n")["row_count"]
+        == 1
+    )
     with pytest.raises(ValueError, match="Row 2: Invalid RA"):
         parse_catalogue_csv(b"PID,NAME,RA,DEC,EPOC,STATUS\nP,N,not-ra,-30:00:00,2000,1\n")
+
+
+def test_generic_catalogues_preserve_arbitrary_metadata() -> None:
+    """Minimal and DR6-style rows need only inferred coordinate columns."""
+    minimal = parse_catalogue_csv(b"ra,dec\n150.5,-24.25\n")
+    assert minimal["tiles"][0].ra_deg == pytest.approx(150.5)
+    assert minimal["tiles"][0].metadata == {}
+    dr6 = parse_catalogue_csv(
+        b"ra_deg,dec_deg,field_id,quality,release\n150.5,-24.25,DR6_1,good,DR6\n"
+    )
+    assert dr6["tiles"][0].metadata == {"field_id": "DR6_1", "quality": "good", "release": "DR6"}
+    assert dr6["tiles"][0].original_values["field_id"] == "DR6_1"
+
+
+def test_ambiguous_columns_request_explicit_mapping() -> None:
+    """Multiple RA candidates require a user choice before coordinates load."""
+    data = b"RA,ra_deg,DEC,label\n10:03:05,150.77,-23:54:31,A\n"
+    preview = parse_catalogue_csv(data)
+    assert preview["needs_mapping"]
+    assert preview["columns"] == ["RA", "ra_deg", "DEC", "label"]
+    parsed = parse_catalogue_csv(data, ra_column="RA", dec_column="DEC")
+    assert parsed["tiles"][0].ra_deg == pytest.approx(150.7708333333)
+    assert parsed["tiles"][0].metadata["ra_deg"] == "150.77"
+
+
+def test_explicit_hours_column_does_not_guess_decimal_units() -> None:
+    """An hours-labelled RA column and explicit user unit preserve meaning."""
+    data = b"ra_hours,dec\n10.5,-24\n"
+    assert parse_catalogue_csv(data)["tiles"][0].ra_deg == pytest.approx(157.5)
+    assert parse_catalogue_csv(data, ra_column="ra_hours", dec_column="dec", ra_unit="degrees")[
+        "tiles"
+    ][0].ra_deg == pytest.approx(10.5)
 
 
 def test_sexagesimal_and_decimal_coordinates_convert() -> None:

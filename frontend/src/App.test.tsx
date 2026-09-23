@@ -77,6 +77,8 @@ const original: TileRecord = {
     EPOC: "2000",
     STATUS: "1",
   },
+  ra_column: "RA",
+  dec_column: "DEC",
   metadata: {},
 };
 
@@ -259,6 +261,21 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByText("-58:00:23")).toBeTruthy();
     expect(screen.getByText("Original catalogue tile · immutable")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete proposed tile/i })).toBeNull();
+  });
+
+  it("offers coordinate-column mapping when a CSV cannot be inferred", async () => {
+    const user = userEvent.setup();
+    apiMocks.uploadCatalogue
+      .mockResolvedValueOnce({ filename: "ambiguous.csv", row_count: 0, tiles: [], warnings: [], columns: ["RA", "ra_deg", "DEC", "quality"], needs_mapping: true })
+      .mockResolvedValueOnce({ ...catalogue, filename: "ambiguous.csv", row_count: 1 });
+    render(<App />);
+    const file = new File(["RA,ra_deg,DEC,quality\n10:03:05,150.77,-23:54:31,good\n"], "ambiguous.csv", { type: "text/csv" });
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), file);
+    expect(await screen.findByText(/Map coordinates in ambiguous.csv/)).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("RA column"), "RA");
+    await user.selectOptions(screen.getByLabelText("DEC column"), "DEC");
+    await user.click(screen.getByRole("button", { name: "Load mapped catalogue" }));
+    await waitFor(() => expect(apiMocks.uploadCatalogue).toHaveBeenLastCalledWith(file, expect.objectContaining({ raColumn: "RA", decColumn: "DEC", raUnit: "auto" })));
   });
 
   it("validates, previews, and stages imported centers before acceptance", async () => {

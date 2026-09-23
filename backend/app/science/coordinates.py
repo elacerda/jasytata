@@ -8,7 +8,7 @@ from astropy import units as u
 from astropy.coordinates import Angle, Longitude
 
 
-def parse_ra_degrees(value: str) -> float:
+def parse_ra_degrees(value: str, *, unit: str = "auto") -> float:
     """Parse a sexagesimal hour or decimal-degree right ascension.
 
     Parameters
@@ -16,6 +16,9 @@ def parse_ra_degrees(value: str) -> float:
     value : str
         Right ascension as ``HH:MM:SS`` or ``HH MM SS`` (hours), or decimal
         degrees.
+    unit : {"auto", "degrees", "hours"}, default="auto"
+        Explicit interpretation of numeric RA. Auto accepts sexagesimal
+        hour angle marked by colons or three fields; decimal is degrees.
 
     Returns
     -------
@@ -28,16 +31,22 @@ def parse_ra_degrees(value: str) -> float:
         If the value is malformed, non-finite, or outside its valid range.
     """
     text = value.strip()
+    if unit not in {"auto", "degrees", "hours"}:
+        raise ValueError("RA unit must be auto, degrees, or hours")
     sexagesimal = ":" in text or len(text.split()) == 3
+    if unit == "degrees" and sexagesimal:
+        raise ValueError(f"Invalid RA {value!r}; sexagesimal hours conflict with degrees mode")
     try:
-        angle = Angle(text, unit=u.hourangle if sexagesimal else u.deg)
+        angle = Angle(text, unit=u.hourangle if sexagesimal or unit == "hours" else u.deg)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid RA {value!r}; use sexagesimal hours or decimal degrees") from exc
     degrees = Longitude(angle).wrap_at(360 * u.deg).degree
     if not math.isfinite(degrees):
         raise ValueError(f"Invalid RA {value!r}; coordinate must be finite")
-    if not sexagesimal and not 0 <= angle.degree <= 360:
+    if not sexagesimal and unit != "hours" and not 0 <= angle.degree <= 360:
         raise ValueError(f"Invalid RA {value!r}; decimal degrees must be between 0 and 360")
+    if unit == "hours" and not 0 <= angle.hour <= 24:
+        raise ValueError(f"Invalid RA {value!r}; hours must be between 0 and 24")
     return float(degrees % 360)
 
 

@@ -39,6 +39,7 @@ def original(index: int, ra: float, dec: float) -> TileRecord:
         epoch="2000",
         status="1",
         source=TileSource.ORIGINAL,
+        group_id="synthetic-splus",
         original_values=values,
     )
 
