@@ -1,4 +1,4 @@
-"""FastAPI application for T80 Tile Planner."""
+"""FastAPI application for Tile Planner."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from app.science.export import build_export_csv
 from app.science.planner import plan_region
 
 app = FastAPI(
-    title="T80 Tile Planner API",
+    title="Tile Planner API",
     version="0.1.0",
-    description="Catalogue parsing, S-PLUS geometry, region planning, and CSV export.",
+    description="Catalogue parsing, configurable tile geometry, region planning, and CSV export.",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -46,7 +46,7 @@ async def health() -> dict[str, str]:
     dict[str, str]
         Service status and application identifier.
     """
-    return {"status": "ok", "service": "t80-tile-planner"}
+    return {"status": "ok", "service": "tile-planner"}
 
 
 @app.post("/api/catalogue/parse", response_model=CatalogueResponse)

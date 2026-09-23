@@ -639,7 +639,7 @@ wheels = [
 ]
 
 [[package]]
-name = "t80-tile-planner"
+name = "tile-planner"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

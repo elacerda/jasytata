@@ -1,8 +1,8 @@
-# T80 Tile Planner
+# Tile Planner
 
-T80 Tile Planner loads an existing T80-South/S-PLUS catalogue, displays its footprint on an Aladin Lite sky map, and prepares auditable tile proposals. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
+Tile Planner displays astronomical catalogue footprints on an Aladin Lite sky map and prepares auditable tile proposals. Its bundled S-PLUS/T80-South catalogue is the initial compatibility profile. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
 
-The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself, or upload another CSV with the same six-column schema.
+The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. The current importer accepts another CSV with the same six-column schema.
 
 ## Features
 

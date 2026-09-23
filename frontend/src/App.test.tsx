@@ -122,7 +122,7 @@ function makePlan(count: number): RegionPlanResponse {
   };
 }
 
-describe("T80 Tile Planner proposal workflow", () => {
+describe("Tile Planner proposal workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.loadReferenceCatalogue.mockResolvedValue(catalogue);

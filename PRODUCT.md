@@ -12,11 +12,11 @@ Delegated by the implementation brief: FastAPI, Astropy, NumPy, Pydantic, React,
 
 ## Users
 
-Inferred from the explicit brief: astronomers and survey operators planning additional T80-South/S-PLUS sky coverage from an existing tile catalogue.
+Astronomers and survey operators planning additional sky coverage from existing tile catalogues. The bundled S-PLUS/T80-South workflow supplies the initial compatibility case.
 
 ## Product Purpose
 
-Load a T80-South tile catalogue, inspect its sky footprint, design new tile centers, and export the accepted additions in the catalogue's original CSV schema.
+Load a tile catalogue, inspect its sky footprint, design new tile centers, and export accepted additions. The current export schema preserves the bundled S-PLUS catalogue format.
 
 ## Positioning
 
@@ -46,4 +46,3 @@ Users work with six-column catalogue CSV files, celestial coordinates, tile foot
 - Keep legacy compatibility explicit and regression-tested.
 - Require user acceptance before proposals enter export.
 - Report estimated coverage with its assumptions and limits.
-

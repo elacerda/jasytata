@@ -1,1 +1,1 @@
-"""Backend package for T80 Tile Planner."""
+"""Backend package for Tile Planner."""

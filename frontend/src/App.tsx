@@ -247,7 +247,7 @@ export default function App() {
             <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11" /><path d="M5 16h22M16 5v22M8 8l16 16M24 8 8 24" /></svg>
           </div>
           <div>
-            <h1>T80 Tile Planner</h1>
+            <h1>Tile Planner</h1>
             <p>South survey footprint planner</p>
           </div>
         </div>

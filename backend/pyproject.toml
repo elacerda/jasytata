@@ -1,7 +1,7 @@
 [project]
-name = "t80-tile-planner"
+name = "tile-planner"
 version = "0.1.0"
-description = "Scientific tile catalogue planning for the T80-South telescope"
+description = "Scientific catalogue planning with configurable telescope profiles"
 requires-python = ">=3.12"
 dependencies = [
   "astropy>=6.1,<8",
@@ -33,4 +33,3 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.format]
 quote-style = "double"
-

@@ -29,7 +29,7 @@ export async function uploadCatalogue(file: File): Promise<CatalogueResponse> {
 
 /** Load the representative catalogue shipped with the repository.
  *
- * @returns Parsed T80-South catalogue rows.
+ * @returns Parsed bundled S-PLUS reference catalogue rows.
  */
 export async function loadReferenceCatalogue(): Promise<CatalogueResponse> {
   return checked(await fetch("/api/catalogue/reference"));
