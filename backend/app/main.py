@@ -214,7 +214,7 @@ async def coverage_for_active_proposal(request: CoverageRequest) -> PlanMetrics:
     Parameters
     ----------
     request : CoverageRequest
-        Selected ICRS polygon and current visible tile state.
+        Selected ICRS polygon, all loaded original pointings, and active proposals.
 
     Returns
     -------

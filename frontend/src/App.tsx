@@ -68,9 +68,9 @@ export default function App() {
   const enabledProposals = useMemo(() => proposals.filter((tile) => tile.enabled !== false), [proposals]);
   const visibleTiles = useMemo(() => [...visibleOriginalTiles, ...proposals], [visibleOriginalTiles, proposals]);
   const planningTiles = useMemo(() => [
-    ...visibleOriginalTiles,
+    ...originalTiles,
     ...proposals.filter((tile) => tile.enabled !== false),
-  ], [visibleOriginalTiles, proposals]);
+  ], [originalTiles, proposals]);
   const mapTiles = useMemo(
     () => (pending ? [...visibleTiles, ...pending.tiles] : visibleTiles),
     [pending, visibleTiles],
@@ -102,13 +102,13 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    void measureCoverage(regionPolygon, visibleOriginalTiles, proposals, profile.id)
+    void measureCoverage(regionPolygon, originalTiles, proposals, profile.id)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
       });
     return () => { cancelled = true; };
-  }, [regionPolygon, profile, proposals, visibleOriginalTiles]);
+  }, [regionPolygon, profile, proposals, originalTiles]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -454,7 +454,6 @@ export default function App() {
               <label className="dataset-layer" key={dataset.id}>
                 <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
                   setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
-                  setPending(null);
                   setSelectedTileId(null);
                 }} />
                 <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />

@@ -10,7 +10,7 @@ The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use
 - Multiple simultaneous CSV datasets with distinct colors, independent visibility, and source metadata inspection.
 - Single sky-click proposals, pasted RA/DEC center imports, and native Aladin polygon selection with ICRS vertices.
 - `SPLUS_LEGACY_GRID_V1` geometry and a deterministic existing-grid inference layer.
-- Deterministic polygon-aware planning from all visible catalogue layers.
+- Deterministic polygon-aware planning from every loaded catalogue, independent of map-layer visibility.
 - Proposal preview and acceptance, reversible per-tile enable/disable, Restore all, Remove all, and independent Clear proposal/Clear selection actions.
 - Generic `RA,DEC,EPOCH` export of enabled proposals in decimal degrees or sexagesimal coordinates.
 

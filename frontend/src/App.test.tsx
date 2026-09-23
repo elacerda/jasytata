@@ -283,7 +283,7 @@ describe("Tile Planner proposal workflow", () => {
     await waitFor(() => expect(apiMocks.uploadCatalogue).toHaveBeenLastCalledWith(file, expect.objectContaining({ raColumn: "RA", decColumn: "DEC", raUnit: "auto" })));
   });
 
-  it("keeps two uploaded datasets and plans against their visible union", async () => {
+  it("keeps scientific planning independent from catalogue layer visibility", async () => {
     const user = userEvent.setup();
     const second: TileRecord = {
       ...original, id: "original-2", name: "DR6 field", ra_deg: 124, dec_deg: -59,
@@ -315,10 +315,15 @@ describe("Tile Planner proposal workflow", () => {
     );
     await user.click(firstToggle);
     expect((secondToggle as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText("Existing grid extended")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     const plannedTiles = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
-    expect(plannedTiles.some((tile) => tile.name === original.name)).toBe(false);
+    expect(plannedTiles.some((tile) => tile.name === original.name)).toBe(true);
     expect(plannedTiles.some((tile) => tile.name === second.name)).toBe(true);
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    const measuredTiles = apiMocks.measureCoverage.mock.lastCall?.[1] as TileRecord[];
+    expect(measuredTiles.map((tile) => tile.name)).toEqual(expect.arrayContaining([original.name, second.name]));
+    expect(screen.getByRole("button", { name: /PROPOSED_0001/ })).toBeTruthy();
     await user.click(firstToggle);
     expect((firstToggle as HTMLInputElement).checked).toBe(true);
   });

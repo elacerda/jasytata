@@ -228,7 +228,7 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
     Parameters
     ----------
     request : CoverageRequest
-        ICRS polygon, visible immutable pointings, and proposed centers in
+        ICRS polygon, all loaded immutable pointings, and proposed centers in
         decimal degrees. Disabled proposal centers are ignored.
 
     Returns
