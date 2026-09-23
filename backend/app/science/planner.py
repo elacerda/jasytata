@@ -44,9 +44,9 @@ MIN_INCREMENTAL_GAIN = 0.0005
 class _Lattice:
     """Locally inferred axis-aligned lattice parameters and its anchors."""
 
-    dec_phase_deg: float
     dec_spacing_deg: float
     ra_spacing_deg: float
+    row_dec_deg: dict[int, float]
     row_ra_phase_fraction: dict[int, float]
     anchor_ids: tuple[str, ...]
     pair_count: int
@@ -155,7 +155,8 @@ def plan_region(
         diagnostics = [
             f"Extended the local grid using {lattice.pair_count} compatible neighbor pairs "
             f"and {len(anchors)} anchor tiles.",
-            f"Inferred DEC spacing {lattice.dec_spacing_deg:.4f} deg and physical RA spacing "
+            f"Median DEC spacing {lattice.dec_spacing_deg:.4f} deg and "
+            f"inferred physical RA spacing "
             f"{lattice.ra_spacing_deg:.4f} deg; compatibility tolerance is "
             f"{INFERENCE_TOLERANCE_DEG:.2f} deg.",
         ]
@@ -165,7 +166,7 @@ def plan_region(
             f"This region produces {len(raw_candidates)} lattice candidates; reduce the selected "
             f"area to at most {MAX_CANDIDATES}."
         )
-    unique_candidates = _exclude_occupied(raw_candidates, request.existing_tiles, region_center_dec)
+    unique_candidates = _exclude_occupied(raw_candidates, request.existing_tiles)
     grid = SamplingCoverageEngine().sample(request.polygon)
     existing_mask = _covered_mask(grid, request.existing_tiles, profile)
     contributing_count = _contributing_tile_count(grid, request.existing_tiles, profile)
@@ -271,14 +272,16 @@ def _tiles_near_region(
     profile: TilingProfile,
 ) -> list[TileRecord]:
     """Filter tiles to the region plus the configured physical search margin."""
-    region_half_width = bounds.ra_span_deg * math.cos(math.radians(center_dec)) / 2
     region_half_height = (bounds.dec_max_deg - bounds.dec_min_deg) / 2
     result: list[TileRecord] = []
     for tile in tiles:
-        dx = _wrapped_ra_delta(tile.ra_deg, center_ra) * math.cos(math.radians(center_dec))
+        ra_margin = 3 * profile.tile_width_deg / max(
+            math.cos(math.radians(tile.dec_deg)), 0.01
+        )
+        ra_delta = _wrapped_ra_delta(tile.ra_deg, center_ra)
         dy = tile.dec_deg - center_dec
         if (
-            abs(dx) <= region_half_width + 3 * profile.tile_width_deg
+            abs(ra_delta) <= bounds.ra_span_deg / 2 + ra_margin
             and abs(dy) <= region_half_height + 3 * profile.tile_height_deg
         ):
             result.append(tile)
@@ -324,10 +327,9 @@ def _infer_lattice_group(
     """Infer one grid phase from several neighbor relationships in one PID."""
     if len(tiles) < 3:
         return None
-    cos_dec = math.cos(math.radians(center_dec))
     points = sorted(
         [
-            (tile.dec_deg, _wrapped_ra_delta(tile.ra_deg, center_ra) * cos_dec, tile)
+            (tile.dec_deg, _wrapped_ra_delta(tile.ra_deg, center_ra), tile)
             for tile in tiles
         ],
         key=lambda point: (point[0], point[1], point[2].id),
@@ -336,12 +338,14 @@ def _infer_lattice_group(
     vertical_steps: list[float] = []
     pair_ids: set[tuple[str, str]] = set()
     anchor_ids: set[str] = set()
-    for i, (dec_i, x_i, tile_i) in enumerate(points):
-        for dec_j, x_j, tile_j in points[i + 1 :]:
+    for i, (dec_i, _ra_offset_i, tile_i) in enumerate(points):
+        for dec_j, _ra_offset_j, tile_j in points[i + 1 :]:
             dy = abs(dec_j - dec_i)
             if dy > profile.dec_spacing_deg + INFERENCE_TOLERANCE_DEG:
                 break
-            dx = abs(x_j - x_i)
+            mean_dec = (dec_i + dec_j) / 2
+            ra_delta = abs(_wrapped_ra_delta(tile_j.ra_deg, tile_i.ra_deg))
+            dx = ra_delta * math.cos(math.radians(mean_dec))
             if dx > 1.6 * profile.ra_spacing_deg:
                 continue
             if (
@@ -358,41 +362,53 @@ def _infer_lattice_group(
                 pair_ids.add(tuple(sorted((tile_i.id, tile_j.id))))
     for left_id, right_id in pair_ids:
         anchor_ids.update((left_id, right_id))
-    if len(pair_ids) < 2 or len(anchor_ids) < 3:
+    if len(pair_ids) < 2 or len(anchor_ids) < 3 or len(horizontal_steps) < 2:
         return None
 
-    dec_spacing = float(np.median(vertical_steps or horizontal_steps))
-    ra_spacing = float(np.median(horizontal_steps or vertical_steps))
+    dec_spacing = float(np.median(vertical_steps)) if vertical_steps else profile.dec_spacing_deg
+    ra_spacing = float(np.median(horizontal_steps))
     if (
         abs(dec_spacing - profile.dec_spacing_deg) > INFERENCE_TOLERANCE_DEG
         or abs(ra_spacing - profile.ra_spacing_deg) > INFERENCE_TOLERANCE_DEG
     ):
         return None
     anchors = [tile for tile in tiles if tile.id in anchor_ids]
-    dec_phase = _circular_phase([tile.dec_deg for tile in anchors], dec_spacing)
-    dec_residuals = [_modular_distance(tile.dec_deg, dec_phase, dec_spacing) for tile in anchors]
-    if (
-        np.median(dec_residuals) > INFERENCE_TOLERANCE_DEG
-        or max(dec_residuals) > 2 * INFERENCE_TOLERANCE_DEG
-    ):
-        return None
-
+    row_groups = _group_anchor_rows(anchors)
+    row_dec_deg: dict[int, float] = {}
     row_indices: dict[int, list[TileRecord]] = {}
-    for tile in anchors:
-        row = round((tile.dec_deg - dec_phase) / dec_spacing)
-        row_indices.setdefault(row, []).append(tile)
+    row_index = 0
+    previous_dec: float | None = None
+    for row_tiles in row_groups:
+        row_dec = float(np.median([tile.dec_deg for tile in row_tiles]))
+        if previous_dec is not None:
+            row_index += max(1, round((row_dec - previous_dec) / dec_spacing))
+        row_dec_deg[row_index] = row_dec
+        row_indices[row_index] = row_tiles
+        previous_dec = row_dec
+
     row_phases: dict[int, float] = {}
+    ra_phase_residuals: list[float] = []
     for row, row_tiles in row_indices.items():
         fractions = []
         for tile in row_tiles:
             step_ra = ra_spacing / max(math.cos(math.radians(tile.dec_deg)), 1e-6)
             unwrapped_ra = tile.ra_deg + 360 * round((center_ra - tile.ra_deg) / 360)
             fractions.append((unwrapped_ra % step_ra) / step_ra)
-        row_phases[row] = _circular_phase(fractions, 1.0)
+        row_phase = _circular_phase(fractions, 1.0)
+        row_phases[row] = row_phase
+        ra_phase_residuals.extend(
+            _modular_distance(fraction, row_phase, 1.0) * ra_spacing
+            for fraction in fractions
+        )
+    if (
+        np.median(ra_phase_residuals) > INFERENCE_TOLERANCE_DEG
+        or max(ra_phase_residuals) > 2 * INFERENCE_TOLERANCE_DEG
+    ):
+        return None
     return _Lattice(
-        dec_phase_deg=dec_phase,
         dec_spacing_deg=dec_spacing,
         ra_spacing_deg=ra_spacing,
+        row_dec_deg=row_dec_deg,
         row_ra_phase_fraction=row_phases,
         anchor_ids=tuple(sorted(anchor_ids)),
         pair_count=len(pair_ids),
@@ -405,18 +421,27 @@ def _lattice_candidates(
     """Continue the inferred axis-aligned lattice across the region margin."""
     dec_min = bounds.dec_min_deg - profile.tile_height_deg / 2
     dec_max = bounds.dec_max_deg + profile.tile_height_deg / 2
-    first_row = math.ceil((dec_min - lattice.dec_phase_deg) / lattice.dec_spacing_deg)
-    last_row = math.floor((dec_max - lattice.dec_phase_deg) / lattice.dec_spacing_deg)
+    known_rows = sorted(lattice.row_dec_deg)
+    first_row = known_rows[0]
+    while _row_dec_at(first_row - 1, lattice) >= dec_min:
+        first_row -= 1
+    while _row_dec_at(first_row, lattice) < dec_min:
+        first_row += 1
+    last_row = first_row
+    while _row_dec_at(last_row + 1, lattice) <= dec_max:
+        last_row += 1
     ra_start = bounds.ra_start_deg
     ra_end = ra_start + bounds.ra_span_deg
     center_ra = ra_start + bounds.ra_span_deg / 2
-    known_rows = sorted(lattice.row_ra_phase_fraction)
+    known_phase_rows = sorted(lattice.row_ra_phase_fraction)
     candidates: list[tuple[float, float]] = []
     for row in range(first_row, last_row + 1):
-        dec = lattice.dec_phase_deg + row * lattice.dec_spacing_deg
+        dec = _row_dec_at(row, lattice)
         if not -90 < dec < 90:
             continue
-        phase_fraction = _interpolate_phase(lattice.row_ra_phase_fraction, row, known_rows)
+        phase_fraction = _interpolate_phase(
+            lattice.row_ra_phase_fraction, row, known_phase_rows
+        )
         step_ra = lattice.ra_spacing_deg / math.cos(math.radians(dec))
         phase_ra = phase_fraction * step_ra
         margin_ra = profile.tile_width_deg / 2 / max(math.cos(math.radians(dec)), 1e-6)
@@ -433,8 +458,49 @@ def _lattice_candidates(
     return sorted(set(candidates), key=lambda point: (point[1], point[0]))
 
 
+def _group_anchor_rows(tiles: list[TileRecord]) -> list[list[TileRecord]]:
+    """Cluster anchor pointings that share a declination row."""
+    rows: list[list[TileRecord]] = []
+    for tile in sorted(tiles, key=lambda item: (item.dec_deg, item.ra_deg, item.id)):
+        row_center = float(np.median([item.dec_deg for item in rows[-1]])) if rows else None
+        if row_center is None or tile.dec_deg - row_center > INFERENCE_TOLERANCE_DEG:
+            rows.append([tile])
+        else:
+            rows[-1].append(tile)
+    return rows
+
+
+def _row_dec_at(row: int, lattice: _Lattice) -> float:
+    """Interpolate observed row declinations and locally extrapolate the edges."""
+    row_decs = lattice.row_dec_deg
+    if row in row_decs:
+        return row_decs[row]
+    known_rows = sorted(row_decs)
+    lower = [known for known in known_rows if known < row]
+    upper = [known for known in known_rows if known > row]
+    if lower and upper:
+        left = max(lower)
+        right = min(upper)
+        fraction = (row - left) / (right - left)
+        return row_decs[left] + fraction * (row_decs[right] - row_decs[left])
+    if lower:
+        left, right = known_rows[-2:] if len(known_rows) >= 2 else (known_rows[-1], None)
+        if right is None:
+            spacing = lattice.dec_spacing_deg
+        else:
+            spacing = (row_decs[right] - row_decs[left]) / (right - left)
+        return row_decs[left] + (row - left) * spacing
+    right = known_rows[0]
+    if len(known_rows) >= 2:
+        next_row = known_rows[1]
+        spacing = (row_decs[next_row] - row_decs[right]) / (next_row - right)
+    else:
+        spacing = lattice.dec_spacing_deg
+    return row_decs[right] + (row - right) * spacing
+
+
 def _interpolate_phase(phases: dict[int, float], row: int, known_rows: list[int]) -> float:
-    """Interpolate the cyclic RA phase between anchor rows."""
+    """Interpolate or locally extrapolate the cyclic RA phase between rows."""
     if row in phases:
         return phases[row]
     lower = [value for value in known_rows if value < row]
@@ -442,23 +508,27 @@ def _interpolate_phase(phases: dict[int, float], row: int, known_rows: list[int]
     if lower and upper:
         left = max(lower)
         right = min(upper)
-        fraction = (row - left) / (right - left)
-        delta = ((phases[right] - phases[left] + 0.5) % 1.0) - 0.5
-        return (phases[left] + fraction * delta) % 1.0
-    nearest = min(known_rows, key=lambda known: (abs(known - row), known))
-    return phases[nearest]
+    elif len(known_rows) >= 2 and not lower:
+        left, right = known_rows[:2]
+    elif len(known_rows) >= 2:
+        left, right = known_rows[-2:]
+    else:
+        return phases[known_rows[0]]
+    fraction = (row - left) / (right - left)
+    delta = ((phases[right] - phases[left] + 0.5) % 1.0) - 0.5
+    return (phases[left] + fraction * delta) % 1.0
 
 
 def _exclude_occupied(
-    centers: list[tuple[float, float]], tiles: list[TileRecord], reference_dec: float
+    centers: list[tuple[float, float]], tiles: list[TileRecord]
 ) -> list[tuple[float, float]]:
     """Remove centers already represented by a nearby catalogue tile."""
     kept: list[tuple[float, float]] = []
-    cos_dec = math.cos(math.radians(reference_dec))
     for ra, dec in sorted(set(centers), key=lambda point: (point[1], point[0])):
         duplicate = any(
             math.hypot(
-                _wrapped_ra_delta(ra, tile.ra_deg) * cos_dec,
+                _wrapped_ra_delta(ra, tile.ra_deg)
+                * math.cos(math.radians((dec + tile.dec_deg) / 2)),
                 dec - tile.dec_deg,
             )
             < OCCUPIED_CENTER_TOLERANCE_DEG

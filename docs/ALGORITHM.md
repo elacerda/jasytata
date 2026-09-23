@@ -48,11 +48,11 @@ Golden tests import and execute `reference/create_tiles.py` for RA 143°–151°
 
 ## 3. Local existing-grid inference
 
-The selected polygon is unwrapped around its local RA center and must span at most 180°. For neighbor search, RA offsets are projected to a local horizontal coordinate:
+The selected polygon is unwrapped around its local RA center and must span at most 180°. Neighbor pairs are measured in local physical east-west degrees at the pair's mean declination:
 
 ```text
-x = wrapped(α − α_center) cos(δ_center)
-y = δ
+Δx = |wrapped(α₂ − α₁)| cos((δ₁ + δ₂) / 2)
+Δy = |δ₂ − δ₁|
 ```
 
 Tiles are eligible anchors when their centers lie inside the region plus a 4.2° search margin (three tile widths) in both local axes. Neighbor pairs are compatible with the legacy grid when either:
@@ -62,7 +62,7 @@ Tiles are eligible anchors when their centers lie inside the region plus a 4.2°
 
 The tolerance is `τ = 0.05°` (3 arcmin). This was calibrated against nearest-neighbor differences in the supplied catalogue: dense S-PLUS rows commonly show DEC steps around 1.354–1.359° and physical RA steps around 1.35°, within roughly 0.02° of the legacy 1.3667° step; the sparse HYDRA rows include physical RA steps around 1.40°, within 0.04°. The threshold is deliberately narrower than 0.1° so unrelated sub-degree and broad 1.5° patterns do not anchor an extension.
 
-At least two compatible neighbor pairs and three distinct anchor tiles are required. The DEC and physical RA spacings are robust medians of the observed compatible steps (falling back to the other axis when one direction has no pair). The DEC phase is a circular mean modulo the inferred DEC spacing. RA phases are inferred row-by-row modulo the declination-corrected RA step; phases between anchor rows are interpolated cyclically. This preserves the observed local phase instead of restarting at the selection boundary. Candidate centers are extrapolated over the selected region plus a half-tile margin. They remain at those inferred lattice coordinates; optimization never continuously shifts a center.
+At least two compatible neighbor pairs, two horizontal pairs, and three distinct anchor tiles are required. DEC and physical RA spacings are robust medians of observed compatible steps; when vertical neighbors are absent, DEC spacing falls back to the active profile. Anchor centers are clustered into declination rows, retaining each observed row's actual DEC instead of forcing one constant spacing across a broad region. RA phases are inferred and residual-checked independently within each observed row modulo the declination-corrected RA step. Missing rows interpolate between the observed row coordinates and phases; rows beyond the observed range extrapolate from the nearest local row spacings and phase trend. Candidate centers are extended over the selected region plus a half-tile margin. They remain on those inferred lattice coordinates; optimization never continuously shifts a center. If row phases are inconsistent, the planner reports `legacy_bounds_fallback` rather than labeling an unsupported phase as an existing-grid extension.
 
 Candidate centers within 0.12° physical separation of an existing center are removed as occupied. When inference does not meet the anchor count and phase-residual checks, the planner reports `legacy_bounds_fallback` and calls `SPLUS_LEGACY_GRID_V1` on polygon bounds expanded by half a tile. The bounds accelerate lattice construction; polygon samples decide whether each candidate contributes. A successful fit is reported as `extended_existing_grid`, with stable anchor IDs and the inferred spacings included in diagnostics.
 

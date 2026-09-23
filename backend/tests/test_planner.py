@@ -4,19 +4,28 @@ from __future__ import annotations
 
 import math
 from itertools import pairwise
+from statistics import median
 
 import pytest
 
 from app.models import (
     GenerationMethod,
+    RegionBounds,
     RegionPlanRequest,
     SkyPolygon,
     TileRecord,
     TileSource,
 )
+from app.profiles import load_profile
 from app.science.catalogue import parse_catalogue_csv
 from app.science.geometry import CENTER_SPACING_DEG
-from app.science.planner import INFERENCE_TOLERANCE_DEG, plan_region
+from app.science.planner import (
+    INFERENCE_TOLERANCE_DEG,
+    _infer_lattice,
+    _lattice_candidates,
+    _tiles_near_region,
+    plan_region,
+)
 
 
 def original(index: int, ra: float, dec: float) -> TileRecord:
@@ -111,6 +120,60 @@ def test_real_reference_catalogue_extends_a_southern_edge_region() -> None:
     assert all(
         tile.generation_method == GenerationMethod.REGION_EXTENDED for tile in response.tiles
     )
+
+
+def test_splus_b_candidates_preserve_the_observed_local_lattice() -> None:
+    """Wide historical rows retain their measured DEC and local RA phases."""
+    from pathlib import Path
+
+    reference = Path(__file__).resolve().parents[2] / "reference" / "tiles_nc.csv"
+    catalogue = parse_catalogue_csv(reference.read_bytes())
+    tiles = [tile for tile in catalogue["tiles"] if tile.name.startswith("SPLUS-b")]
+    bounds = RegionBounds(
+        ra_start_deg=255,
+        ra_end_deg=287,
+        dec_min_deg=-44.5,
+        dec_max_deg=-18,
+    )
+    center_ra = (bounds.ra_start_deg + bounds.ra_span_deg / 2) % 360
+    center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
+    profile = load_profile()
+    anchors = _tiles_near_region(tiles, bounds, center_ra, center_dec, profile)
+    lattice = _infer_lattice(anchors, center_ra, center_dec, profile)
+
+    assert lattice is not None
+    assert lattice.ra_spacing_deg == pytest.approx(1.405, abs=0.01)
+    candidates = _lattice_candidates(bounds, lattice, profile)
+    rows: dict[float, list[TileRecord]] = {}
+    for tile in anchors:
+        rows.setdefault(round(tile.dec_deg, 5), []).append(tile)
+
+    checked_rows = 0
+    for dec, row_tiles in rows.items():
+        row_candidates = [center for center in candidates if abs(center[1] - dec) < 0.02]
+        if not row_candidates:
+            continue
+        ordered = sorted(row_tiles, key=lambda tile: tile.ra_deg)
+        physical_steps = [
+            (right.ra_deg - left.ra_deg) * math.cos(math.radians(dec))
+            for left, right in pairwise(ordered)
+        ]
+        observed_steps = [
+            step for step in physical_steps if step <= profile.ra_spacing_deg + 0.05
+        ]
+        if not observed_steps:
+            continue
+        pitch = median(observed_steps)
+        step_ra = pitch / math.cos(math.radians(dec))
+        for ra, _candidate_dec in row_candidates:
+            residual = min(
+                abs((ra - tile.ra_deg + step_ra / 2) % step_ra - step_ra / 2)
+                * math.cos(math.radians(dec))
+                for tile in ordered
+            )
+            assert residual <= 2 * INFERENCE_TOLERANCE_DEG
+        checked_rows += 1
+    assert checked_rows >= 12
 
 
 def test_existing_grid_is_inferred_from_multiple_anchors() -> None:
