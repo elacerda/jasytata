@@ -50,7 +50,9 @@ export default function App() {
   const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectingRegion, setSelectingRegion] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
-  const [showLattice, setShowLattice] = useState(true);
+  const [planningLayers, setPlanningLayers] = useState({
+    proposals: true, region: true, anchors: false, lattice: false,
+  });
   const [importText, setImportText] = useState("");
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
   const [exportEpoch, setExportEpoch] = useState("");
@@ -66,14 +68,17 @@ export default function App() {
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles), [datasets]);
   const visibleOriginalTiles = useMemo(() => datasets.filter((dataset) => dataset.visible).flatMap((dataset) => dataset.tiles), [datasets]);
   const enabledProposals = useMemo(() => proposals.filter((tile) => tile.enabled !== false), [proposals]);
-  const visibleTiles = useMemo(() => [...visibleOriginalTiles, ...proposals], [visibleOriginalTiles, proposals]);
+  const visibleTiles = useMemo(() => [
+    ...visibleOriginalTiles,
+    ...(planningLayers.proposals ? proposals : []),
+  ], [visibleOriginalTiles, planningLayers.proposals, proposals]);
   const planningTiles = useMemo(() => [
     ...originalTiles,
     ...proposals.filter((tile) => tile.enabled !== false),
   ], [originalTiles, proposals]);
   const mapTiles = useMemo(
-    () => (pending ? [...visibleTiles, ...pending.tiles] : visibleTiles),
-    [pending, visibleTiles],
+    () => (pending && planningLayers.proposals ? [...visibleTiles, ...pending.tiles] : visibleTiles),
+    [pending, planningLayers.proposals, visibleTiles],
   );
   const activeContext = pending ?? proposalContext;
   const selectedTile = useMemo(
@@ -222,7 +227,6 @@ export default function App() {
           metrics: result.metrics,
           solution: result.solution,
         });
-        setShowLattice(true);
         setSelectedTileId(null);
         setNotice(
           `${result.tiles.length} new tile${result.tiles.length === 1 ? "" : "s"} selected with ${Math.round(result.metrics.selected_region_coverage * 100)}% estimated area coverage.`,
@@ -450,6 +454,7 @@ export default function App() {
 
           <section className="panel-section layers-section">
             <SectionHeading title="Map layers" />
+            <div className="layer-group-heading">Data</div>
             {datasets.map((dataset) => (
               <label className="dataset-layer" key={dataset.id}>
                 <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
@@ -461,25 +466,20 @@ export default function App() {
                 <strong>{dataset.tiles.length.toLocaleString()}</strong>
               </label>
             ))}
-            <LayerLegend
-              color="var(--orange)"
-              label="Enabled proposals"
-              value={(proposals.filter((tile) => tile.enabled !== false).length + (pending?.tiles.length ?? 0)).toString()}
-            />
-            {proposals.some((tile) => tile.enabled === false) && <LayerLegend color="#8c9799" label="Disabled proposals · crosses" value={proposals.filter((tile) => tile.enabled === false).length.toString()} />}
-            {selectedTile && <LayerLegend color="var(--yellow)" label="Current selection" />}
-            {activeContext?.anchorTileIds.length ? <LayerLegend color="var(--violet)" label="Inference anchors" value={activeContext.anchorTileIds.length.toString()} /> : null}
-            {regionPolygon && <LayerLegend color="var(--yellow)" label="Selected polygon · finalized" />}
-            {activeContext?.candidateCenters.length ? (
-              <>
-                <LayerLegend color="var(--green)" label="Candidate lattice" value={activeContext.candidateCenters.length.toString()} />
-                <label className="toggle-row">
-                  <span>Show inferred grid</span>
-                  <input type="checkbox" checked={showLattice} onChange={(event) => setShowLattice(event.target.checked)} />
-                  <span className="toggle-track" aria-hidden="true" />
-                </label>
-              </>
-            ) : null}
+            <div className="layer-group-heading">Planning</div>
+            <PlanningLayer label="Proposed tiles" color="var(--orange)" checked={planningLayers.proposals}
+              count={proposals.length + (pending?.tiles.length ?? 0)} onChange={(checked) => {
+                setPlanningLayers((previous) => ({ ...previous, proposals: checked }));
+                setSelectedTileId(null);
+              }} />
+            <PlanningLayer label="Selected region" color="var(--yellow)" checked={planningLayers.region}
+              onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, region: checked }))} />
+            <PlanningLayer label="Inference anchors" color="var(--violet)" checked={planningLayers.anchors}
+              count={activeContext?.anchorTileIds.length ?? 0}
+              onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, anchors: checked }))} />
+            <PlanningLayer label="Candidate lattice" color="var(--green)" checked={planningLayers.lattice}
+              count={activeContext?.candidateCenters.length ?? 0}
+              onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, lattice: checked }))} />
           </section>
         </aside>
 
@@ -512,9 +512,9 @@ export default function App() {
             focusRequest={focusRequest}
             selectedTileId={selectedTileId}
             selectedPolygon={regionPolygon}
+            planningLayers={planningLayers}
             anchorTileIds={activeContext?.anchorTileIds ?? EMPTY_IDS}
             candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
-            showLattice={showLattice}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
             onRegionSelect={(polygon) => {
@@ -636,8 +636,16 @@ function SectionHeading({ title, trailing }: { title: string; trailing?: string 
   return <div className="section-heading"><h2>{title}</h2>{trailing && <span>{trailing}</span>}</div>;
 }
 
-function LayerLegend({ color, label, value }: { color: string; label: string; value?: string }) {
-  return <div className="layer-row"><span className="layer-swatch" style={{ "--swatch": color } as CSSProperties} /><span>{label}</span>{value && <strong>{value}</strong>}</div>;
+/** Toggle a display layer without changing any planning or export state. */
+function PlanningLayer({ label, color, checked, count, onChange }: {
+  label: string; color: string; checked: boolean; count?: number; onChange: (checked: boolean) => void;
+}) {
+  return <label className="dataset-layer">
+    <input type="checkbox" aria-label={`Show ${label}`} checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    <span className="layer-swatch" style={{ "--swatch": color } as CSSProperties} />
+    <span>{label}</span>
+    {count !== undefined && <strong>{count.toLocaleString()}</strong>}
+  </label>;
 }
 
 function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => void }) {

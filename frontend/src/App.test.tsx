@@ -24,6 +24,10 @@ vi.mock("./AladinMap", async () => {
       mode: "idle" | "add-tile";
       selectingRegion: boolean;
       selectionRequest: number;
+      planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
+      selectedPolygon: { vertices: CenterInput[] } | null;
+      anchorTileIds: string[];
+      candidateCenters: CenterInput[];
       onTileSelect: (tile: TileRecord) => void;
       onRegionSelect: (polygon: { vertices: CenterInput[] }) => void;
       onSkyClick: (ra: number, dec: number) => void;
@@ -36,6 +40,8 @@ vi.mock("./AladinMap", async () => {
           { "data-testid": "map-interaction-state" },
           `${props.mode}:${props.selectingRegion}:${props.selectionRequest}`,
         ),
+        React.createElement("output", { "data-testid": "map-layer-state" },
+          `${props.tiles.filter((tile) => tile.source === "proposed").length}:${Boolean(props.selectedPolygon)}:${props.planningLayers.region}:${props.planningLayers.anchors}:${props.planningLayers.lattice}`),
         React.createElement(
           "button",
           {
@@ -352,6 +358,35 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByRole("button", { name: /PROPOSED_0001/ })).toBeTruthy();
     await user.click(firstToggle);
     expect((firstToggle as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("keeps planning layer visibility independent from proposal, region, metrics, and export", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
+    const coverageCalls = apiMocks.measureCoverage.mock.calls.length;
+    expect(screen.getByTestId("map-layer-state").textContent).toBe("2:true:true:false:false");
+    await user.click(screen.getByRole("checkbox", { name: "Show Proposed tiles" }));
+    await user.click(screen.getByRole("checkbox", { name: "Show Selected region" }));
+    await user.click(screen.getByRole("checkbox", { name: "Show Inference anchors" }));
+    await user.click(screen.getByRole("checkbox", { name: "Show Candidate lattice" }));
+    expect(screen.getByTestId("map-layer-state").textContent).toBe("0:true:false:true:true");
+    expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
+    expect(screen.getByText(/4 vertices · finalized/)).toBeTruthy();
+    expect(apiMocks.measureCoverage).toHaveBeenCalledTimes(coverageCalls);
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(apiMocks.planRegion.mock.lastCall?.[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "proposed", enabled: true }),
+    ]));
+    await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
+      "splus-t80-south", "2000", "decimal",
+    );
   });
 
   it("validates, previews, and stages imported centers before acceptance", async () => {

@@ -22,9 +22,9 @@ interface AladinMapProps {
   focusRequest: number;
   selectedTileId: string | null;
   selectedPolygon: SkyPolygon | null;
+  planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
   anchorTileIds: string[];
   candidateCenters: CenterInput[];
-  showLattice: boolean;
   onSkyClick: (ra: number, dec: number) => void;
   onTileSelect: (tile: TileRecord) => void;
   onRegionSelect: (polygon: SkyPolygon) => void;
@@ -102,7 +102,7 @@ export default function AladinMap(props: AladinMapProps) {
         resizeObserver = new ResizeObserver(() => redrawRef.current());
         resizeObserver.observe(containerRef.current);
         rebuildOverlays(instance, overlaysRef);
-        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
+        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, propsRef.current.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
         redrawRef.current();
         if (propsRef.current.focusRequest > 0) {
           focusOnCatalogue(instance, propsRef.current.tiles);
@@ -139,13 +139,13 @@ export default function AladinMap(props: AladinMapProps) {
   useEffect(() => {
     const instance = aladinRef.current;
     if (!instance) return;
-    syncCatalogues(instance, props.datasets, props.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
+    syncCatalogues(instance, props.datasets, props.tiles, props.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
     redrawRef.current();
-  }, [props.tiles, props.datasets]);
+  }, [props.tiles, props.datasets, props.planningLayers.proposals]);
 
   useEffect(() => {
     redrawRef.current();
-  }, [props.selectedTileId, props.selectedPolygon, props.anchorTileIds, props.candidateCenters, props.showLattice, props.profile]);
+  }, [props.selectedTileId, props.selectedPolygon, props.anchorTileIds, props.candidateCenters, props.planningLayers, props.profile]);
 
   useEffect(() => {
     const tiles = propsRef.current.tiles;
@@ -267,21 +267,23 @@ export default function AladinMap(props: AladinMapProps) {
         const layer = datasetFootprintsRef.current.get(dataset.id);
         dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => layer?.add(A.polyline(tileFootprint(tile, profile))));
       }
-      proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
-      proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => disabledLayer.add(A.polyline(tileFootprint(tile, profile))));
-      current.tiles
+      if (current.planningLayers.proposals) {
+        proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
+        proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => disabledLayer.add(A.polyline(tileFootprint(tile, profile))));
+      }
+      if (current.planningLayers.anchors) current.tiles
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
         .slice(0, 100)
         .forEach((tile) => anchorLayer.add(A.polyline(tileFootprint(tile, profile))));
       if (selected && visible(selected)) selectedLayer.add(A.polyline(tileFootprint(selected, profile)));
       current.candidateCenters
-        .filter((center) => current.showLattice && visible(center))
+        .filter((center) => current.planningLayers.lattice && visible(center))
         .slice(0, 1200)
         .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045)));
     } else if (selected) {
       selectedLayer.add(A.circle(selected.ra_deg, selected.dec_deg, 0.07));
     }
-    if (current.selectedPolygon) {
+    if (current.selectedPolygon && current.planningLayers.region) {
       const points = current.selectedPolygon.vertices.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg] as [number, number]);
       regionLayer.add(A.polyline([...points, points[0]]));
     }
@@ -303,6 +305,7 @@ export default function AladinMap(props: AladinMapProps) {
  * @param instance - Live Aladin viewport.
  * @param datasets - Imported layers with visibility and display colors.
  * @param tiles - Currently visible originals and proposal tiles.
+ * @param showProposals - Whether proposal markers should be shown.
  * @param catalogues - Persistent imported catalogue handles by dataset ID.
  * @param footprints - Persistent detailed-footprint overlays by dataset ID.
  * @param proposalRef - Native proposal catalogue handle.
@@ -313,6 +316,7 @@ function syncCatalogues(
   instance: AladinLiteInstance,
   datasets: CatalogueDataset[],
   tiles: TileRecord[],
+  showProposals: boolean,
   catalogues: Map<string, AladinLiteCatalogue>,
   footprints: Map<string, AladinLiteOverlay>,
   proposalRef: { current: AladinLiteCatalogue | null },
@@ -372,6 +376,8 @@ function syncCatalogues(
         return source;
       }),
     );
+    if (showProposals) proposalRef.current.show();
+    else proposalRef.current.hide();
   }
   if (disabled.length && !disabledRef.current) {
     disabledRef.current = A.catalog({
@@ -393,6 +399,8 @@ function syncCatalogues(
       lookup.set(source, tile);
       return source;
     }));
+    if (showProposals) disabledRef.current.show();
+    else disabledRef.current.hide();
   }
 }
 

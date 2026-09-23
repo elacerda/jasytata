@@ -70,7 +70,8 @@ describe("native Aladin catalogue layers", () => {
     const base = {
       tiles: [...first.tiles, ...second.tiles], profile, mode: "idle" as const, selectingRegion: false,
       selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
-      anchorTileIds: [], candidateCenters: [], showLattice: true,
+      anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onError: vi.fn(),
     };
     const view = render(<AladinMap {...base} datasets={[first, second]} />);
@@ -96,7 +97,8 @@ describe("native Aladin catalogue layers", () => {
     const base = {
       tiles: first.tiles, datasets: [first], profile, mode: "idle" as const, selectingRegion: false,
       focusRequest: 0, selectedTileId: null, selectedPolygon: null,
-      anchorTileIds: [], candidateCenters: [], showLattice: false,
+      anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect, onError: vi.fn(),
     };
     const view = render(<AladinMap {...base} selectionRequest={0} />);
@@ -121,5 +123,41 @@ describe("native Aladin catalogue layers", () => {
     await waitFor(() => expect(aladinMocks.instance.select).toHaveBeenCalledTimes(2));
     view.rerender(<AladinMap {...base} selectingRegion={false} selectionRequest={2} />);
     await waitFor(() => expect(aladinMocks.instance.fire).toHaveBeenCalledWith("default"));
+  });
+
+  it("applies planning visibility to native markers and overlays", async () => {
+    aladinMocks.instance.getFoV.mockReturnValue([30, 20]);
+    const first = dataset("a", "first.csv");
+    const proposed: TileRecord = { ...first.tiles[0], id: "proposal-1", source: "proposed", enabled: true };
+    const polygon = { vertices: [
+      { ra_deg: 149, dec_deg: -31 }, { ra_deg: 151, dec_deg: -31 },
+      { ra_deg: 151, dec_deg: -29 }, { ra_deg: 149, dec_deg: -29 },
+    ] };
+    const base = {
+      tiles: [...first.tiles, proposed], datasets: [first], profile, mode: "idle" as const,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null,
+      selectedPolygon: polygon, anchorTileIds: [first.tiles[0].id],
+      candidateCenters: [{ ra_deg: 150, dec_deg: -30 }],
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onError: vi.fn(),
+    };
+    const visible = { proposals: true, region: true, anchors: true, lattice: true };
+    const view = render(<AladinMap {...base} planningLayers={visible} />);
+    await waitFor(() => expect(aladinMocks.overlays).toHaveLength(8));
+    expect(aladinMocks.overlays[1].add).toHaveBeenCalled();
+    expect(aladinMocks.overlays[3].add).toHaveBeenCalled();
+    expect(aladinMocks.overlays[4].add).toHaveBeenCalled();
+    expect(aladinMocks.overlays[5].add).toHaveBeenCalled();
+    const counts = aladinMocks.overlays.map((overlay) => overlay.add.mock.calls.length);
+    view.rerender(<AladinMap {...base} planningLayers={{ proposals: false, region: false, anchors: false, lattice: false }} />);
+    expect(aladinMocks.catalogues[1].hide).toHaveBeenCalled();
+    for (const index of [1, 3, 4, 5]) {
+      expect(aladinMocks.overlays[index].add).toHaveBeenCalledTimes(counts[index]);
+    }
+    view.rerender(<AladinMap {...base} planningLayers={visible} />);
+    expect(aladinMocks.catalogues[1].show).toHaveBeenCalled();
+    for (const index of [1, 3, 4, 5]) {
+      expect(aladinMocks.overlays[index].add.mock.calls.length).toBeGreaterThan(counts[index]);
+    }
+    aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
 });
