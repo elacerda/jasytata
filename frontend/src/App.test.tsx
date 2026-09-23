@@ -21,13 +21,21 @@ vi.mock("./AladinMap", async () => {
   return {
     default: (props: {
       tiles: TileRecord[];
+      mode: "idle" | "add-tile";
+      selectingRegion: boolean;
+      selectionRequest: number;
       onTileSelect: (tile: TileRecord) => void;
       onRegionSelect: (polygon: { vertices: CenterInput[] }) => void;
       onSkyClick: (ra: number, dec: number) => void;
     }) =>
       React.createElement(
-        "div",
+      "div",
         { "aria-label": "Sky map test controls" },
+        React.createElement(
+          "output",
+          { "data-testid": "map-interaction-state" },
+          `${props.mode}:${props.selectingRegion}:${props.selectionRequest}`,
+        ),
         React.createElement(
           "button",
           {
@@ -210,6 +218,24 @@ describe("Tile Planner proposal workflow", () => {
     );
     await user.click(screen.getByRole("button", { name: /cancel preview/i }));
     expect(screen.queryByText("Manual sky placement")).toBeNull();
+  });
+
+  it("cancels region selection when switching map modes or pressing Escape", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+
+    const interactionState = screen.getByTestId("map-interaction-state");
+    await user.click(screen.getByRole("button", { name: /select area/i }));
+    expect(interactionState.textContent).toBe("idle:true:1");
+
+    await user.click(screen.getByRole("button", { name: /single tile/i }));
+    expect(interactionState.textContent).toBe("add-tile:false:1");
+
+    await user.click(screen.getByRole("button", { name: /select area/i }));
+    expect(interactionState.textContent).toBe("idle:true:2");
+    await user.keyboard("{Escape}");
+    expect(interactionState.textContent).toBe("idle:false:2");
   });
 
   it("keeps disabled tiles out of planning and preserves proposal on Clear selection", async () => {
