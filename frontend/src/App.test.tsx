@@ -1,0 +1,271 @@
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import App from "./App";
+import type { CenterInput, CatalogueResponse, RegionPlanResponse, TileRecord } from "./types";
+
+const apiMocks = vi.hoisted(() => ({
+  downloadCatalogue: vi.fn(),
+  loadReferenceCatalogue: vi.fn(),
+  parseCenters: vi.fn(),
+  planRegion: vi.fn(),
+  proposeCenters: vi.fn(),
+  uploadCatalogue: vi.fn(),
+}));
+
+vi.mock("./api", () => apiMocks);
+vi.mock("./AladinMap", async () => {
+  const React = await import("react");
+  return {
+    default: (props: {
+      tiles: TileRecord[];
+      onTileSelect: (tile: TileRecord) => void;
+      onRegionSelect: (bounds: {
+        ra_start_deg: number;
+        ra_end_deg: number;
+        dec_min_deg: number;
+        dec_max_deg: number;
+      }) => void;
+      onSkyClick: (ra: number, dec: number) => void;
+    }) =>
+      React.createElement(
+        "div",
+        { "aria-label": "Sky map test controls" },
+        React.createElement(
+          "button",
+          {
+            onClick: () =>
+              props.onRegionSelect({
+                ra_start_deg: 120,
+                ra_end_deg: 135,
+                dec_min_deg: -61,
+                dec_max_deg: -57,
+              }),
+          },
+          "Mock select region",
+        ),
+        React.createElement(
+          "button",
+          { onClick: () => props.onSkyClick(150.5, -24.25) },
+          "Mock place tile",
+        ),
+        React.createElement(
+          "button",
+          { onClick: () => props.onTileSelect(props.tiles[0]) },
+          "Mock inspect original",
+        ),
+      ),
+  };
+});
+
+const original: TileRecord = {
+  id: "original-1",
+  pid: "SPLUS",
+  name: "SPLUS-d512",
+  ra_deg: 120.875,
+  dec_deg: -58.0064,
+  epoch: "2000",
+  status: "1",
+  source: "original",
+  generation_method: null,
+  original_values: {
+    PID: "SPLUS",
+    NAME: "SPLUS-d512",
+    RA: "08:03:30",
+    DEC: "-58:00:23",
+    EPOC: "2000",
+    STATUS: "1",
+  },
+  metadata: {},
+};
+
+const catalogue: CatalogueResponse = {
+  filename: "tiles_nc.csv",
+  row_count: 4774,
+  tiles: [original],
+  warnings: [],
+};
+
+function makePlan(count: number): RegionPlanResponse {
+  const tiles = Array.from({ length: count }, (_, index) => ({
+    id: `preview-${index + 1}`,
+    pid: "PROPOSED",
+    name: `PROPOSED_${String(index + 1).padStart(4, "0")}`,
+    ra_deg: 121 + index,
+    dec_deg: -60,
+    epoch: "2000",
+    status: "-5",
+    source: "proposed" as const,
+    generation_method: "region_extended" as const,
+    original_values: null,
+    metadata: { solution: "extended_existing_grid" },
+  }));
+  return {
+    solution: "extended_existing_grid",
+    generation_method: "region_extended",
+    tiles,
+    candidate_centers: tiles.map(({ ra_deg, dec_deg }) => ({ ra_deg, dec_deg })),
+    anchor_tile_ids: [original.id],
+    diagnostics: ["Extended the local grid using 12 compatible neighbor pairs and 5 anchor tiles."],
+    metrics: {
+      existing_tiles_contributing: 2,
+      anchor_tiles_used: 5,
+      candidates_available: 9,
+      new_tiles: count,
+      selected_region_area_deg2: 59.91,
+      selected_region_coverage: 0.96,
+      incremental_coverage: 0.32,
+      redundant_coverage: 0.12,
+      outside_region_coverage_deg2: 3.64,
+      sample_step_deg: 0.12,
+    },
+  };
+}
+
+describe("T80 Tile Planner proposal workflow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiMocks.loadReferenceCatalogue.mockResolvedValue(catalogue);
+    apiMocks.planRegion.mockImplementation(
+      async (_bounds: unknown, _tiles: unknown, mode: string, count?: number) =>
+        makePlan(mode === "fixed" ? count ?? 1 : 2),
+    );
+    apiMocks.proposeCenters.mockImplementation(async (centers: CenterInput[], method: string) =>
+      centers.map((center, index) => ({
+        id: `manual-${index + 1}`,
+        pid: "PROPOSED",
+        name: `PROPOSED_${String(index + 1).padStart(4, "0")}`,
+        ra_deg: center.ra_deg,
+        dec_deg: center.dec_deg,
+        epoch: "2000",
+        status: "-5",
+        source: "proposed",
+        generation_method: method,
+        original_values: null,
+        metadata: {},
+      })),
+    );
+    apiMocks.downloadCatalogue.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => cleanup());
+
+  it("plans, regenerates exact N, accepts, deletes, undoes, and exports", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    expect(await screen.findByText("4,774")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
+    expect(await screen.findByText("Existing grid extended")).toBeTruthy();
+    expect(screen.getByText("59.91 deg²")).toBeTruthy();
+    expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
+      { ra_start_deg: 120, ra_end_deg: 135, dec_min_deg: -61, dec_max_deg: -57 },
+      [original],
+      "automatic",
+      undefined,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Fixed N" }));
+    const countInput = screen.getByRole("spinbutton", { name: "Exact number of new tiles" });
+    await user.clear(countInput);
+    await user.type(countInput, "4");
+    await user.click(screen.getByRole("button", { name: "Find 4 new tiles" }));
+    await waitFor(() => expect(screen.getByText("NEW TILE CENTERS").nextElementSibling?.textContent).toBe("4"));
+    expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
+      { ra_start_deg: 120, ra_end_deg: 135, dec_min_deg: -61, dec_max_deg: -57 },
+      [original],
+      "fixed",
+      4,
+    );
+
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+    expect(screen.getByText("4", { selector: ".section-heading span" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    await user.click(screen.getByRole("button", { name: /delete proposed tile/i }));
+    expect(screen.getByText("3", { selector: ".section-heading span" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Undo last proposal change" }));
+    expect(screen.getByText("4", { selector: ".section-heading span" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
+    await user.click(screen.getByRole("button", { name: /download updated catalogue/i }));
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledTimes(2);
+    expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
+      1,
+      "new",
+      [original],
+      expect.arrayContaining([expect.objectContaining({ source: "proposed" })]),
+      { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear accepted proposals" }));
+    expect(screen.getByText("0", { selector: ".section-heading span" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Undo last proposal change" }));
+    expect(screen.getByText("4", { selector: ".section-heading span" })).toBeTruthy();
+  });
+
+  it("previews single-tile placement and lets the user cancel it", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: /single tile/i }));
+    await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+    expect(await screen.findByText("Manual sky placement")).toBeTruthy();
+    expect(apiMocks.proposeCenters).toHaveBeenCalledWith(
+      [{ ra_deg: 150.5, dec_deg: -24.25, label: "Manual sky click" }],
+      "manual",
+    );
+    await user.click(screen.getByRole("button", { name: /cancel preview/i }));
+    expect(screen.queryByText("Manual sky placement")).toBeNull();
+  });
+
+  it("can export an unchanged catalogue and an empty new-tiles file", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: /download updated catalogue/i }));
+    await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
+    expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
+      1,
+      "updated",
+      [original],
+      [],
+      { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
+    );
+    expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
+      2,
+      "new",
+      [original],
+      [],
+      { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
+    );
+  });
+
+  it("inspects original tile metadata without offering to edit or delete it", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock inspect original" }));
+    expect(await screen.findByText("SPLUS-d512")).toBeTruthy();
+    expect(screen.getByText("-58:00:23")).toBeTruthy();
+    expect(screen.getByText("Original catalogue tile · immutable")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /delete proposed tile/i })).toBeNull();
+  });
+
+  it("validates, previews, and stages imported centers before acceptance", async () => {
+    const user = userEvent.setup();
+    apiMocks.parseCenters.mockResolvedValue([
+      { ra_deg: 150.7708333, dec_deg: -23.9086111, label: "Line 2" },
+    ]);
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.type(screen.getByLabelText("RA and DEC pairs"), "10:03:05, -23:54:31");
+    await user.click(screen.getByRole("button", { name: /validate and preview/i }));
+    expect(await screen.findByText(/1 valid center parsed/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /stage import preview/i }));
+    expect(await screen.findByText("Imported centers")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+    expect(screen.getByText("1", { selector: ".section-heading span" })).toBeTruthy();
+  });
+});

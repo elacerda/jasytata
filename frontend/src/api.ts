@@ -1,0 +1,134 @@
+import type {
+  CenterInput,
+  CatalogueResponse,
+  ExportConfig,
+  RegionBounds,
+  RegionPlanResponse,
+  TileRecord,
+} from "./types";
+
+async function checked<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    const message = typeof body?.detail === "string" ? body.detail : `Request failed (${response.status})`;
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+}
+
+/** Upload a six-column catalogue and preserve original CSV field values.
+ *
+ * @param file - CSV selected by the user.
+ * @returns Parsed catalogue with decimal-degree coordinates.
+ */
+export async function uploadCatalogue(file: File): Promise<CatalogueResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  return checked(await fetch("/api/catalogue/parse", { method: "POST", body: form }));
+}
+
+/** Load the representative catalogue shipped with the repository.
+ *
+ * @returns Parsed T80-South catalogue rows.
+ */
+export async function loadReferenceCatalogue(): Promise<CatalogueResponse> {
+  return checked(await fetch("/api/catalogue/reference"));
+}
+
+/** Parse pasted RA/DEC rows for review before proposal creation.
+ *
+ * @param text - One sexagesimal-hour or decimal-degree RA/DEC pair per line.
+ * @returns Valid centers in decimal degrees.
+ */
+export async function parseCenters(text: string): Promise<CenterInput[]> {
+  const response = await checked<{ centers: CenterInput[] }>(
+    await fetch("/api/centers/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }),
+  );
+  return response.centers;
+}
+
+/** Convert parsed centers into provisional proposal records.
+ *
+ * @param centers - Validated RA/DEC positions in decimal degrees.
+ * @param generationMethod - Manual click or pasted-center origin.
+ * @returns Proposal records that remain separate until accepted.
+ */
+export async function proposeCenters(
+  centers: CenterInput[],
+  generationMethod: "manual" | "imported_centers",
+): Promise<TileRecord[]> {
+  const response = await checked<{ tiles: TileRecord[] }>(
+    await fetch("/api/proposals/centers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ centers, generation_method: generationMethod }),
+    }),
+  );
+  return response.tiles;
+}
+
+/** Plan a selected region against original and already accepted proposed tiles.
+ *
+ * @param bounds - Eastward rectangular ICRS bounds in decimal degrees.
+ * @param existingTiles - Original catalogue plus accepted proposals.
+ * @param mode - Automatic coverage target or exact new-tile count.
+ * @param count - Exact number of new tiles for fixed mode.
+ * @returns Auditable solution with selected centers, anchors, diagnostics, and metrics.
+ */
+export async function planRegion(
+  bounds: RegionBounds,
+  existingTiles: TileRecord[],
+  mode: "automatic" | "fixed",
+  count?: number,
+): Promise<RegionPlanResponse> {
+  return checked(
+    await fetch("/api/plan/region", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bounds,
+        existing_tiles: existingTiles,
+        mode,
+        ...(mode === "fixed" ? { count } : {}),
+      }),
+    }),
+  );
+}
+
+/** Request a server-validated CSV and trigger a browser download.
+ *
+ * @param kind - New-only proposal rows or complete original-plus-proposal catalogue.
+ * @param originalTiles - Immutable original rows with their raw CSV field values.
+ * @param proposedTiles - Accepted proposal rows.
+ * @param config - PID, name sequence, EPOC, and STATUS controls.
+ * @returns A promise that resolves after the browser download is triggered.
+ */
+export async function downloadCatalogue(
+  kind: "new" | "updated",
+  originalTiles: TileRecord[],
+  proposedTiles: TileRecord[],
+  config: ExportConfig,
+): Promise<void> {
+  const response = await fetch("/api/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, original_tiles: originalTiles, proposed_tiles: proposedTiles, config }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    throw new Error(typeof body?.detail === "string" ? body.detail : `Export failed (${response.status})`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = kind === "new" ? "new_tiles.csv" : "tiles_nc_updated.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
