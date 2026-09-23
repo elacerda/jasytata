@@ -130,7 +130,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .import-preview { display: grid; gap: 8px; margin-top: 9px; padding: 9px; border: 1px solid #b9d4d4; border-radius: 4px; background: #eef7f6; color: #356166; font-size: 10px; }
 .preview-coordinate-list { display: grid; gap: 3px; color: #5d777c; font: 9px var(--mono); }
 .layers-section { padding-bottom: 14px; }
-.layer-group-heading { margin: 9px 0 3px; color: var(--muted); font: 700 9px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.layer-group-heading { grid-column: 1 / -1; margin: 9px 0 3px; color: var(--muted); font: 700 9px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .layer-row { min-height: 26px; display: flex; align-items: center; gap: 8px; color: #576c71; font-size: 10px; }
 .layer-row strong { margin-left: auto; color: #89989b; font: 9px var(--mono); }
 .layer-swatch { width: 10px; height: 10px; border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 2px color-mix(in srgb, var(--swatch), transparent 82%); }
