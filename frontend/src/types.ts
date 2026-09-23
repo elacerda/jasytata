@@ -76,11 +76,9 @@ export interface SkyPolygon {
   vertices: CenterInput[];
 }
 
-/** Deterministic sampled-coverage measurements returned by region planning. */
+/** Deterministic sampled-coverage measurements independent of inference. */
 export interface PlanMetrics {
   existing_tiles_contributing: number;
-  anchor_tiles_used: number;
-  candidates_available: number;
   new_tiles: number;
   selected_region_area_deg2: number;
   already_covered_fraction: number;
@@ -93,13 +91,22 @@ export interface PlanMetrics {
   sample_step_deg: number;
 }
 
+/** Nearby candidates and matched catalogue centers supporting a fitted grid. */
+export interface InferenceDiagnostics {
+  nearby_tile_count: number;
+  anchor_tile_ids: string[];
+  compatible_neighbor_pairs: number;
+  dec_spacing_deg: number | null;
+  ra_spacing_deg: number | null;
+}
+
 /** Auditable preview response from existing-grid inference or legacy fallback. */
 export interface RegionPlanResponse {
   solution: "extended_existing_grid" | "legacy_bounds_fallback";
   generation_method: "region_legacy" | "region_extended";
   tiles: TileRecord[];
   candidate_centers: CenterInput[];
-  anchor_tile_ids: string[];
+  inference: InferenceDiagnostics;
   diagnostics: string[];
   metrics: PlanMetrics;
 }

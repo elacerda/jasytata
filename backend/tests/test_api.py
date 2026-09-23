@@ -198,7 +198,7 @@ def test_real_catalogue_polygon_planning_api_workflow() -> None:
     assert automatic.status_code == 200, automatic.text[:500]
     automatic_body = automatic.json()
     assert automatic_body["solution"] == "extended_existing_grid"
-    assert automatic_body["anchor_tile_ids"]
+    assert automatic_body["inference"]["anchor_tile_ids"]
     assert automatic_body["tiles"]
     assert automatic_body["metrics"]["existing_tiles_contributing"] > 0
     assert automatic_body["metrics"]["selected_region_coverage"] > 0.9

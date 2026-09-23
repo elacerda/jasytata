@@ -8,6 +8,7 @@ import type {
   CatalogueDataset,
   CatalogueResponse,
   CoordinateFormat,
+  InferenceDiagnostics,
   PlanMetrics,
   SkyPolygon,
   RegionPlanResponse,
@@ -18,7 +19,7 @@ import type {
 interface ProposalPreview {
   tiles: TileRecord[];
   candidateCenters: CenterInput[];
-  anchorTileIds: string[];
+  inference: InferenceDiagnostics | null;
   diagnostics: string[];
   metrics: PlanMetrics | null;
   solution: string;
@@ -88,9 +89,9 @@ export default function App() {
   const anchors = useMemo(() => {
     const context = pending ?? proposalContext;
     if (!context) return [];
-    const ids = new Set(context.anchorTileIds);
-    return mapTiles.filter((tile) => ids.has(tile.id));
-  }, [pending, proposalContext, mapTiles]);
+    const ids = new Set(context.inference?.anchor_tile_ids ?? []);
+    return planningTiles.filter((tile) => ids.has(tile.id));
+  }, [pending, proposalContext, planningTiles]);
 
   useEffect(() => {
     void loadDefaultProfile().then((loaded) => {
@@ -184,7 +185,7 @@ export default function App() {
         setPending({
           tiles,
           candidateCenters: centers,
-          anchorTileIds: [],
+          inference: null,
           diagnostics: [method === "manual" ? "Manual sky positions are ready for review." : "Imported centers are ready for review."],
           metrics: null,
           solution: method,
@@ -222,7 +223,7 @@ export default function App() {
         setPending({
           tiles: result.tiles,
           candidateCenters: result.candidate_centers,
-          anchorTileIds: result.anchor_tile_ids,
+          inference: result.inference,
           diagnostics: result.diagnostics,
           metrics: result.metrics,
           solution: result.solution,
@@ -475,7 +476,7 @@ export default function App() {
             <PlanningLayer label="Selected region" color="var(--yellow)" checked={planningLayers.region}
               onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, region: checked }))} />
             <PlanningLayer label="Inference anchors" color="var(--violet)" checked={planningLayers.anchors}
-              count={activeContext?.anchorTileIds.length ?? 0}
+              count={activeContext?.inference?.anchor_tile_ids.length ?? 0}
               onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, anchors: checked }))} />
             <PlanningLayer label="Candidate lattice" color="var(--green)" checked={planningLayers.lattice}
               count={activeContext?.candidateCenters.length ?? 0}
@@ -513,7 +514,7 @@ export default function App() {
             selectedTileId={selectedTileId}
             selectedPolygon={regionPolygon}
             planningLayers={planningLayers}
-            anchorTileIds={activeContext?.anchorTileIds ?? EMPTY_IDS}
+            anchorTileIds={activeContext?.inference?.anchor_tile_ids ?? EMPTY_IDS}
             candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
@@ -557,7 +558,7 @@ export default function App() {
                 <span className={pending.solution === "extended_existing_grid" ? "stamp-dot is-extended" : "stamp-dot"} />
                 <strong>{solutionLabel(pending.solution)}</strong>
               </div>
-              {pending.metrics ? <MetricsPanel metrics={pending.metrics} /> : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
+              {pending.metrics ? <MetricsPanel metrics={pending.metrics} inference={pending.inference} candidateCount={pending.candidateCenters.length} /> : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
               {pending.diagnostics.map((line) => <p className="diagnostic-line" key={line}>{line}</p>)}
               {anchors.length > 0 && (
                 <details className="anchor-list">
@@ -592,7 +593,7 @@ export default function App() {
               </div>
             </div>
             {proposals.length > 0 && <p className="panel-copy">{proposals.filter((tile) => tile.enabled !== false).length} enabled · {proposals.filter((tile) => tile.enabled === false).length} disabled</p>}
-            {activeMetrics && <MetricsPanel metrics={activeMetrics} />}
+            {activeMetrics && <MetricsPanel metrics={activeMetrics} inference={proposalContext?.inference ?? null} candidateCount={proposalContext?.candidateCenters.length ?? 0} />}
             {proposals.length ? (
               <div className="accepted-list">
                 {proposals.slice(-8).reverse().map((tile, index) => (
@@ -671,12 +672,18 @@ function DetailField({ label, value }: { label: string; value: string }) {
   return <div className="detail-field"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function MetricsPanel({ metrics }: { metrics: PlanMetrics }) {
+function MetricsPanel({ metrics, inference, candidateCount }: {
+  metrics: PlanMetrics; inference: InferenceDiagnostics | null; candidateCount: number;
+}) {
   return (
     <div className="metrics-panel">
       <Metric label="Selected region" value={`${metrics.selected_region_area_deg2.toFixed(2)} deg²`} />
       <Metric label="Existing contributors" value={String(metrics.existing_tiles_contributing)} />
-      <Metric label="Inference anchors" value={String(metrics.anchor_tiles_used)} />
+      {inference && <>
+        <Metric label="Nearby anchor candidates" value={String(inference.nearby_tile_count)} />
+        <Metric label="Inference anchors used" value={String(inference.anchor_tile_ids.length)} />
+        <Metric label="Compatible neighbor pairs" value={String(inference.compatible_neighbor_pairs)} />
+      </>}
       <Metric label="New tiles" value={String(metrics.new_tiles)} emphasis />
       <Metric label="Already covered" value={`${(metrics.already_covered_fraction * 100).toFixed(1)}%`} />
       <Metric label="Final region coverage" value={`${(metrics.selected_region_coverage * 100).toFixed(1)}%`} emphasis />
@@ -684,7 +691,7 @@ function MetricsPanel({ metrics }: { metrics: PlanMetrics }) {
       <Metric label="Remaining uncovered" value={`${(metrics.remaining_uncovered_fraction * 100).toFixed(1)}% · ${metrics.remaining_uncovered_area_deg2.toFixed(2)} deg²`} />
       <Metric label="Redundant proposal coverage" value={`${(metrics.redundant_coverage * 100).toFixed(1)}%`} />
       <Metric label="Outside selected area" value={`${metrics.outside_region_coverage_deg2.toFixed(2)} deg²`} />
-      <div className="metric-footnote">Dense sample step {metrics.sample_step_deg.toFixed(2)}° · {metrics.candidates_available} available centers</div>
+      <div className="metric-footnote">Dense sample step {metrics.sample_step_deg.toFixed(2)}° · {candidateCount} candidate lattice centers</div>
     </div>
   );
 }

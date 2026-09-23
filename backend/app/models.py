@@ -221,11 +221,9 @@ class RegionPlanRequest(BaseModel):
 
 
 class PlanMetrics(BaseModel):
-    """Coverage and inference measurements for a region proposal."""
+    """Sampled coverage measurements, independent of lattice inference."""
 
     existing_tiles_contributing: int
-    anchor_tiles_used: int
-    candidates_available: int
     new_tiles: int
     selected_region_area_deg2: float
     already_covered_fraction: float
@@ -238,14 +236,30 @@ class PlanMetrics(BaseModel):
     sample_step_deg: float
 
 
+class InferenceDiagnostics(BaseModel):
+    """Evidence for extending an ICRS lattice from nearby catalogue centers.
+
+    ``nearby_tile_count`` counts centers within the search margin before
+    pair matching. ``anchor_tile_ids`` identifies centers belonging to at
+    least one compatible neighbor pair in the chosen fit. Spacings are in
+    physical RA and declination degrees and are absent on fallback.
+    """
+
+    nearby_tile_count: int
+    anchor_tile_ids: list[str]
+    compatible_neighbor_pairs: int
+    dec_spacing_deg: float | None
+    ra_spacing_deg: float | None
+
+
 class RegionPlanResponse(BaseModel):
-    """Preview solution from the deterministic region planner."""
+    """Preview solution with separate inference evidence and coverage metrics."""
 
     solution: str
     generation_method: GenerationMethod
     tiles: list[TileRecord]
     candidate_centers: list[CenterInput]
-    anchor_tile_ids: list[str]
+    inference: InferenceDiagnostics
     diagnostics: list[str]
     metrics: PlanMetrics
 

@@ -114,7 +114,7 @@ def test_real_reference_catalogue_extends_a_southern_edge_region() -> None:
     )
     response = plan_region(request)
     assert response.solution == "extended_existing_grid"
-    assert len(response.anchor_tile_ids) >= 4
+    assert len(response.inference.anchor_tile_ids) >= 4
     assert response.tiles
     assert response.metrics.selected_region_coverage >= 0.95
     assert all(
@@ -185,10 +185,14 @@ def test_existing_grid_is_inferred_from_multiple_anchors() -> None:
     response = plan_region(request)
     assert response.solution == "extended_existing_grid"
     assert response.generation_method == GenerationMethod.REGION_EXTENDED
-    assert len(response.anchor_tile_ids) >= 6
-    assert response.metrics.anchor_tiles_used == len(response.anchor_tile_ids)
+    assert len(response.inference.anchor_tile_ids) >= 6
+    assert response.inference.compatible_neighbor_pairs >= 2
+    assert len(response.inference.anchor_tile_ids) <= response.inference.nearby_tile_count < len(request.existing_tiles)
+    assert response.inference.dec_spacing_deg is not None
+    assert response.inference.ra_spacing_deg is not None
+    assert "anchor_tiles_used" not in response.metrics.model_dump()
     assert response.tiles
-    assert any(tile.id in response.anchor_tile_ids for tile in request.existing_tiles)
+    assert any(tile.id in response.inference.anchor_tile_ids for tile in request.existing_tiles)
     assert response.diagnostics[0].startswith("Extended the local grid")
 
 
@@ -201,7 +205,12 @@ def test_insufficient_anchors_fall_back_to_legacy_bounds() -> None:
     response = plan_region(request)
     assert response.solution == "legacy_bounds_fallback"
     assert response.generation_method == GenerationMethod.REGION_LEGACY
-    assert response.anchor_tile_ids == []
+    assert response.inference.anchor_tile_ids == []
+    assert response.inference.nearby_tile_count == 1
+    assert response.inference.compatible_neighbor_pairs == 0
+    assert response.inference.dec_spacing_deg is None
+    assert response.inference.ra_spacing_deg is None
+    assert "anchor_tiles_used" not in response.metrics.model_dump()
     assert response.tiles
 
 
@@ -249,7 +258,7 @@ def test_multiple_datasets_can_anchor_and_cover_one_polygon() -> None:
     polygon = rectangle(153, 159, -31, -27)
     response = plan_region(RegionPlanRequest(polygon=polygon, existing_tiles=tiles))
     assert response.solution == "extended_existing_grid"
-    assert {tile.dataset_id for tile in tiles if tile.id in response.anchor_tile_ids} == {
+    assert {tile.dataset_id for tile in tiles if tile.id in response.inference.anchor_tile_ids} == {
         "first", "second"
     }
     assert response.metrics.existing_tiles_contributing > 0

@@ -115,12 +115,13 @@ function makePlan(count: number): RegionPlanResponse {
     generation_method: "region_extended",
     tiles,
     candidate_centers: tiles.map(({ ra_deg, dec_deg }) => ({ ra_deg, dec_deg })),
-    anchor_tile_ids: [original.id],
+    inference: {
+      nearby_tile_count: 7, anchor_tile_ids: [original.id], compatible_neighbor_pairs: 2,
+      dec_spacing_deg: 1.35, ra_spacing_deg: 1.35,
+    },
     diagnostics: ["Extended the local grid using 12 compatible neighbor pairs and 5 anchor tiles."],
     metrics: {
       existing_tiles_contributing: 2,
-      anchor_tiles_used: 5,
-      candidates_available: 9,
       new_tiles: count,
       selected_region_area_deg2: 59.91,
       already_covered_fraction: 0.64,
@@ -387,6 +388,41 @@ describe("Tile Planner proposal workflow", () => {
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
       "splus-t80-south", "2000", "decimal",
     );
+  });
+
+  it("keeps inference evidence consistent when coverage is recalculated", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(screen.getByText("Nearby anchor candidates").parentElement?.textContent).toContain("7");
+    expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
+    expect(screen.getByRole("checkbox", { name: "Show Inference anchors" }).closest("label")?.textContent).toContain("1");
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
+    expect(screen.getByText("Nearby anchor candidates").parentElement?.textContent).toContain("7");
+    expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
+    await user.click(screen.getByRole("button", { name: "Remove all" }));
+    await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
+  });
+
+  it("shows fallback anchor candidates and zero matched anchors", async () => {
+    const user = userEvent.setup();
+    apiMocks.planRegion.mockResolvedValueOnce({
+      ...makePlan(2), solution: "legacy_bounds_fallback", inference: {
+        nearby_tile_count: 1, anchor_tile_ids: [], compatible_neighbor_pairs: 0,
+        dec_spacing_deg: null, ra_spacing_deg: null,
+      },
+    });
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(screen.getByText("Nearby anchor candidates").parentElement?.textContent).toContain("1");
+    expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("0");
+    expect(screen.getByRole("checkbox", { name: "Show Inference anchors" }).closest("label")?.textContent).toContain("0");
   });
 
   it("validates, previews, and stages imported centers before acceptance", async () => {

@@ -12,6 +12,7 @@ from app.models import (
     CenterInput,
     CoverageRequest,
     GenerationMethod,
+    InferenceDiagnostics,
     PlanMetrics,
     RegionBounds,
     RegionPlanRequest,
@@ -202,8 +203,6 @@ def plan_region(
         existing_mask,
         grid,
         contributing_count,
-        len(anchors),
-        len(useful),
         profile,
     )
     if not proposed and metrics.selected_region_coverage >= AUTOMATIC_COVERAGE_TARGET:
@@ -217,7 +216,13 @@ def plan_region(
         generation_method=method,
         tiles=proposed,
         candidate_centers=candidate_centers,
-        anchor_tile_ids=list(anchors),
+        inference=InferenceDiagnostics(
+            nearby_tile_count=len(local_tiles),
+            anchor_tile_ids=list(anchors),
+            compatible_neighbor_pairs=lattice.pair_count if lattice else 0,
+            dec_spacing_deg=lattice.dec_spacing_deg if lattice else None,
+            ra_spacing_deg=lattice.ra_spacing_deg if lattice else None,
+        ),
         diagnostics=diagnostics,
         metrics=metrics,
     )
@@ -236,7 +241,7 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
     -------
     PlanMetrics
         Sampled area, existing contribution, incremental active coverage,
-        and remaining area, with no inference anchors or candidates.
+        and remaining area. Lattice evidence belongs to region planning.
 
     Raises
     ------
@@ -258,8 +263,6 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
         existing_mask,
         grid,
         _contributing_tile_count(grid, request.existing_tiles, profile),
-        0,
-        0,
         profile,
     )
 
@@ -687,8 +690,6 @@ def _measure_metrics(
     existing_mask: np.ndarray,
     grid: _CoverageGrid,
     contributing: int,
-    anchor_count: int,
-    candidates_available: int,
     profile: TilingProfile,
 ) -> PlanMetrics:
     """Measure final region coverage and proposal overlap from sampled masks."""
@@ -711,8 +712,6 @@ def _measure_metrics(
     area_deg2 = grid.total_weight * grid.cell_area_deg2
     return PlanMetrics(
         existing_tiles_contributing=contributing,
-        anchor_tiles_used=anchor_count,
-        candidates_available=candidates_available,
         new_tiles=len(selected),
         selected_region_area_deg2=round(area_deg2, 4),
         already_covered_fraction=round(already_covered, 5),
