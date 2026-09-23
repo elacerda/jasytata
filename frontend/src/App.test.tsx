@@ -411,7 +411,7 @@ describe("Tile Planner proposal workflow", () => {
   it("shows fallback anchor candidates and zero matched anchors", async () => {
     const user = userEvent.setup();
     apiMocks.planRegion.mockResolvedValueOnce({
-      ...makePlan(2), solution: "legacy_bounds_fallback", inference: {
+      ...makePlan(2), solution: "profile_fallback", inference: {
         nearby_tile_count: 1, anchor_tile_ids: [], compatible_neighbor_pairs: 0,
         dec_spacing_deg: null, ra_spacing_deg: null,
       },

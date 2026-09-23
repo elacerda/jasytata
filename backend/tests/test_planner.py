@@ -187,7 +187,8 @@ def test_existing_grid_is_inferred_from_multiple_anchors() -> None:
     assert response.generation_method == GenerationMethod.REGION_EXTENDED
     assert len(response.inference.anchor_tile_ids) >= 6
     assert response.inference.compatible_neighbor_pairs >= 2
-    assert len(response.inference.anchor_tile_ids) <= response.inference.nearby_tile_count < len(request.existing_tiles)
+    assert len(response.inference.anchor_tile_ids) <= response.inference.nearby_tile_count
+    assert response.inference.nearby_tile_count < len(request.existing_tiles)
     assert response.inference.dec_spacing_deg is not None
     assert response.inference.ra_spacing_deg is not None
     assert "anchor_tiles_used" not in response.metrics.model_dump()
@@ -196,14 +197,14 @@ def test_existing_grid_is_inferred_from_multiple_anchors() -> None:
     assert response.diagnostics[0].startswith("Extended the local grid")
 
 
-def test_insufficient_anchors_fall_back_to_legacy_bounds() -> None:
+def test_insufficient_anchors_use_profile_fallback() -> None:
     """A single nearby tile cannot define a phase and therefore is not trusted."""
     request = RegionPlanRequest(
         polygon=rectangle(143, 151, -40, -20),
         existing_tiles=[original(1, 150, -30)],
     )
     response = plan_region(request)
-    assert response.solution == "legacy_bounds_fallback"
+    assert response.solution == "profile_fallback"
     assert response.generation_method == GenerationMethod.REGION_LEGACY
     assert response.inference.anchor_tile_ids == []
     assert response.inference.nearby_tile_count == 1
@@ -272,7 +273,7 @@ def test_concave_polygon_does_not_fill_empty_bounding_corner() -> None:
                         (152, -29), (152, -25), (150, -25)]
     ])
     response = plan_region(RegionPlanRequest(polygon=polygon, existing_tiles=[]))
-    assert response.solution == "legacy_bounds_fallback"
+    assert response.solution == "profile_fallback"
     assert response.tiles
     assert all(not (tile.ra_deg > 153.5 and tile.dec_deg > -27.5) for tile in response.tiles)
     assert response.metrics.selected_region_coverage > 0.9

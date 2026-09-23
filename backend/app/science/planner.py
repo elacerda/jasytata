@@ -43,11 +43,17 @@ MIN_INCREMENTAL_GAIN = 0.0005
 
 @dataclass(frozen=True)
 class _Lattice:
-    """Locally inferred axis-aligned lattice parameters and its anchors."""
+    """Locally inferred ICRS lattice and supporting catalogue tile IDs.
+
+    DEC rows use integer indices. Declinations and physical RA pitches are
+    in degrees. Each cyclic RA phase is a fraction of its row's local pitch,
+    referenced to the selected region's RA center.
+    """
 
     dec_spacing_deg: float
     ra_spacing_deg: float
     row_dec_deg: dict[int, float]
+    row_ra_spacing_deg: dict[int, float]
     row_ra_phase_fraction: dict[int, float]
     anchor_ids: tuple[str, ...]
     pair_count: int
@@ -132,7 +138,7 @@ def plan_region(
     )
     lattice = _infer_lattice(local_tiles, region_center_ra, region_center_dec, profile)
     if lattice is None:
-        solution = "legacy_bounds_fallback"
+        solution = "profile_fallback"
         method = GenerationMethod.REGION_LEGACY
         fallback_bounds = _expanded_bounds(bounds, profile)
         if profile.algorithm == "SPLUS_LEGACY_GRID_V1":
@@ -390,17 +396,30 @@ def _infer_lattice_group(
         previous_dec = row_dec
 
     row_phases: dict[int, float] = {}
+    row_ra_spacings: dict[int, float] = {}
     ra_phase_residuals: list[float] = []
     for row, row_tiles in row_indices.items():
+        ordered_tiles = sorted(row_tiles, key=lambda tile: tile.ra_deg)
+        local_steps = [
+            abs(_wrapped_ra_delta(right.ra_deg, left.ra_deg))
+            * math.cos(math.radians((left.dec_deg + right.dec_deg) / 2))
+            for left, right in zip(ordered_tiles, ordered_tiles[1:], strict=False)
+        ]
+        compatible_steps = [
+            step for step in local_steps
+            if abs(step - profile.ra_spacing_deg) <= INFERENCE_TOLERANCE_DEG
+        ]
+        row_spacing = float(np.median(compatible_steps)) if compatible_steps else ra_spacing
+        row_ra_spacings[row] = row_spacing
         fractions = []
         for tile in row_tiles:
-            step_ra = ra_spacing / max(math.cos(math.radians(tile.dec_deg)), 1e-6)
+            step_ra = row_spacing / max(math.cos(math.radians(tile.dec_deg)), 1e-6)
             unwrapped_ra = tile.ra_deg + 360 * round((center_ra - tile.ra_deg) / 360)
-            fractions.append((unwrapped_ra % step_ra) / step_ra)
+            fractions.append(((unwrapped_ra - center_ra) % step_ra) / step_ra)
         row_phase = _circular_phase(fractions, 1.0)
         row_phases[row] = row_phase
         ra_phase_residuals.extend(
-            _modular_distance(fraction, row_phase, 1.0) * ra_spacing
+            _modular_distance(fraction, row_phase, 1.0) * row_spacing
             for fraction in fractions
         )
     if (
@@ -412,6 +431,7 @@ def _infer_lattice_group(
         dec_spacing_deg=dec_spacing,
         ra_spacing_deg=ra_spacing,
         row_dec_deg=row_dec_deg,
+        row_ra_spacing_deg=row_ra_spacings,
         row_ra_phase_fraction=row_phases,
         anchor_ids=tuple(sorted(anchor_ids)),
         pair_count=len(pair_ids),
@@ -445,8 +465,9 @@ def _lattice_candidates(
         phase_fraction = _interpolate_phase(
             lattice.row_ra_phase_fraction, row, known_phase_rows
         )
-        step_ra = lattice.ra_spacing_deg / math.cos(math.radians(dec))
-        phase_ra = phase_fraction * step_ra
+        row_spacing = _interpolate_spacing(lattice.row_ra_spacing_deg, row, lattice.ra_spacing_deg)
+        step_ra = row_spacing / math.cos(math.radians(dec))
+        phase_ra = center_ra + phase_fraction * step_ra
         margin_ra = profile.tile_width_deg / 2 / max(math.cos(math.radians(dec)), 1e-6)
         first_col = math.ceil((ra_start - margin_ra - phase_ra) / step_ra)
         last_col = math.floor((ra_end + margin_ra - phase_ra) / step_ra)
@@ -520,6 +541,37 @@ def _interpolate_phase(phases: dict[int, float], row: int, known_rows: list[int]
     fraction = (row - left) / (right - left)
     delta = ((phases[right] - phases[left] + 0.5) % 1.0) - 0.5
     return (phases[left] + fraction * delta) % 1.0
+
+
+def _interpolate_spacing(spacings: dict[int, float], row: int, fallback: float) -> float:
+    """Use an observed physical RA pitch or interpolate it between DEC rows.
+
+    Parameters
+    ----------
+    spacings : dict[int, float]
+        Observed row index to east-west physical center pitch in degrees.
+    row : int
+        Target DEC-row index, increasing northward.
+    fallback : float
+        Profile-compatible physical RA pitch in degrees when no rows exist.
+
+    Returns
+    -------
+    float
+        Physical RA pitch in degrees. Rows beyond the observed range use
+        the nearest measured pitch rather than extrapolating a slope.
+    """
+    if row in spacings:
+        return spacings[row]
+    known = sorted(spacings)
+    if not known:
+        return fallback
+    lower = [value for value in known if value < row]
+    upper = [value for value in known if value > row]
+    if lower and upper:
+        left, right = max(lower), min(upper)
+        return spacings[left] + (row - left) * (spacings[right] - spacings[left]) / (right - left)
+    return spacings[known[0] if not lower else known[-1]]
 
 
 def _exclude_occupied(

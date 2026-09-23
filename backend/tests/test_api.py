@@ -228,7 +228,7 @@ def test_two_catalogues_polygon_edit_and_export_http_round_trip() -> None:
     })
     assert plan.status_code == 200, plan.text[:500]
     solution = plan.json()
-    assert solution["solution"] in {"extended_existing_grid", "legacy_bounds_fallback"}
+    assert solution["solution"] in {"extended_existing_grid", "profile_fallback"}
     assert solution["metrics"]["existing_tiles_contributing"] > 0
     assert solution["tiles"]
     coverage_payload = {

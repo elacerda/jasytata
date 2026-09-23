@@ -43,6 +43,12 @@ def test_synthetic_profile_changes_generated_spacing() -> None:
         ),
         profile,
     )
+    assert response.solution == "profile_fallback"
+    assert response.inference.nearby_tile_count == 0
+    assert response.inference.anchor_tile_ids == []
+    assert response.inference.compatible_neighbor_pairs == 0
+    assert response.inference.dec_spacing_deg is None
+    assert response.inference.ra_spacing_deg is None
     assert response.candidate_centers
     first_dec = response.candidate_centers[0].dec_deg
     assert response.candidate_centers[1].ra_deg - response.candidate_centers[

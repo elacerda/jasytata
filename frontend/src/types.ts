@@ -102,7 +102,7 @@ export interface InferenceDiagnostics {
 
 /** Auditable preview response from existing-grid inference or legacy fallback. */
 export interface RegionPlanResponse {
-  solution: "extended_existing_grid" | "legacy_bounds_fallback";
+  solution: "extended_existing_grid" | "profile_fallback";
   generation_method: "region_legacy" | "region_extended";
   tiles: TileRecord[];
   candidate_centers: CenterInput[];

@@ -493,7 +493,7 @@ export default function App() {
             <div className="map-toolbar-center">
               {mapMode === "add-tile" ? <span className="interaction-pill is-add">PLACE TILE · CLICK SKY</span> :
                 selectingRegion ? <span className="interaction-pill">CLICK POLYGON VERTICES</span> :
-                pending?.solution && pending.solution.startsWith("legacy_bounds") ? <span className="interaction-pill is-fallback">LEGACY BOUNDS FALLBACK</span> :
+                pending?.solution === "profile_fallback" ? <span className="interaction-pill is-fallback">PROFILE FALLBACK</span> :
                 pending?.solution === "extended_existing_grid" ? <span className="interaction-pill is-extended">EXISTING GRID EXTENDED</span> :
                 <span className="interaction-pill is-idle">PAN · ZOOM · INSPECT</span>}
             </div>
@@ -720,7 +720,7 @@ function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "re
 
 function solutionLabel(solution: string) {
   if (solution === "extended_existing_grid") return "Existing grid extended";
-  if (solution === "legacy_bounds_fallback") return "Legacy bounds fallback";
+  if (solution === "profile_fallback") return "Profile fallback";
   if (solution === "manual") return "Manual sky placement";
   return "Imported centers";
 }
