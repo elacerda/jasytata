@@ -20,6 +20,7 @@ from app.models import (
     RegionPlanRequest,
     RegionPlanResponse,
 )
+from app.profiles import DEFAULT_PROFILE_ID, list_profiles
 from app.science.catalogue import make_center_proposals, parse_catalogue_csv, parse_center_text
 from app.science.export import build_export_csv
 from app.science.planner import plan_region
@@ -35,6 +36,20 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.get("/api/profiles")
+async def profiles() -> dict:
+    """Expose installed validated profiles and the active default.
+
+    Returns
+    -------
+    dict
+        Default profile identifier and installed profile records.
+    """
+    return {"default_profile_id": DEFAULT_PROFILE_ID, "profiles": [
+        profile.model_dump() for profile in list_profiles()
+    ]}
 
 
 @app.get("/api/health")
@@ -172,7 +187,7 @@ async def plan_selected_region(request: RegionPlanRequest) -> RegionPlanResponse
     """
     try:
         return plan_region(request)
-    except ValueError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 

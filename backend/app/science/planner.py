@@ -18,20 +18,15 @@ from app.models import (
     TileRecord,
     TileSource,
 )
-from app.science.geometry import (
-    CENTER_SPACING_DEG,
-    LEGACY_ALGORITHM,
-    TILE_SIZE_DEG,
-    legacy_grid_centers,
-)
+from app.profiles import TilingProfile, load_profile
+from app.science.geometry import legacy_grid_centers
+from app.science.grid import rectangular_grid_centers
 
 # Calibrated against nearest-neighbor spacings in reference/tiles_nc.csv:
 # SPLUS rows cluster near 1.354–1.359 deg, while the compatibility step is
 # 1.3667 deg. A 0.05 deg (3 arcmin) tolerance includes the observed variation
 # without treating unrelated sub-degree or 1.4+ degree layouts as anchors.
 INFERENCE_TOLERANCE_DEG = 0.05
-SEARCH_MARGIN_DEG = 3 * TILE_SIZE_DEG
-CANDIDATE_MARGIN_DEG = TILE_SIZE_DEG / 2
 OCCUPIED_CENTER_TOLERANCE_DEG = 0.12
 SAMPLE_STEP_DEG = 0.12
 MAX_CANDIDATES = 1200
@@ -68,13 +63,18 @@ class _CoverageGrid:
     dec_max_deg: float
 
 
-def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
+def plan_region(
+    request: RegionPlanRequest, profile: TilingProfile | None = None
+) -> RegionPlanResponse:
     """Infer or fall back to a lattice, then select useful tile centers.
 
     Parameters
     ----------
     request : RegionPlanRequest
         Selected sky bounds, existing catalogue tiles, and planning mode.
+    profile : TilingProfile, optional
+        Validated footprint and grid algorithm. Defaults to the installed
+        profile identified by ``request.profile_id``.
 
     Returns
     -------
@@ -88,30 +88,34 @@ def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
         If the region is too large to plan safely or fixed N exceeds the
         number of centers that can add selected-region coverage.
     """
+    profile = profile or load_profile(request.profile_id)
     bounds = request.bounds
     region_center_ra = (bounds.ra_start_deg + bounds.ra_span_deg / 2) % 360
     region_center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
     local_tiles = _tiles_near_region(
-        request.existing_tiles, bounds, region_center_ra, region_center_dec
+        request.existing_tiles, bounds, region_center_ra, region_center_dec, profile
     )
-    lattice = _infer_lattice(local_tiles, region_center_ra, region_center_dec)
+    lattice = _infer_lattice(local_tiles, region_center_ra, region_center_dec, profile)
     if lattice is None:
         solution = "legacy_bounds_fallback"
         method = GenerationMethod.REGION_LEGACY
-        raw_candidates = legacy_grid_centers(
-            (bounds.ra_start_deg, bounds.ra_end_deg),
-            (bounds.dec_min_deg, bounds.dec_max_deg),
-            wraps_ra=bounds.ra_start_deg > bounds.ra_end_deg,
-        )
+        if profile.algorithm == "SPLUS_LEGACY_GRID_V1":
+            raw_candidates = legacy_grid_centers(
+                (bounds.ra_start_deg, bounds.ra_end_deg),
+                (bounds.dec_min_deg, bounds.dec_max_deg),
+                wraps_ra=bounds.ra_start_deg > bounds.ra_end_deg,
+            )
+        else:
+            raw_candidates = rectangular_grid_centers(bounds, profile)
         anchors: tuple[str, ...] = ()
         diagnostics = [
             f"No reliable local lattice was found from {len(local_tiles)} nearby tiles; "
-            f"used {LEGACY_ALGORITHM} on the selected bounds."
+            f"used {profile.algorithm} on the selected bounds."
         ]
     else:
         solution = "extended_existing_grid"
         method = GenerationMethod.REGION_EXTENDED
-        raw_candidates = _lattice_candidates(bounds, lattice)
+        raw_candidates = _lattice_candidates(bounds, lattice, profile)
         anchors = lattice.anchor_ids
         diagnostics = [
             f"Extended the local grid using {lattice.pair_count} compatible neighbor pairs "
@@ -128,9 +132,9 @@ def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
         )
     unique_candidates = _exclude_occupied(raw_candidates, request.existing_tiles, region_center_dec)
     grid = _sample_region(bounds)
-    existing_mask = _covered_mask(grid, request.existing_tiles)
-    contributing_count = _contributing_tile_count(grid, request.existing_tiles)
-    candidate_masks = [_tile_mask(grid, ra, dec) for ra, dec in unique_candidates]
+    existing_mask = _covered_mask(grid, request.existing_tiles, profile)
+    contributing_count = _contributing_tile_count(grid, request.existing_tiles, profile)
+    candidate_masks = [_tile_mask(grid, ra, dec, profile) for ra, dec in unique_candidates]
     useful: list[tuple[tuple[float, float], np.ndarray]] = []
     for center, mask in zip(unique_candidates, candidate_masks, strict=True):
         if np.any(mask & ~existing_mask):
@@ -143,7 +147,7 @@ def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
                 f"Requested {count} new tiles, but only {len(useful)} non-occupied lattice centers "
                 "add coverage to the selected region."
             )
-        chosen = _greedy_choose(useful, existing_mask, grid, count)
+        chosen = _greedy_choose(useful, existing_mask, grid, count, profile)
         if len(chosen) != count:
             raise ValueError(
                 f"Requested {count} new tiles, but only {len(chosen)} centers add distinct "
@@ -154,6 +158,7 @@ def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
             useful,
             existing_mask,
             grid,
+            profile=profile,
             max_count=len(useful),
             automatic_target=AUTOMATIC_COVERAGE_TARGET,
         )
@@ -181,6 +186,7 @@ def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
         contributing_count,
         len(anchors),
         len(useful),
+        profile,
     )
     if not proposed and metrics.selected_region_coverage >= AUTOMATIC_COVERAGE_TARGET:
         diagnostics.append(
@@ -200,7 +206,11 @@ def plan_region(request: RegionPlanRequest) -> RegionPlanResponse:
 
 
 def _tiles_near_region(
-    tiles: list[TileRecord], bounds: RegionBounds, center_ra: float, center_dec: float
+    tiles: list[TileRecord],
+    bounds: RegionBounds,
+    center_ra: float,
+    center_dec: float,
+    profile: TilingProfile,
 ) -> list[TileRecord]:
     """Filter tiles to the region plus the configured physical search margin."""
     region_half_width = bounds.ra_span_deg * math.cos(math.radians(center_dec)) / 2
@@ -210,14 +220,16 @@ def _tiles_near_region(
         dx = _wrapped_ra_delta(tile.ra_deg, center_ra) * math.cos(math.radians(center_dec))
         dy = tile.dec_deg - center_dec
         if (
-            abs(dx) <= region_half_width + SEARCH_MARGIN_DEG
-            and abs(dy) <= region_half_height + SEARCH_MARGIN_DEG
+            abs(dx) <= region_half_width + 3 * profile.tile_width_deg
+            and abs(dy) <= region_half_height + 3 * profile.tile_height_deg
         ):
             result.append(tile)
     return result
 
 
-def _infer_lattice(tiles: list[TileRecord], center_ra: float, center_dec: float) -> _Lattice | None:
+def _infer_lattice(
+    tiles: list[TileRecord], center_ra: float, center_dec: float, profile: TilingProfile
+) -> _Lattice | None:
     """Infer the strongest locally consistent catalogue-group lattice."""
     groups: dict[str, list[TileRecord]] = {}
     for tile in tiles:
@@ -229,7 +241,8 @@ def _infer_lattice(tiles: list[TileRecord], center_ra: float, center_dec: float)
     candidates = [
         lattice
         for group_tiles in groups.values()
-        if (lattice := _infer_lattice_group(group_tiles, center_ra, center_dec)) is not None
+        if (lattice := _infer_lattice_group(group_tiles, center_ra, center_dec, profile))
+        is not None
     ]
     if not candidates:
         return None
@@ -238,15 +251,15 @@ def _infer_lattice(tiles: list[TileRecord], center_ra: float, center_dec: float)
         key=lambda lattice: (
             lattice.pair_count,
             len(lattice.anchor_ids),
-            -abs(lattice.dec_spacing_deg - CENTER_SPACING_DEG)
-            - abs(lattice.ra_spacing_deg - CENTER_SPACING_DEG),
+            -abs(lattice.dec_spacing_deg - profile.dec_spacing_deg)
+            - abs(lattice.ra_spacing_deg - profile.ra_spacing_deg),
             lattice.anchor_ids,
         ),
     )
 
 
 def _infer_lattice_group(
-    tiles: list[TileRecord], center_ra: float, center_dec: float
+    tiles: list[TileRecord], center_ra: float, center_dec: float, profile: TilingProfile
 ) -> _Lattice | None:
     """Infer one grid phase from several neighbor relationships in one PID."""
     if len(tiles) < 3:
@@ -266,20 +279,20 @@ def _infer_lattice_group(
     for i, (dec_i, x_i, tile_i) in enumerate(points):
         for dec_j, x_j, tile_j in points[i + 1 :]:
             dy = abs(dec_j - dec_i)
-            if dy > CENTER_SPACING_DEG + INFERENCE_TOLERANCE_DEG:
+            if dy > profile.dec_spacing_deg + INFERENCE_TOLERANCE_DEG:
                 break
             dx = abs(x_j - x_i)
-            if dx > 1.6 * CENTER_SPACING_DEG:
+            if dx > 1.6 * profile.ra_spacing_deg:
                 continue
             if (
                 dy <= INFERENCE_TOLERANCE_DEG
-                and abs(dx - CENTER_SPACING_DEG) <= INFERENCE_TOLERANCE_DEG
+                and abs(dx - profile.ra_spacing_deg) <= INFERENCE_TOLERANCE_DEG
             ):
                 horizontal_steps.append(dx)
                 pair_ids.add(tuple(sorted((tile_i.id, tile_j.id))))
             elif (
-                abs(dy - CENTER_SPACING_DEG) <= INFERENCE_TOLERANCE_DEG
-                and dx <= 0.75 * CENTER_SPACING_DEG
+                abs(dy - profile.dec_spacing_deg) <= INFERENCE_TOLERANCE_DEG
+                and dx <= 0.75 * profile.ra_spacing_deg
             ):
                 vertical_steps.append(dy)
                 pair_ids.add(tuple(sorted((tile_i.id, tile_j.id))))
@@ -291,8 +304,8 @@ def _infer_lattice_group(
     dec_spacing = float(np.median(vertical_steps or horizontal_steps))
     ra_spacing = float(np.median(horizontal_steps or vertical_steps))
     if (
-        abs(dec_spacing - CENTER_SPACING_DEG) > INFERENCE_TOLERANCE_DEG
-        or abs(ra_spacing - CENTER_SPACING_DEG) > INFERENCE_TOLERANCE_DEG
+        abs(dec_spacing - profile.dec_spacing_deg) > INFERENCE_TOLERANCE_DEG
+        or abs(ra_spacing - profile.ra_spacing_deg) > INFERENCE_TOLERANCE_DEG
     ):
         return None
     anchors = [tile for tile in tiles if tile.id in anchor_ids]
@@ -326,10 +339,12 @@ def _infer_lattice_group(
     )
 
 
-def _lattice_candidates(bounds: RegionBounds, lattice: _Lattice) -> list[tuple[float, float]]:
+def _lattice_candidates(
+    bounds: RegionBounds, lattice: _Lattice, profile: TilingProfile
+) -> list[tuple[float, float]]:
     """Continue the inferred axis-aligned lattice across the region margin."""
-    dec_min = bounds.dec_min_deg - CANDIDATE_MARGIN_DEG
-    dec_max = bounds.dec_max_deg + CANDIDATE_MARGIN_DEG
+    dec_min = bounds.dec_min_deg - profile.tile_height_deg / 2
+    dec_max = bounds.dec_max_deg + profile.tile_height_deg / 2
     first_row = math.ceil((dec_min - lattice.dec_phase_deg) / lattice.dec_spacing_deg)
     last_row = math.floor((dec_max - lattice.dec_phase_deg) / lattice.dec_spacing_deg)
     ra_start = bounds.ra_start_deg
@@ -344,14 +359,16 @@ def _lattice_candidates(bounds: RegionBounds, lattice: _Lattice) -> list[tuple[f
         phase_fraction = _interpolate_phase(lattice.row_ra_phase_fraction, row, known_rows)
         step_ra = lattice.ra_spacing_deg / math.cos(math.radians(dec))
         phase_ra = phase_fraction * step_ra
-        margin_ra = CANDIDATE_MARGIN_DEG / max(math.cos(math.radians(dec)), 1e-6)
+        margin_ra = profile.tile_width_deg / 2 / max(math.cos(math.radians(dec)), 1e-6)
         first_col = math.ceil((ra_start - margin_ra - phase_ra) / step_ra)
         last_col = math.floor((ra_end + margin_ra - phase_ra) / step_ra)
         for col in range(first_col, last_col + 1):
             unwrapped_ra = phase_ra + col * step_ra
             if abs(
                 _wrapped_ra_delta(unwrapped_ra % 360, center_ra % 360) * math.cos(math.radians(dec))
-            ) <= (bounds.ra_span_deg * math.cos(math.radians(dec)) / 2 + CANDIDATE_MARGIN_DEG):
+            ) <= (
+                bounds.ra_span_deg * math.cos(math.radians(dec)) / 2 + profile.tile_width_deg / 2
+            ):
                 candidates.append((unwrapped_ra % 360, dec))
     return sorted(set(candidates), key=lambda point: (point[1], point[0]))
 
@@ -428,26 +445,32 @@ def _sample_region(bounds: RegionBounds) -> _CoverageGrid:
     )
 
 
-def _tile_mask(grid: _CoverageGrid, ra_deg: float, dec_deg: float) -> np.ndarray:
-    """Return sampled sky points covered by an approximate 1.4-degree tile."""
-    dec_inside = np.abs(grid.dec_deg - dec_deg) <= TILE_SIZE_DEG / 2
+def _tile_mask(
+    grid: _CoverageGrid, ra_deg: float, dec_deg: float, profile: TilingProfile
+) -> np.ndarray:
+    """Return sampled points inside the profile's rectangular footprint."""
+    dec_inside = np.abs(grid.dec_deg - dec_deg) <= profile.tile_height_deg / 2
     ra_physical = np.abs(_wrapped_ra_array(grid.ra_deg, ra_deg)) * math.cos(math.radians(dec_deg))
-    return dec_inside & (ra_physical <= TILE_SIZE_DEG / 2)
+    return dec_inside & (ra_physical <= profile.tile_width_deg / 2)
 
 
-def _covered_mask(grid: _CoverageGrid, tiles: list[TileRecord]) -> np.ndarray:
+def _covered_mask(
+    grid: _CoverageGrid, tiles: list[TileRecord], profile: TilingProfile
+) -> np.ndarray:
     """Union all existing tile footprints over the region sample grid."""
     covered = np.zeros(len(grid.ra_deg), dtype=bool)
     for tile in tiles:
-        covered |= _tile_mask(grid, tile.ra_deg, tile.dec_deg)
+        covered |= _tile_mask(grid, tile.ra_deg, tile.dec_deg, profile)
         if covered.all():
             break
     return covered
 
 
-def _contributing_tile_count(grid: _CoverageGrid, tiles: list[TileRecord]) -> int:
+def _contributing_tile_count(
+    grid: _CoverageGrid, tiles: list[TileRecord], profile: TilingProfile
+) -> int:
     """Count existing tiles whose footprints overlap any sampled region point."""
-    return sum(bool(np.any(_tile_mask(grid, tile.ra_deg, tile.dec_deg))) for tile in tiles)
+    return sum(bool(np.any(_tile_mask(grid, tile.ra_deg, tile.dec_deg, profile))) for tile in tiles)
 
 
 def _greedy_choose(
@@ -455,6 +478,7 @@ def _greedy_choose(
     existing_mask: np.ndarray,
     grid: _CoverageGrid,
     max_count: int,
+    profile: TilingProfile,
     automatic_target: float | None = None,
 ) -> list[tuple[float, float, np.ndarray]]:
     """Greedily maximize incremental coverage with deterministic tie breaks."""
@@ -471,7 +495,7 @@ def _greedy_choose(
             gain = float(grid.weights[mask & uncovered].sum())
             overlap = float(grid.weights[mask & ~uncovered].sum())
             inside = max(float(grid.weights[mask].sum()), 1e-12)
-            outside_area = _outside_tile_area(ra, dec, grid)
+            outside_area = _outside_tile_area(ra, dec, grid, profile)
             scored.append((gain, -overlap / inside, -outside_area, -dec, -ra, index))
         best_score = max(scored)
         best_index = best_score[-1]
@@ -486,9 +510,10 @@ def _greedy_choose(
     return selected
 
 
-def _outside_tile_area(ra: float, dec: float, grid: _CoverageGrid) -> float:
+def _outside_tile_area(ra: float, dec: float, grid: _CoverageGrid, profile: TilingProfile) -> float:
     """Estimate new tile area outside the selected rectangle in square degrees."""
-    half = TILE_SIZE_DEG / 2
+    half_width = profile.tile_width_deg / 2
+    half_height = profile.tile_height_deg / 2
     ref_ra = grid.center_ra_deg
     ref_dec = grid.center_dec_deg
     center_x = _wrapped_ra_delta(ra, ref_ra) * math.cos(math.radians(ref_dec))
@@ -496,9 +521,11 @@ def _outside_tile_area(ra: float, dec: float, grid: _CoverageGrid) -> float:
     region_x_max = -region_x_min
     region_y_min = grid.dec_min_deg
     region_y_max = grid.dec_max_deg
-    inside_x = max(0.0, min(center_x + half, region_x_max) - max(center_x - half, region_x_min))
-    inside_y = max(0.0, min(dec + half, region_y_max) - max(dec - half, region_y_min))
-    return max(0.0, TILE_SIZE_DEG**2 - inside_x * inside_y)
+    inside_x = max(
+        0.0, min(center_x + half_width, region_x_max) - max(center_x - half_width, region_x_min)
+    )
+    inside_y = max(0.0, min(dec + half_height, region_y_max) - max(dec - half_height, region_y_min))
+    return max(0.0, profile.tile_width_deg * profile.tile_height_deg - inside_x * inside_y)
 
 
 def _measure_metrics(
@@ -508,6 +535,7 @@ def _measure_metrics(
     contributing: int,
     anchor_count: int,
     candidates_available: int,
+    profile: TilingProfile,
 ) -> PlanMetrics:
     """Measure final region coverage and proposal overlap from sampled masks."""
     covered = existing_mask.copy()
@@ -520,7 +548,7 @@ def _measure_metrics(
         proposed_sample_weight += float(grid.weights[mask].sum())
         new_covered |= mask & ~covered
         covered |= mask
-        outside_area += _outside_tile_area(ra, dec, grid)
+        outside_area += _outside_tile_area(ra, dec, grid, profile)
     total = max(grid.total_weight, 1e-12)
     total_coverage = float(grid.weights[covered].sum()) / total
     incremental = float(grid.weights[new_covered].sum()) / total

@@ -29,6 +29,19 @@ export interface CatalogueResponse {
   warnings: string[];
 }
 
+/** Validated observing geometry supplied by the backend profile registry. */
+export interface TilingProfile {
+  id: string;
+  display_name: string;
+  description?: string | null;
+  tile_width_deg: number;
+  tile_height_deg: number;
+  effective_overlap_arcsec: number;
+  coordinate_frame: string;
+  epoch: string;
+  algorithm: string;
+}
+
 /** Celestial position used by import and region-planning endpoints. */
 export interface CenterInput {
   /** ICRS right ascension in decimal degrees. */

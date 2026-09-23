@@ -5,7 +5,21 @@ import type {
   RegionBounds,
   RegionPlanResponse,
   TileRecord,
+  TilingProfile,
 } from "./types";
+
+/** Load the installed default observing profile and its physical tile geometry.
+ *
+ * @returns The backend-selected default profile.
+ */
+export async function loadDefaultProfile(): Promise<TilingProfile> {
+  const response = await checked<{ default_profile_id: string; profiles: TilingProfile[] }>(
+    await fetch("/api/profiles"),
+  );
+  const profile = response.profiles.find((item) => item.id === response.default_profile_id);
+  if (!profile) throw new Error("The default observing profile is not installed.");
+  return profile;
+}
 
 async function checked<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -84,6 +98,7 @@ export async function planRegion(
   existingTiles: TileRecord[],
   mode: "automatic" | "fixed",
   count?: number,
+  profileId?: string,
 ): Promise<RegionPlanResponse> {
   return checked(
     await fetch("/api/plan/region", {
@@ -92,6 +107,7 @@ export async function planRegion(
       body: JSON.stringify({
         bounds,
         existing_tiles: existingTiles,
+        profile_id: profileId,
         mode,
         ...(mode === "fixed" ? { count } : {}),
       }),

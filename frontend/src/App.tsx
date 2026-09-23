@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { downloadCatalogue, loadReferenceCatalogue, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import type {
   CenterInput,
   CatalogueResponse,
@@ -10,6 +10,7 @@ import type {
   RegionBounds,
   RegionPlanResponse,
   TileRecord,
+  TilingProfile,
 } from "./types";
 
 interface ProposalPreview {
@@ -34,6 +35,7 @@ const EMPTY_IDS: string[] = [];
 /** Render the stateless catalogue, sky planning, proposal, and export workspace. */
 export default function App() {
   const [catalogue, setCatalogue] = useState<CatalogueResponse | null>(null);
+  const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [undoStack, setUndoStack] = useState<TileRecord[][]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
@@ -70,6 +72,12 @@ export default function App() {
     const ids = new Set(pending.anchorTileIds);
     return mapTiles.filter((tile) => ids.has(tile.id));
   }, [pending, mapTiles]);
+
+  useEffect(() => {
+    void loadDefaultProfile().then(setProfile).catch((caught: unknown) => {
+      setError(caught instanceof Error ? caught.message : "Could not load observing profile.");
+    });
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -161,6 +169,7 @@ export default function App() {
         visibleTiles,
         planningMode,
         planningMode === "fixed" ? normalizedFixedCount(fixedN) : undefined,
+        profile?.id,
       ),
       (result: RegionPlanResponse) => {
         setPending({
@@ -248,7 +257,7 @@ export default function App() {
           </div>
           <div>
             <h1>Tile Planner</h1>
-            <p>South survey footprint planner</p>
+            <p>{profile?.display_name ?? "Astronomical tile planning"}</p>
           </div>
         </div>
         <div className="topbar-state">
@@ -446,6 +455,7 @@ export default function App() {
           </div>
           <AladinMap
             tiles={mapTiles}
+            profile={profile}
             mode={mapMode}
             selectionRequest={selectionRequest}
             focusRequest={focusRequest}
@@ -466,7 +476,7 @@ export default function App() {
           />
           <div className="map-footer">
             <span><i className="legend-line legend-cyan" />Tile footprints appear when zoomed in</span>
-            <span>Approximate 1.4° × 1.4° coverage</span>
+            <span>{profile ? `Approximate ${profile.tile_width_deg}° × ${profile.tile_height_deg}° coverage` : "Loading geometry…"}</span>
           </div>
         </section>
 

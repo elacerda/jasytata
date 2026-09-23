@@ -6,6 +6,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.profiles import DEFAULT_PROFILE_ID
+
 
 class GenerationMethod(StrEnum):
     """Supported ways of creating proposed tile centers."""
@@ -147,6 +149,7 @@ class RegionPlanRequest(BaseModel):
     """Input for planning additional tiles in a selected sky rectangle."""
 
     bounds: RegionBounds
+    profile_id: str = DEFAULT_PROFILE_ID
     existing_tiles: list[TileRecord] = Field(max_length=20_000)
     mode: PlanningMode = PlanningMode.AUTOMATIC
     count: int | None = Field(default=None, ge=1, le=500)

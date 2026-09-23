@@ -6,6 +6,7 @@ import type { CenterInput, CatalogueResponse, RegionPlanResponse, TileRecord } f
 
 const apiMocks = vi.hoisted(() => ({
   downloadCatalogue: vi.fn(),
+  loadDefaultProfile: vi.fn(),
   loadReferenceCatalogue: vi.fn(),
   parseCenters: vi.fn(),
   planRegion: vi.fn(),
@@ -125,6 +126,11 @@ function makePlan(count: number): RegionPlanResponse {
 describe("Tile Planner proposal workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    apiMocks.loadDefaultProfile.mockResolvedValue({
+      id: "splus-t80-south", display_name: "S-PLUS / T80-South", tile_width_deg: 1.4,
+      tile_height_deg: 1.4, effective_overlap_arcsec: 120, coordinate_frame: "icrs",
+      epoch: "J2000", algorithm: "SPLUS_LEGACY_GRID_V1",
+    });
     apiMocks.loadReferenceCatalogue.mockResolvedValue(catalogue);
     apiMocks.planRegion.mockImplementation(
       async (_bounds: unknown, _tiles: unknown, mode: string, count?: number) =>
@@ -165,6 +171,7 @@ describe("Tile Planner proposal workflow", () => {
       [original],
       "automatic",
       undefined,
+      "splus-t80-south",
     );
 
     await user.click(screen.getByRole("button", { name: "Fixed N" }));
@@ -178,6 +185,7 @@ describe("Tile Planner proposal workflow", () => {
       [original],
       "fixed",
       4,
+      "splus-t80-south",
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));

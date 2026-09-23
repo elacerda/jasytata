@@ -16,10 +16,9 @@ describe("Aladin coordinate helpers", () => {
   });
 
   it("corrects square tile RA width by declination", () => {
-    const corners = tileFootprint({ ra_deg: 143, dec_deg: -40 });
+    const corners = tileFootprint({ ra_deg: 143, dec_deg: -40 }, { tile_width_deg: 1.4, tile_height_deg: 1.4 });
     const raWidth = ((corners[1][0] - corners[0][0] + 360) % 360) * Math.cos((40 * Math.PI) / 180);
     expect(raWidth).toBeCloseTo(1.4, 4);
     expect(corners).toHaveLength(5);
   });
 });
-

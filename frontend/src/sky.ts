@@ -1,4 +1,4 @@
-import type { RegionBounds, TileRecord } from "./types";
+import type { RegionBounds, TileRecord, TilingProfile } from "./types";
 
 /**
  * Convert Aladin's ICRS rectangle corners to an eastward interval that crosses RA zero safely.
@@ -38,17 +38,18 @@ export function regionBoundsFromCorners(corners: Array<[number, number]>): Regio
 /** Return the approximate tile footprint, correcting RA width at the center declination.
  *
  * @param tile - Center RA/DEC in degrees.
- * @returns Closed five-vertex footprint in ICRS degrees, approximated as 1.4° × 1.4°.
+ * @param profile - Physical tile width and height in on-sky degrees.
+ * @returns Closed five-vertex footprint in ICRS degrees.
  */
-export function tileFootprint(tile: Pick<TileRecord, "ra_deg" | "dec_deg">): Array<[number, number]> {
-  const half = 0.7;
+export function tileFootprint(tile: Pick<TileRecord, "ra_deg" | "dec_deg">, profile: Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">): Array<[number, number]> {
+  const halfHeight = profile.tile_height_deg / 2;
   const cosine = Math.max(Math.cos((tile.dec_deg * Math.PI) / 180), 0.01);
-  const halfRa = half / cosine;
+  const halfRa = profile.tile_width_deg / 2 / cosine;
   return [
-    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg - half],
-    [(tile.ra_deg + halfRa) % 360, tile.dec_deg - half],
-    [(tile.ra_deg + halfRa) % 360, tile.dec_deg + half],
-    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg + half],
-    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg - half],
+    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg - halfHeight],
+    [(tile.ra_deg + halfRa) % 360, tile.dec_deg - halfHeight],
+    [(tile.ra_deg + halfRa) % 360, tile.dec_deg + halfHeight],
+    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg + halfHeight],
+    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg - halfHeight],
   ];
 }

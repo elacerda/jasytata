@@ -18,6 +18,7 @@ The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use
 ```text
 backend/app/science/       Astropy geometry, parsing, inference, coverage, CSV export
 backend/app/models.py      Typed Pydantic request/response models
+backend/profiles/           Validated, file-backed observing profiles
 backend/app/main.py        Stateless FastAPI endpoints and production static serving
 frontend/src/              React/TypeScript workspace and Aladin Lite v3 overlays
 reference/                  Legacy generator and representative source catalogue
@@ -25,6 +26,10 @@ docs/ALGORITHM.md           Scientific and planner behavior
 ```
 
 The frontend keeps the uploaded catalogue and accepted proposals in client state. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus each source row's original six CSV values; every planning/export request carries its current session inputs. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
+
+## Observing profiles
+
+YAML files in `backend/profiles/` define an instrument's tile width and height in degrees, effective edge overlap in arcseconds, ICRS/J2000 coordinates, and a generation algorithm. The installed default is `splus-t80-south` (S-PLUS / T80-South): 1.4° × 1.4°, 120 arcsec effective overlap, and `SPLUS_LEGACY_GRID_V1`. The historical helper used a 30 arcsec base overlap multiplied internally by four; profile files use the physically meaningful 120 arcsec value. Add another YAML file with a distinct identifier and `RECT_GRID_V1` to describe another rectangular instrument. `GET /api/profiles` exposes installed profiles to clients; region planning accepts `profile_id`.
 
 ## Development setup
 
@@ -81,6 +86,7 @@ PID,NAME,RA,DEC,EPOC,STATUS
 ## API
 
 - `GET /api/health`
+- `GET /api/profiles`
 - `GET /api/catalogue/reference`
 - `POST /api/catalogue/parse` (multipart CSV upload)
 - `POST /api/centers/parse`

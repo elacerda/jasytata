@@ -648,6 +648,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "python-multipart" },
+    { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -666,6 +667,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0,<3" },
     { name = "pydantic", specifier = ">=2.9,<3" },
     { name = "python-multipart", specifier = ">=0.0.12,<1" },
+    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
 ]
 

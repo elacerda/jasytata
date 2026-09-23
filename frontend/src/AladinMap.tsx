@@ -6,7 +6,7 @@ import type {
   AladinLiteOverlay,
   AladinLiteSource,
 } from "aladin-lite";
-import type { CenterInput, RegionBounds, TileRecord } from "./types";
+import type { CenterInput, RegionBounds, TileRecord, TilingProfile } from "./types";
 import { regionBoundsFromCorners, tileFootprint } from "./sky";
 
 /** Map click behavior: normal inspection/pan or single-center placement. */
@@ -14,6 +14,7 @@ export type MapMode = "idle" | "add-tile";
 
 interface AladinMapProps {
   tiles: TileRecord[];
+  profile: TilingProfile | null;
   mode: MapMode;
   selectionRequest: number;
   focusRequest: number;
@@ -135,7 +136,7 @@ export default function AladinMap(props: AladinMapProps) {
 
   useEffect(() => {
     redrawRef.current();
-  }, [props.selectedTileId, props.selectedBounds, props.anchorTileIds, props.candidateCenters, props.showLattice]);
+  }, [props.selectedTileId, props.selectedBounds, props.anchorTileIds, props.candidateCenters, props.showLattice, props.profile]);
 
   useEffect(() => {
     const tiles = propsRef.current.tiles;
@@ -209,7 +210,8 @@ export default function AladinMap(props: AladinMapProps) {
         .map((tile) => {
           const dx = wrappedRaDelta(ra, tile.ra_deg) * Math.cos((tile.dec_deg * Math.PI) / 180);
           const dy = dec - tile.dec_deg;
-          return { tile, distance: Math.hypot(dx, dy), inside: Math.abs(dx) <= 0.7 && Math.abs(dy) <= 0.7 };
+          const profile = propsRef.current.profile;
+          return { tile, distance: Math.hypot(dx, dy), inside: !!profile && Math.abs(dx) <= profile.tile_width_deg / 2 && Math.abs(dy) <= profile.tile_height_deg / 2 };
         })
         .filter((candidate) => candidate.inside)
         .sort((left, right) => left.distance - right.distance)[0];
@@ -237,10 +239,12 @@ export default function AladinMap(props: AladinMapProps) {
     const proposals = current.tiles.filter((tile) => tile.source === "proposed");
     const [centerRa, centerDec] = instance.getRaDec();
     const [fovX, fovY] = instance.getFoV();
-    const drawFootprints = fovX <= 36;
+    const drawFootprints = !!current.profile && fovX <= 36;
+    const profile = current.profile;
+    const margin = Math.max(profile?.tile_width_deg ?? 0, profile?.tile_height_deg ?? 0);
     const visible = (tile: SkyPoint) =>
-      Math.abs(wrappedRaDelta(tile.ra_deg, centerRa) * Math.cos((centerDec * Math.PI) / 180)) <= fovX * 0.65 + 1.4 &&
-      Math.abs(tile.dec_deg - centerDec) <= fovY * 0.65 + 1.4;
+      Math.abs(wrappedRaDelta(tile.ra_deg, centerRa) * Math.cos((centerDec * Math.PI) / 180)) <= fovX * 0.65 + margin &&
+      Math.abs(tile.dec_deg - centerDec) <= fovY * 0.65 + margin;
 
     const selected = current.tiles.find((tile) => tile.id === current.selectedTileId) ?? null;
     const anchorSet = new Set(current.anchorTileIds);
@@ -251,14 +255,14 @@ export default function AladinMap(props: AladinMapProps) {
     const anchorLayer = footprintLayers[3];
     const candidateLayer = footprintLayers[4];
     for (const layer of footprintLayers) layer.removeAll();
-    if (drawFootprints) {
-      originals.filter(visible).slice(0, 900).forEach((tile) => originalLayer.add(A.polyline(tileFootprint(tile))));
-      proposals.filter(visible).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile))));
+    if (drawFootprints && profile) {
+      originals.filter(visible).slice(0, 900).forEach((tile) => originalLayer.add(A.polyline(tileFootprint(tile, profile))));
+      proposals.filter(visible).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
       current.tiles
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
         .slice(0, 100)
-        .forEach((tile) => anchorLayer.add(A.polyline(tileFootprint(tile))));
-      if (selected && visible(selected)) selectedLayer.add(A.polyline(tileFootprint(selected)));
+        .forEach((tile) => anchorLayer.add(A.polyline(tileFootprint(tile, profile))));
+      if (selected && visible(selected)) selectedLayer.add(A.polyline(tileFootprint(selected, profile)));
       current.candidateCenters
         .filter((center) => current.showLattice && visible(center))
         .slice(0, 1200)
