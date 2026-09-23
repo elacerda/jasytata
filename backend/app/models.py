@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -147,6 +148,68 @@ class RegionBounds(BaseModel):
         return (self.ra_end_deg - self.ra_start_deg) % 360
 
 
+class SkyPolygon(BaseModel):
+    """Ordered ICRS RA/DEC vertices in degrees; closure is implicit.
+
+    The polygon spans at most 180 degrees of RA and avoids the poles so a
+    local declination-aware projection remains well defined.
+    """
+
+    vertices: list[CenterInput] = Field(min_length=3, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_polygon(self) -> SkyPolygon:
+        """Reject repeated vertices, crossing edges, and negligible area."""
+        vertices = self.vertices
+        if any(abs(vertex.dec_deg) >= 90 for vertex in vertices):
+            raise ValueError("Polygon vertices must lie away from the poles")
+        ra = [vertices[0].ra_deg]
+        for previous, current in zip(vertices, vertices[1:], strict=False):
+            ra.append(ra[-1] + (current.ra_deg - previous.ra_deg + 180) % 360 - 180)
+        if max(ra) - min(ra) > 180:
+            raise ValueError("Polygon RA span must be 180 degrees or less")
+        dec = [vertex.dec_deg for vertex in vertices]
+        for index, (x, y) in enumerate(zip(ra, dec, strict=True)):
+            if any(math.hypot(x - ra[other], y - dec[other]) < 1e-6 for other in range(index)):
+                raise ValueError("Polygon vertices must be distinct")
+        cosine = math.cos(math.radians(sum(dec) / len(dec)))
+        points = [(x * cosine, y) for x, y in zip(ra, dec, strict=True)]
+        twice_area = sum(
+            x * points[(index + 1) % len(points)][1]
+            - points[(index + 1) % len(points)][0] * y
+            for index, (x, y) in enumerate(points)
+        )
+        if abs(twice_area) / 2 < 1e-5:
+            raise ValueError("Polygon has effectively zero area")
+
+        def cross(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+        for first in range(len(points)):
+            for second in range(first + 1, len(points)):
+                if second == first + 1 or (first == 0 and second == len(points) - 1):
+                    continue
+                a, b = points[first], points[(first + 1) % len(points)]
+                c, d = points[second], points[(second + 1) % len(points)]
+                if cross(a, b, c) * cross(a, b, d) < 0 and cross(c, d, a) * cross(c, d, b) < 0:
+                    raise ValueError("Polygon edges cross")
+        return self
+
+    @property
+    def bounds(self) -> RegionBounds:
+        """Return the minimal local RA/DEC bounds for candidate acceleration."""
+        ra = [self.vertices[0].ra_deg]
+        for previous, current in zip(self.vertices, self.vertices[1:], strict=False):
+            ra.append(ra[-1] + (current.ra_deg - previous.ra_deg + 180) % 360 - 180)
+        dec = [vertex.dec_deg for vertex in self.vertices]
+        return RegionBounds(
+            ra_start_deg=min(ra) % 360,
+            ra_end_deg=max(ra) % 360,
+            dec_min_deg=min(dec),
+            dec_max_deg=max(dec),
+        )
+
+
 class PlanningMode(StrEnum):
     """Automatic coverage planning or exact-count planning."""
 
@@ -157,7 +220,8 @@ class PlanningMode(StrEnum):
 class RegionPlanRequest(BaseModel):
     """Input for planning additional tiles in a selected sky rectangle."""
 
-    bounds: RegionBounds
+    bounds: RegionBounds | None = None
+    polygon: SkyPolygon | None = None
     profile_id: str = DEFAULT_PROFILE_ID
     existing_tiles: list[TileRecord] = Field(max_length=20_000)
     mode: PlanningMode = PlanningMode.AUTOMATIC
@@ -170,6 +234,8 @@ class RegionPlanRequest(BaseModel):
             raise ValueError("A positive tile count is required in fixed mode")
         if self.mode == PlanningMode.AUTOMATIC and self.count is not None:
             raise ValueError("Do not provide a tile count in automatic mode")
+        if (self.bounds is None) == (self.polygon is None):
+            raise ValueError("Provide exactly one selected polygon or legacy bounds")
         return self
 
 

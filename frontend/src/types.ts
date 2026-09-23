@@ -79,6 +79,11 @@ export interface RegionBounds {
   dec_max_deg: number;
 }
 
+/** Ordered ICRS polygon vertices in decimal degrees; the closing vertex is implicit. */
+export interface SkyPolygon {
+  vertices: CenterInput[];
+}
+
 /** Deterministic sampled-coverage measurements returned by region planning. */
 export interface PlanMetrics {
   existing_tiles_contributing: number;

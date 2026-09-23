@@ -2,7 +2,7 @@ import type {
   CenterInput,
   CatalogueResponse,
   ExportConfig,
-  RegionBounds,
+  SkyPolygon,
   RegionPlanResponse,
   TileRecord,
   TilingProfile,
@@ -96,14 +96,14 @@ export async function proposeCenters(
 
 /** Plan a selected region against original and already accepted proposed tiles.
  *
- * @param bounds - Eastward rectangular ICRS bounds in decimal degrees.
+ * @param polygon - Ordered ICRS vertices in decimal degrees.
  * @param existingTiles - Original catalogue plus accepted proposals.
  * @param mode - Automatic coverage target or exact new-tile count.
  * @param count - Exact number of new tiles for fixed mode.
  * @returns Auditable solution with selected centers, anchors, diagnostics, and metrics.
  */
 export async function planRegion(
-  bounds: RegionBounds,
+  polygon: SkyPolygon,
   existingTiles: TileRecord[],
   mode: "automatic" | "fixed",
   count?: number,
@@ -114,7 +114,7 @@ export async function planRegion(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        bounds,
+        polygon,
         existing_tiles: existingTiles,
         profile_id: profileId,
         mode,

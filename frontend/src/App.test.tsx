@@ -21,12 +21,7 @@ vi.mock("./AladinMap", async () => {
     default: (props: {
       tiles: TileRecord[];
       onTileSelect: (tile: TileRecord) => void;
-      onRegionSelect: (bounds: {
-        ra_start_deg: number;
-        ra_end_deg: number;
-        dec_min_deg: number;
-        dec_max_deg: number;
-      }) => void;
+      onRegionSelect: (polygon: { vertices: CenterInput[] }) => void;
       onSkyClick: (ra: number, dec: number) => void;
     }) =>
       React.createElement(
@@ -36,12 +31,10 @@ vi.mock("./AladinMap", async () => {
           "button",
           {
             onClick: () =>
-              props.onRegionSelect({
-                ra_start_deg: 120,
-                ra_end_deg: 135,
-                dec_min_deg: -61,
-                dec_max_deg: -57,
-              }),
+              props.onRegionSelect({ vertices: [
+                { ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 },
+                { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 },
+              ] }),
           },
           "Mock select region",
         ),
@@ -174,7 +167,7 @@ describe("Tile Planner proposal workflow", () => {
     expect(await screen.findByText("Existing grid extended")).toBeTruthy();
     expect(screen.getByText("59.91 deg²")).toBeTruthy();
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      { ra_start_deg: 120, ra_end_deg: 135, dec_min_deg: -61, dec_max_deg: -57 },
+      { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
       expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       "automatic",
       undefined,
@@ -188,7 +181,7 @@ describe("Tile Planner proposal workflow", () => {
     await user.click(screen.getByRole("button", { name: "Find 4 new tiles" }));
     await waitFor(() => expect(screen.getByText("NEW TILE CENTERS").nextElementSibling?.textContent).toBe("4"));
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      { ra_start_deg: 120, ra_end_deg: 135, dec_min_deg: -61, dec_max_deg: -57 },
+      { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
       expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       "fixed",
       4,

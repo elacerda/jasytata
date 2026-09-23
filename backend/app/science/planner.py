@@ -15,6 +15,7 @@ from app.models import (
     RegionBounds,
     RegionPlanRequest,
     RegionPlanResponse,
+    SkyPolygon,
     TileRecord,
     TileSource,
 )
@@ -49,7 +50,7 @@ class _Lattice:
 
 @dataclass(frozen=True)
 class _CoverageGrid:
-    """Sample points and area weights over the selected RA/DEC rectangle."""
+    """Sample points and area weights over the selected sky region."""
 
     ra_deg: np.ndarray
     dec_deg: np.ndarray
@@ -61,6 +62,7 @@ class _CoverageGrid:
     ra_span_deg: float
     dec_min_deg: float
     dec_max_deg: float
+    cell_area_deg2: float
 
 
 def plan_region(
@@ -89,7 +91,8 @@ def plan_region(
         number of centers that can add selected-region coverage.
     """
     profile = profile or load_profile(request.profile_id)
-    bounds = request.bounds
+    bounds = request.polygon.bounds if request.polygon else request.bounds
+    assert bounds is not None
     region_center_ra = (bounds.ra_start_deg + bounds.ra_span_deg / 2) % 360
     region_center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
     local_tiles = _tiles_near_region(
@@ -131,7 +134,7 @@ def plan_region(
             f"area to at most {MAX_CANDIDATES}."
         )
     unique_candidates = _exclude_occupied(raw_candidates, request.existing_tiles, region_center_dec)
-    grid = _sample_region(bounds)
+    grid = _sample_region(bounds, request.polygon)
     existing_mask = _covered_mask(grid, request.existing_tiles, profile)
     contributing_count = _contributing_tile_count(grid, request.existing_tiles, profile)
     candidate_masks = [_tile_mask(grid, ra, dec, profile) for ra, dec in unique_candidates]
@@ -409,8 +412,13 @@ def _exclude_occupied(
     return kept
 
 
-def _sample_region(bounds: RegionBounds) -> _CoverageGrid:
-    """Create a weighted rectangular sample grid capped for interactive use."""
+def _sample_region(bounds: RegionBounds, polygon: SkyPolygon | None = None) -> _CoverageGrid:
+    """Create a declination-weighted sample grid clipped to a sky polygon.
+
+    The rectangular bounds are used only to lay out samples. For polygon
+    requests, ray casting in locally unwrapped RA zeroes every outside weight.
+    Each weight represents a cell of RA/DEC area times ``cos(DEC)``.
+    """
     center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
     width_deg = bounds.ra_span_deg * max(math.cos(math.radians(center_dec)), 0.01)
     height_deg = bounds.dec_max_deg - bounds.dec_min_deg
@@ -431,6 +439,25 @@ def _sample_region(bounds: RegionBounds) -> _CoverageGrid:
     ra_values = np.broadcast_to(ra_grid, (rows, cols)).ravel().copy()
     dec_grid = np.broadcast_to(dec_values[:, None], (rows, cols)).ravel().copy()
     weights = np.broadcast_to(np.cos(np.radians(dec_values))[:, None], (rows, cols)).ravel().copy()
+    if polygon is not None:
+        x = (ra_values - bounds.ra_start_deg) % 360
+        y = dec_grid
+        polygon_x = np.array(
+            [(vertex.ra_deg - bounds.ra_start_deg) % 360 for vertex in polygon.vertices]
+        )
+        polygon_y = np.array([vertex.dec_deg for vertex in polygon.vertices])
+        inside = np.zeros(len(x), dtype=bool)
+        for index in range(len(polygon_x)):
+            next_index = (index + 1) % len(polygon_x)
+            x1, y1 = polygon_x[index], polygon_y[index]
+            x2, y2 = polygon_x[next_index], polygon_y[next_index]
+            crossing = ((y1 > y) != (y2 > y)) & (
+                x < (x2 - x1) * (y - y1) / (y2 - y1 if y2 != y1 else 1) + x1
+            )
+            inside ^= crossing
+        weights *= inside
+        if not np.any(inside):
+            raise ValueError("Polygon is too small for the coverage sample resolution")
     return _CoverageGrid(
         ra_values,
         dec_grid,
@@ -442,6 +469,7 @@ def _sample_region(bounds: RegionBounds) -> _CoverageGrid:
         bounds.ra_span_deg,
         bounds.dec_min_deg,
         bounds.dec_max_deg,
+        (bounds.ra_span_deg / cols) * (height_deg / rows),
     )
 
 
@@ -451,7 +479,7 @@ def _tile_mask(
     """Return sampled points inside the profile's rectangular footprint."""
     dec_inside = np.abs(grid.dec_deg - dec_deg) <= profile.tile_height_deg / 2
     ra_physical = np.abs(_wrapped_ra_array(grid.ra_deg, ra_deg)) * math.cos(math.radians(dec_deg))
-    return dec_inside & (ra_physical <= profile.tile_width_deg / 2)
+    return (grid.weights > 0) & dec_inside & (ra_physical <= profile.tile_width_deg / 2)
 
 
 def _covered_mask(
@@ -553,11 +581,7 @@ def _measure_metrics(
     total_coverage = float(grid.weights[covered].sum()) / total
     incremental = float(grid.weights[new_covered].sum()) / total
     redundant = redundant_sample_weight / max(proposed_sample_weight, 1e-12) if selected else 0.0
-    area_deg2 = (
-        math.radians(grid.ra_span_deg)
-        * (math.sin(math.radians(grid.dec_max_deg)) - math.sin(math.radians(grid.dec_min_deg)))
-        * (180 / math.pi) ** 2
-    )
+    area_deg2 = grid.total_weight * grid.cell_area_deg2
     return PlanMetrics(
         existing_tiles_contributing=contributing,
         anchor_tiles_used=anchor_count,

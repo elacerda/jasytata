@@ -6,13 +6,14 @@ import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
 const aladinMocks = vi.hoisted(() => {
   const handlers = new Map<string, (value: unknown) => void>();
   const catalogues: Array<{ show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; addSources: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn> }> = [];
+  const overlays: Array<{ add: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn> }> = [];
   const instance = {
     on: vi.fn((event: string, handler: (value: unknown) => void) => handlers.set(event, handler)),
     off: vi.fn(), addCatalog: vi.fn(), addOverlay: vi.fn(), remove: vi.fn(),
     getRaDec: vi.fn(() => [150, -30]), getFoV: vi.fn(() => [100, 80]),
-    gotoRaDec: vi.fn(), setFoV: vi.fn(),
+    gotoRaDec: vi.fn(), setFoV: vi.fn(), select: vi.fn(), pix2world: vi.fn((x: number, y: number) => [x, y]),
   };
-  return { handlers, catalogues, instance };
+  return { handlers, catalogues, overlays, instance };
 });
 
 vi.mock("aladin-lite", () => ({ default: {
@@ -24,7 +25,11 @@ vi.mock("aladin-lite", () => ({ default: {
     return catalogue;
   },
   source: (ra: number, dec: number, data: Record<string, unknown>) => ({ ra, dec, data }),
-  graphicOverlay: () => ({ add: vi.fn(), removeAll: vi.fn() }),
+  graphicOverlay: () => {
+    const overlay = { add: vi.fn(), removeAll: vi.fn() };
+    aladinMocks.overlays.push(overlay);
+    return overlay;
+  },
   polyline: vi.fn(), circle: vi.fn(),
 } }));
 
@@ -48,6 +53,7 @@ function dataset(id: string, filename: string, visible = true): CatalogueDataset
 describe("native Aladin catalogue layers", () => {
   beforeEach(() => {
     aladinMocks.catalogues.length = 0;
+    aladinMocks.overlays.length = 0;
     aladinMocks.handlers.clear();
     vi.stubGlobal("ResizeObserver", class {
       observe() { /* Aladin reacts to viewport changes in the browser. */ }
@@ -62,7 +68,7 @@ describe("native Aladin catalogue layers", () => {
     const second = dataset("b", "second.csv");
     const base = {
       tiles: [...first.tiles, ...second.tiles], profile, mode: "idle" as const,
-      selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedBounds: null,
+      selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
       anchorTileIds: [], candidateCenters: [], showLattice: true,
       onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onError: vi.fn(),
     };
@@ -81,5 +87,32 @@ describe("native Aladin catalogue layers", () => {
     expect(aladinMocks.catalogues[0].hide).not.toHaveBeenCalled();
     view.rerender(<AladinMap {...base} datasets={[first, second]} />);
     expect(aladinMocks.catalogues[1].show).toHaveBeenCalled();
+  });
+
+  it("uses Aladin's native polygon selector and clears only the region overlay", async () => {
+    const onRegionSelect = vi.fn();
+    const first = dataset("a", "first.csv");
+    const base = {
+      tiles: first.tiles, datasets: [first], profile, mode: "idle" as const,
+      focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+      anchorTileIds: [], candidateCenters: [], showLattice: false,
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect, onError: vi.fn(),
+    };
+    const view = render(<AladinMap {...base} selectionRequest={0} />);
+    await waitFor(() => expect(aladinMocks.instance.addCatalog).toHaveBeenCalled());
+    aladinMocks.instance.select.mockImplementationOnce((_mode, callback) => {
+      callback({ vertices: [{ x: 359, y: -30 }, { x: 1, y: -30 }, { x: 1, y: -28 }] });
+      return Promise.resolve();
+    });
+    view.rerender(<AladinMap {...base} selectionRequest={1} />);
+    await waitFor(() => expect(onRegionSelect).toHaveBeenCalledTimes(1));
+    expect(aladinMocks.instance.select).toHaveBeenCalledWith("poly", expect.any(Function));
+    const polygon = onRegionSelect.mock.calls[0][0];
+    expect(polygon.vertices.map((vertex: { ra_deg: number }) => vertex.ra_deg)).toEqual([359, 1, 1]);
+    view.rerender(<AladinMap {...base} selectionRequest={1} selectedPolygon={polygon} />);
+    expect(aladinMocks.overlays[5].add).toHaveBeenCalled();
+    view.rerender(<AladinMap {...base} selectionRequest={1} selectedPolygon={null} />);
+    expect(aladinMocks.overlays[5].removeAll).toHaveBeenCalled();
+    expect(aladinMocks.catalogues[0].removeAll).not.toHaveBeenCalled();
   });
 });

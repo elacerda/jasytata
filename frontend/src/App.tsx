@@ -9,7 +9,7 @@ import type {
   CatalogueResponse,
   ExportConfig,
   PlanMetrics,
-  RegionBounds,
+  SkyPolygon,
   RegionPlanResponse,
   TileRecord,
   TilingProfile,
@@ -51,7 +51,7 @@ export default function App() {
   const [undoStack, setUndoStack] = useState<TileRecord[][]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
-  const [regionBounds, setRegionBounds] = useState<RegionBounds | null>(null);
+  const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
   const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectingRegion, setSelectingRegion] = useState(false);
@@ -190,10 +190,10 @@ export default function App() {
   }
 
   async function handlePlanRegion() {
-    if (!regionBounds || !hasCatalogue) return;
+    if (!regionPolygon || !hasCatalogue) return;
     await runBusy(
       () => planRegion(
-        regionBounds,
+        regionPolygon,
         visibleTiles,
         planningMode,
         planningMode === "fixed" ? normalizedFixedCount(fixedN) : undefined,
@@ -384,29 +384,29 @@ export default function App() {
                   else {
                     setSelectingRegion(true);
                     setSelectionRequest((previous) => previous + 1);
-                    setNotice("Drag a rectangle on the map. Pan and zoom first if needed.");
+                    setNotice("Click successive sky points, then double-click to close the polygon.");
                   }
                 }}
                 disabled={!hasCatalogue || busy}
               >
                 <span className="mode-icon"><Icon name="region" /></span>
-                <span><strong>Select region</strong><small>Drag a rectangle on the sky</small></span>
+                <span><strong>Select area</strong><small>Click polygon vertices on the sky</small></span>
                 <Icon name="chevron" />
               </button>
             </div>
           </section>
 
           <section className="panel-section planning-section">
-            <SectionHeading title="Region plan" trailing={regionBounds ? "AREA SET" : undefined} />
-            {regionBounds ? (
+            <SectionHeading title="Region plan" trailing={regionPolygon ? "AREA SET" : undefined} />
+            {regionPolygon ? (
               <div className="region-summary">
-                <div className="coordinate-row"><span>RA</span><strong>{formatRegionRa(regionBounds)}</strong></div>
-                <div className="coordinate-row"><span>DEC</span><strong>{regionBounds.dec_min_deg.toFixed(3)}° → {regionBounds.dec_max_deg.toFixed(3)}°</strong></div>
-                <button className="text-button" onClick={() => setSelectionRequest((previous) => previous + 1)}>Redraw bounds</button>
+                <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
+                <button className="text-button" onClick={() => setSelectionRequest((previous) => previous + 1)}>Redraw polygon</button>
               </div>
             ) : (
-              <p className="panel-copy">Select a map rectangle to plan coverage around existing tiles.</p>
+              <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
             )}
+            <button className="text-button" onClick={() => { setRegionPolygon(null); setSelectingRegion(false); setNotice("Selected polygon cleared; catalogues and proposals remain."); }} disabled={!regionPolygon}>Clear selection</button>
             <div className="segmented-control" role="group" aria-label="Planning mode">
               <button className={planningMode === "automatic" ? "is-selected" : ""} onClick={() => setPlanningMode("automatic")}>Automatic</button>
               <button className={planningMode === "fixed" ? "is-selected" : ""} onClick={() => setPlanningMode("fixed")}>Fixed N</button>
@@ -429,7 +429,7 @@ export default function App() {
                 </span>
               </label>
             )}
-            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionBounds || busy}>
+            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}{planLabel}
             </button>
             <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>
@@ -484,7 +484,7 @@ export default function App() {
             />
             {selectedTile && <LayerLegend color="var(--yellow)" label="Current selection" />}
             {pending && pending.anchorTileIds.length > 0 && <LayerLegend color="var(--violet)" label="Inference anchors" value={pending.anchorTileIds.length.toString()} />}
-            {regionBounds && <LayerLegend color="var(--yellow)" label="Selected region" />}
+            {regionPolygon && <LayerLegend color="var(--yellow)" label="Selected polygon · finalized" />}
             {pending?.candidateCenters.length ? (
               <>
                 <LayerLegend color="var(--green)" label="Candidate lattice" value={pending.candidateCenters.length.toString()} />
@@ -506,7 +506,7 @@ export default function App() {
             </div>
             <div className="map-toolbar-center">
               {mapMode === "add-tile" ? <span className="interaction-pill is-add">PLACE TILE · CLICK SKY</span> :
-                selectingRegion ? <span className="interaction-pill">DRAG REGION ON MAP</span> :
+                selectingRegion ? <span className="interaction-pill">CLICK POLYGON VERTICES</span> :
                 pending?.solution && pending.solution.startsWith("legacy_bounds") ? <span className="interaction-pill is-fallback">LEGACY BOUNDS FALLBACK</span> :
                 pending?.solution === "extended_existing_grid" ? <span className="interaction-pill is-extended">EXISTING GRID EXTENDED</span> :
                 <span className="interaction-pill is-idle">PAN · ZOOM · INSPECT</span>}
@@ -525,17 +525,17 @@ export default function App() {
             selectionRequest={selectionRequest}
             focusRequest={focusRequest}
             selectedTileId={selectedTileId}
-            selectedBounds={regionBounds}
+            selectedPolygon={regionPolygon}
             anchorTileIds={pending?.anchorTileIds ?? EMPTY_IDS}
             candidateCenters={pending?.candidateCenters ?? EMPTY_CENTERS}
             showLattice={showLattice}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
-            onRegionSelect={(bounds) => {
+            onRegionSelect={(polygon) => {
               setSelectingRegion(false);
-              setRegionBounds(bounds);
+              setRegionPolygon(polygon);
               setPending(null);
-              setNotice("Region bounds set. Choose automatic or fixed N, then generate a plan.");
+              setNotice("Sky polygon finalized. Generate a plan when ready.");
             }}
             onError={setError}
           />
@@ -740,8 +740,4 @@ function formatDec(value: number) {
 
 function normalizedFixedCount(value: string) {
   return Math.min(500, Math.max(1, Math.trunc(Number(value) || 1)));
-}
-
-function formatRegionRa(bounds: RegionBounds) {
-  return `${bounds.ra_start_deg.toFixed(3)}° → ${bounds.ra_end_deg.toFixed(3)}°`;
 }

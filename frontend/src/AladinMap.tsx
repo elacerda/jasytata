@@ -6,8 +6,8 @@ import type {
   AladinLiteOverlay,
   AladinLiteSource,
 } from "aladin-lite";
-import type { CatalogueDataset, CenterInput, RegionBounds, TileRecord, TilingProfile } from "./types";
-import { regionBoundsFromCorners, tileFootprint } from "./sky";
+import type { CatalogueDataset, CenterInput, SkyPolygon, TileRecord, TilingProfile } from "./types";
+import { skyPolygonFromVertices, tileFootprint } from "./sky";
 
 /** Map click behavior: normal inspection/pan or single-center placement. */
 export type MapMode = "idle" | "add-tile";
@@ -20,13 +20,13 @@ interface AladinMapProps {
   selectionRequest: number;
   focusRequest: number;
   selectedTileId: string | null;
-  selectedBounds: RegionBounds | null;
+  selectedPolygon: SkyPolygon | null;
   anchorTileIds: string[];
   candidateCenters: CenterInput[];
   showLattice: boolean;
   onSkyClick: (ra: number, dec: number) => void;
   onTileSelect: (tile: TileRecord) => void;
-  onRegionSelect: (bounds: RegionBounds) => void;
+  onRegionSelect: (polygon: SkyPolygon) => void;
   onError: (message: string) => void;
 }
 
@@ -142,7 +142,7 @@ export default function AladinMap(props: AladinMapProps) {
 
   useEffect(() => {
     redrawRef.current();
-  }, [props.selectedTileId, props.selectedBounds, props.anchorTileIds, props.candidateCenters, props.showLattice, props.profile]);
+  }, [props.selectedTileId, props.selectedPolygon, props.anchorTileIds, props.candidateCenters, props.showLattice, props.profile]);
 
   useEffect(() => {
     const tiles = propsRef.current.tiles;
@@ -157,27 +157,22 @@ export default function AladinMap(props: AladinMapProps) {
     selectionTokenRef.current = request;
     setIsSelecting(true);
     void instance
-      .select("rect", (selection) => {
+      .select("poly", (selection) => {
         try {
-          const coordinates = [
-            instance.pix2world(selection.x, selection.y),
-            instance.pix2world(selection.x + selection.w, selection.y),
-            instance.pix2world(selection.x + selection.w, selection.y + selection.h),
-            instance.pix2world(selection.x, selection.y + selection.h),
-          ];
-          const corners = coordinates.filter(
+          const coordinates = selection.vertices.map(({ x, y }) => instance.pix2world(x, y));
+          const vertices = coordinates.filter(
             (point): point is [number, number] => point !== undefined,
           );
-          if (corners.length !== 4) {
-            throw new Error("The selected rectangle extends outside the sky projection.");
+          if (vertices.length !== selection.vertices.length) {
+            throw new Error("The selected polygon extends outside the sky projection.");
           }
-          propsRef.current.onRegionSelect(regionBoundsFromCorners(corners));
+          propsRef.current.onRegionSelect(skyPolygonFromVertices(vertices));
           setIsSelecting(false);
           redrawRef.current();
         } catch (error) {
           setIsSelecting(false);
           propsRef.current.onError(
-            error instanceof Error ? error.message : "Could not read the selected sky rectangle.",
+            error instanceof Error ? error.message : "Could not read the selected sky polygon.",
           );
         }
       })
@@ -243,6 +238,7 @@ export default function AladinMap(props: AladinMapProps) {
     const footprintLayers = overlaysRef.current;
     const proposedLayer = footprintLayers[1];
     const selectedLayer = footprintLayers[2];
+    const regionLayer = footprintLayers[5];
     const anchorLayer = footprintLayers[3];
     const candidateLayer = footprintLayers[4];
     for (const layer of footprintLayers) layer.removeAll();
@@ -266,14 +262,9 @@ export default function AladinMap(props: AladinMapProps) {
     } else if (selected) {
       selectedLayer.add(A.circle(selected.ra_deg, selected.dec_deg, 0.07));
     }
-    if (current.selectedBounds) {
-      const bounds = current.selectedBounds;
-      const southWest = [bounds.ra_start_deg, bounds.dec_min_deg] as [number, number];
-      const southEast = [bounds.ra_end_deg, bounds.dec_min_deg] as [number, number];
-      const northEast = [bounds.ra_end_deg, bounds.dec_max_deg] as [number, number];
-      const northWest = [bounds.ra_start_deg, bounds.dec_max_deg] as [number, number];
-      const regionOverlay = A.polyline([southWest, southEast, northEast, northWest, southWest]);
-      selectedLayer.add(regionOverlay);
+    if (current.selectedPolygon) {
+      const points = current.selectedPolygon.vertices.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg] as [number, number]);
+      regionLayer.add(A.polyline([...points, points[0]]));
     }
   };
 
@@ -282,7 +273,7 @@ export default function AladinMap(props: AladinMapProps) {
       <div ref={containerRef} className="aladin-view" aria-label="Interactive sky map" />
       {props.mode === "add-tile" && <div className="map-instruction">Click the sky to place a tile center · Esc to cancel</div>}
       {isSelecting && (
-        <div className="map-instruction">Drag a rectangle across the sky to select an area</div>
+        <div className="map-instruction">Click successive sky points, then double-click to finish the polygon</div>
       )}
     </div>
   );
@@ -369,6 +360,7 @@ function rebuildOverlays(instance: AladinLiteInstance, refs: { current: AladinLi
     { name: "Selection and selected tile", color: "#f3ec65", lineWidth: 2 },
     { name: "Lattice anchors", color: "#d7a9ff", lineWidth: 2 },
     { name: "Candidate lattice", color: "#b0e47a", lineWidth: 1 },
+    { name: "Selected sky polygon", color: "#f3ec65", lineWidth: 2.5 },
   ];
   refs.current = definitions.map((definition) => {
     const overlay = A.graphicOverlay(definition);

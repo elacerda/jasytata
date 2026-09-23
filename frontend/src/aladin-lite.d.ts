@@ -38,10 +38,10 @@ declare module "aladin-lite" {
     getRaDec(): [number, number];
     /** Return current field of view as horizontal and vertical degrees. */
     getFoV(): [number, number];
-    /** Enter rectangular selection; callback receives x/y/w/h screen-pixel bounds. */
+    /** Enter native polygon selection; Aladin draws the draft and returns pixels. */
     select(
-      mode: "rect",
-      callback: (selection: { x: number; y: number; w: number; h: number }) => void,
+      mode: "poly",
+      callback: (selection: { vertices: Array<{ x: number; y: number }> }) => void,
     ): Promise<void>;
     /** Move the view center to ICRS decimal degrees. */
     gotoRaDec(ra: number, dec: number): void;
