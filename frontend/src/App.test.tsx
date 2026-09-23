@@ -55,6 +55,11 @@ vi.mock("./AladinMap", async () => {
           { onClick: () => props.onTileSelect(props.tiles[0]) },
           "Mock inspect original",
         ),
+        React.createElement(
+          "button",
+          { onClick: () => props.onTileSelect(props.tiles[1]) },
+          "Mock inspect second",
+        ),
       ),
   };
 });
@@ -162,7 +167,7 @@ describe("Tile Planner proposal workflow", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: /load reference/i }));
-    expect(await screen.findByText("4,774")).toBeTruthy();
+    expect(await screen.findByText("1", { selector: ".summary-number" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
@@ -170,7 +175,7 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByText("59.91 deg²")).toBeTruthy();
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       { ra_start_deg: 120, ra_end_deg: 135, dec_min_deg: -61, dec_max_deg: -57 },
-      [original],
+      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       "automatic",
       undefined,
       "splus-t80-south",
@@ -184,7 +189,7 @@ describe("Tile Planner proposal workflow", () => {
     await waitFor(() => expect(screen.getByText("NEW TILE CENTERS").nextElementSibling?.textContent).toBe("4"));
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       { ra_start_deg: 120, ra_end_deg: 135, dec_min_deg: -61, dec_max_deg: -57 },
-      [original],
+      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       "fixed",
       4,
       "splus-t80-south",
@@ -204,7 +209,7 @@ describe("Tile Planner proposal workflow", () => {
     expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
       1,
       "new",
-      [original],
+      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       expect.arrayContaining([expect.objectContaining({ source: "proposed" })]),
       { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
     );
@@ -239,14 +244,14 @@ describe("Tile Planner proposal workflow", () => {
     expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
       1,
       "updated",
-      [original],
+      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       [],
       { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
     );
     expect(apiMocks.downloadCatalogue).toHaveBeenNthCalledWith(
       2,
       "new",
-      [original],
+      expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
       [],
       { pid: "SPLUS", name_prefix: "SPLUS_NEW", initial_sequence: 1, epoch: "2000", status: "-5" },
     );
@@ -276,6 +281,46 @@ describe("Tile Planner proposal workflow", () => {
     await user.selectOptions(screen.getByLabelText("DEC column"), "DEC");
     await user.click(screen.getByRole("button", { name: "Load mapped catalogue" }));
     await waitFor(() => expect(apiMocks.uploadCatalogue).toHaveBeenLastCalledWith(file, expect.objectContaining({ raColumn: "RA", decColumn: "DEC", raUnit: "auto" })));
+  });
+
+  it("keeps two uploaded datasets and plans against their visible union", async () => {
+    const user = userEvent.setup();
+    const second: TileRecord = {
+      ...original, id: "original-2", name: "DR6 field", ra_deg: 124, dec_deg: -59,
+      pid: "", epoch: "", status: "", metadata: { quality: "good", release: "DR6" },
+      original_values: { ra_deg: "124", dec_deg: "-59", quality: "good", release: "DR6" },
+      ra_column: "ra_deg", dec_column: "dec_deg",
+    };
+    apiMocks.uploadCatalogue
+      .mockResolvedValueOnce({ ...catalogue, row_count: 1 })
+      .mockResolvedValueOnce({ filename: "dr6.csv", row_count: 1, tiles: [second], warnings: [], ra_column: "ra_deg", dec_column: "dec_deg" });
+    render(<App />);
+    const input = screen.getByLabelText("Choose catalogue CSV");
+    await user.upload(input, new File(["RA,DEC\n"], "tiles_nc.csv", { type: "text/csv" }));
+    await user.upload(input, new File(["ra_deg,dec_deg\n"], "dr6.csv", { type: "text/csv" }));
+    expect(await screen.findByText("2 catalogues loaded")).toBeTruthy();
+    const firstToggle = screen.getByRole("checkbox", { name: "Show tiles_nc.csv" });
+    const secondToggle = screen.getByRole("checkbox", { name: "Show dr6.csv" });
+    expect((firstToggle as HTMLInputElement).checked).toBe(true);
+    expect((secondToggle as HTMLInputElement).checked).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Mock inspect second" }));
+    expect(screen.getByText("dr6.csv", { selector: ".tile-name-block span" })).toBeTruthy();
+    expect(screen.getByText("good")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
+    expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
+      expect.anything(), expect.arrayContaining([
+        expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
+      ]), "automatic", undefined, "splus-t80-south",
+    );
+    await user.click(firstToggle);
+    expect((secondToggle as HTMLInputElement).checked).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Generate automatic plan" }));
+    const plannedTiles = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
+    expect(plannedTiles.some((tile) => tile.name === original.name)).toBe(false);
+    expect(plannedTiles.some((tile) => tile.name === second.name)).toBe(true);
+    await user.click(firstToggle);
+    expect((firstToggle as HTMLInputElement).checked).toBe(true);
   });
 
   it("validates, previews, and stages imported centers before acceptance", async () => {

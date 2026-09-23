@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import AladinMap, { type MapMode } from "./AladinMap";
 import { downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { createDataset } from "./datasets";
 import type {
   CenterInput,
+  CatalogueDataset,
   CatalogueResponse,
   ExportConfig,
   PlanMetrics,
@@ -42,7 +44,7 @@ const EMPTY_IDS: string[] = [];
 
 /** Render the stateless catalogue, sky planning, proposal, and export workspace. */
 export default function App() {
-  const [catalogue, setCatalogue] = useState<CatalogueResponse | null>(null);
+  const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [proposals, setProposals] = useState<TileRecord[]>([]);
@@ -66,11 +68,13 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLElement>(null);
 
-  const originalTiles = useMemo(() => catalogue?.tiles ?? [], [catalogue]);
-  const legacyExportCompatible = originalTiles.every((tile) =>
+  const hasCatalogue = datasets.length > 0;
+  const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles), [datasets]);
+  const visibleOriginalTiles = useMemo(() => datasets.filter((dataset) => dataset.visible).flatMap((dataset) => dataset.tiles), [datasets]);
+  const legacyExportCompatible = datasets.length === 1 && originalTiles.every((tile) =>
     ["PID", "NAME", "RA", "DEC", "EPOC", "STATUS"].every((key) => !!tile.original_values?.[key]),
   );
-  const visibleTiles = useMemo(() => [...originalTiles, ...proposals], [originalTiles, proposals]);
+  const visibleTiles = useMemo(() => [...visibleOriginalTiles, ...proposals], [visibleOriginalTiles, proposals]);
   const mapTiles = useMemo(
     () => (pending ? [...visibleTiles, ...pending.tiles] : visibleTiles),
     [pending, visibleTiles],
@@ -120,14 +124,11 @@ export default function App() {
   function applyCatalogue(result: CatalogueResponse) {
     if (result.needs_mapping) return;
     setColumnMapping(null);
-    setCatalogue(result);
+    setDatasets((previous) => [...previous, createDataset(result, previous.length, crypto.randomUUID())]);
     setFocusRequest((previous) => previous + 1);
-    setProposals([]);
-    setUndoStack([]);
     setPending(null);
     setSelectedTileId(null);
-    setRegionBounds(null);
-    setNotice(`${result.row_count.toLocaleString()} catalogue rows loaded from ${result.filename}.`);
+    setNotice(`${result.row_count.toLocaleString()} catalogue rows added from ${result.filename}.`);
     setError(null);
   }
 
@@ -151,7 +152,7 @@ export default function App() {
   }
 
   async function stageCenters(centers: CenterInput[], method: "manual" | "imported_centers"): Promise<boolean> {
-    if (!catalogue) {
+    if (!hasCatalogue) {
       setError("Load a catalogue before adding proposed tiles.");
       return false;
     }
@@ -189,7 +190,7 @@ export default function App() {
   }
 
   async function handlePlanRegion() {
-    if (!regionBounds || !catalogue) return;
+    if (!regionBounds || !hasCatalogue) return;
     await runBusy(
       () => planRegion(
         regionBounds,
@@ -257,7 +258,7 @@ export default function App() {
   }
 
   async function exportFile(kind: "new" | "updated") {
-    if (!catalogue) return;
+    if (!hasCatalogue) return;
     await runBusy(
       () => downloadCatalogue(kind, originalTiles, proposals, exportConfig),
       () => setNotice(kind === "new" ? "new_tiles.csv downloaded." : "tiles_nc_updated.csv downloaded."),
@@ -288,9 +289,9 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-state">
-          <span className={`status-dot ${catalogue ? "is-ready" : ""}`} />
-          <span>{catalogue ? catalogue.filename : "No catalogue loaded"}</span>
-          {catalogue && <span className="topbar-count">{catalogue.row_count.toLocaleString()} original tiles</span>}
+          <span className={`status-dot ${hasCatalogue ? "is-ready" : ""}`} />
+          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : "No catalogue loaded"}</span>
+          {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
           <button className="button button-quiet" onClick={() => void runBusy(loadReferenceCatalogue, applyCatalogue)} disabled={busy}>
@@ -320,9 +321,9 @@ export default function App() {
       <section className="workspace">
         <aside className="control-panel panel-scroll" aria-label="Catalogue and planning controls">
           <section className="panel-section catalog-section">
-            <SectionHeading title="Catalogue" trailing={catalogue ? "LOADED" : "WAITING"} />
+            <SectionHeading title="Catalogue" trailing={hasCatalogue ? "LOADED" : "WAITING"} />
             <div className="catalogue-summary">
-              <span className="summary-number">{catalogue ? catalogue.row_count.toLocaleString() : "—"}</span>
+              <span className="summary-number">{hasCatalogue ? originalTiles.length.toLocaleString() : "—"}</span>
               <span className="summary-label">original tile centers</span>
             </div>
             <p className="panel-copy">Original catalogue rows stay unchanged. New tiles remain separate until accepted.</p>
@@ -359,19 +360,19 @@ export default function App() {
               <button
                 className={`mode-button ${mapMode === "add-tile" ? "is-active" : ""}`}
                 onClick={() => {
-                  if (!catalogue) setError("Load a catalogue before proposing tiles.");
+                  if (!hasCatalogue) setError("Load a catalogue before proposing tiles.");
                   else {
                     setMapMode("add-tile");
                     setNotice("Click a position on the sky to preview one new tile.");
                   }
                 }}
-                disabled={busy || !catalogue}
+                disabled={busy || !hasCatalogue}
               >
                 <span className="mode-icon"><Icon name="crosshair" /></span>
                 <span><strong>Single tile</strong><small>Click a sky position</small></span>
                 <Icon name="chevron" />
               </button>
-              <button className="mode-button" onClick={() => { setParsedCenters(null); importRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={!catalogue || busy}>
+              <button className="mode-button" onClick={() => { setParsedCenters(null); importRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={!hasCatalogue || busy}>
                 <span className="mode-icon"><Icon name="list" /></span>
                 <span><strong>Import centers</strong><small>Paste RA / DEC pairs</small></span>
                 <Icon name="chevron" />
@@ -379,14 +380,14 @@ export default function App() {
               <button
                 className="mode-button"
                 onClick={() => {
-                  if (!catalogue) setError("Load a catalogue before selecting a region.");
+                  if (!hasCatalogue) setError("Load a catalogue before selecting a region.");
                   else {
                     setSelectingRegion(true);
                     setSelectionRequest((previous) => previous + 1);
                     setNotice("Drag a rectangle on the map. Pan and zoom first if needed.");
                   }
                 }}
-                disabled={!catalogue || busy}
+                disabled={!hasCatalogue || busy}
               >
                 <span className="mode-icon"><Icon name="region" /></span>
                 <span><strong>Select region</strong><small>Drag a rectangle on the sky</small></span>
@@ -428,7 +429,7 @@ export default function App() {
                 </span>
               </label>
             )}
-            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!catalogue || !regionBounds || busy}>
+            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionBounds || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}{planLabel}
             </button>
             <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>
@@ -443,9 +444,9 @@ export default function App() {
               onChange={(event) => { setImportText(event.target.value); setParsedCenters(null); }}
               placeholder={"RA, DEC\n10:03:05, -23:54:31\n150.5, -24.25"}
               rows={4}
-              disabled={!catalogue || busy}
+              disabled={!hasCatalogue || busy}
             />
-            <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={!catalogue || busy || !importText.trim()}>
+            <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={!hasCatalogue || busy || !importText.trim()}>
               Validate and preview
             </button>
             {parsedCenters && (
@@ -464,7 +465,18 @@ export default function App() {
 
           <section className="panel-section layers-section">
             <SectionHeading title="Map layers" />
-            <LayerLegend color="var(--cyan)" label="Original tiles" value={originalTiles.length.toLocaleString()} />
+            {datasets.map((dataset) => (
+              <label className="dataset-layer" key={dataset.id}>
+                <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
+                  setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
+                  setPending(null);
+                  setSelectedTileId(null);
+                }} />
+                <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />
+                <span title={dataset.filename}>{dataset.filename}</span>
+                <strong>{dataset.tiles.length.toLocaleString()}</strong>
+              </label>
+            ))}
             <LayerLegend
               color="var(--orange)"
               label="Proposed tiles"
@@ -499,7 +511,7 @@ export default function App() {
                 pending?.solution === "extended_existing_grid" ? <span className="interaction-pill is-extended">EXISTING GRID EXTENDED</span> :
                 <span className="interaction-pill is-idle">PAN · ZOOM · INSPECT</span>}
             </div>
-            {catalogue && (
+            {hasCatalogue && (
               <button className="map-count-button" onClick={() => setFocusRequest((previous) => previous + 1)} title="Center on catalogue footprint">
                 <Icon name="target" /> {visibleTiles.length.toLocaleString()} tiles
               </button>
@@ -507,6 +519,7 @@ export default function App() {
           </div>
           <AladinMap
             tiles={mapTiles}
+            datasets={datasets}
             profile={profile}
             mode={mapMode}
             selectionRequest={selectionRequest}
@@ -614,8 +627,8 @@ export default function App() {
               <label className="field-label">EPOC<input value={exportConfig.epoch} onChange={(event) => updateExport("epoch", event.target.value)} /></label>
               <label className="field-label">STATUS<input value={exportConfig.status} onChange={(event) => updateExport("status", event.target.value)} /></label>
             </div>
-            <button className="button button-outline button-full" onClick={() => void exportFile("new")} disabled={!catalogue || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <button className="button button-download button-full" onClick={() => void exportFile("updated")} disabled={!catalogue || !legacyExportCompatible || busy}><Icon name="download" /> Download updated catalogue</button>
+            <button className="button button-outline button-full" onClick={() => void exportFile("new")} disabled={!hasCatalogue || busy}><Icon name="download" /> Download new_tiles.csv</button>
+            <button className="button button-download button-full" onClick={() => void exportFile("updated")} disabled={!hasCatalogue || !legacyExportCompatible || busy}><Icon name="download" /> Download updated catalogue</button>
             <p className="fine-print">Legacy six-column updated export is available for S-PLUS-compatible catalogues. Generic export follows in Run B.</p>
           </section>
         </aside>
@@ -636,7 +649,7 @@ function TileDetails({ tile, onDelete }: { tile: TileRecord; onDelete?: () => vo
   const metadata = Object.entries(tile.metadata).filter(([, value]) => value !== "");
   return (
     <div className="tile-detail-content">
-      <div className="tile-name-block"><strong>{tile.name || tile.id}</strong><span>{tile.dataset_id ?? (tile.source === "proposed" ? "Proposal" : "Catalogue")}</span></div>
+      <div className="tile-name-block"><strong>{tile.name || tile.id}</strong><span>{tile.dataset_name ?? (tile.source === "proposed" ? "Proposal" : "Catalogue")}</span></div>
       <div className="detail-grid">
         <DetailField label="RA" value={`${tile.ra_deg.toFixed(6)}°`} />
         <DetailField label="DEC" value={`${tile.dec_deg.toFixed(6)}°`} />

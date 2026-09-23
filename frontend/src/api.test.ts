@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { downloadCatalogue } from "./api";
+import { downloadCatalogue, uploadCatalogue } from "./api";
 import type { ExportConfig, TileRecord } from "./types";
 
 const exportConfig: ExportConfig = {
@@ -74,5 +74,23 @@ describe("CSV browser download", () => {
     expect(click).toHaveBeenCalledOnce();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:t80-test");
+  });
+});
+
+describe("catalogue upload", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends an explicit coordinate mapping and RA unit with the CSV", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      filename: "ambiguous.csv", row_count: 1, tiles: [], warnings: [],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["RA,ra_deg,DEC\n"], "ambiguous.csv", { type: "text/csv" });
+    await uploadCatalogue(file, { raColumn: "ra_deg", decColumn: "DEC", raUnit: "degrees" });
+    const [, options] = fetchMock.mock.lastCall as [string, { body: FormData }];
+    expect(options.body.get("file")).toBe(file);
+    expect(options.body.get("ra_column")).toBe("ra_deg");
+    expect(options.body.get("dec_column")).toBe("DEC");
+    expect(options.body.get("ra_unit")).toBe("degrees");
   });
 });

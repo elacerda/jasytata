@@ -91,6 +91,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .column-mapping { display: grid; gap: 9px; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: #fff; font-size: 10px; }
 .column-mapping label { display: grid; gap: 4px; color: var(--ink-soft); }
 .column-mapping select { width: 100%; min-height: 30px; border: 1px solid var(--line-strong); border-radius: 4px; background: #fff; color: var(--ink); font-size: 10px; }
+.dataset-layer { display: flex; align-items: center; gap: 8px; min-height: 29px; color: var(--ink-soft); font-size: 10px; cursor: pointer; }
+.dataset-layer input { margin: 0; accent-color: #087f89; }
+.dataset-layer > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dataset-layer strong { color: var(--muted); font: 9px var(--mono); }
 .mode-stack { display: grid; gap: 6px; }
 .mode-button { min-height: 52px; display: flex; align-items: center; gap: 10px; text-align: left; padding: 7px 8px; border: 1px solid #d5dfe1; border-radius: 5px; background: #fbfcfc; cursor: pointer; }
 .mode-button:disabled { opacity: .45; cursor: not-allowed; }

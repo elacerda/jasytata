@@ -10,6 +10,10 @@ declare module "aladin-lite" {
   /** Catalog overlay that renders coordinate-center markers. */
   export interface AladinLiteCatalogue {
     addSources(sources: AladinLiteSource[]): void;
+    removeAll(): void;
+    /** Toggle native catalogue rendering without deleting source data. */
+    show(): void;
+    hide(): void;
     remove?(): void;
   }
 

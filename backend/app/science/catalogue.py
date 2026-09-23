@@ -10,8 +10,11 @@ from app.models import CenterInput, GenerationMethod, TileRecord, TileSource
 from app.science.coordinates import parse_dec_degrees, parse_ra_degrees
 
 REQUIRED_COLUMNS = ("PID", "NAME", "RA", "DEC", "EPOC", "STATUS")
-RA_ALIASES = {"ra", "ra_deg", "radeg", "right_ascension", "rightascension", "ra_hours"}
-DEC_ALIASES = {"dec", "dec_deg", "decdeg", "declination"}
+RA_ALIASES = {
+    "ra", "ra_deg", "radeg", "ra_hours", "ra_icrs", "raj2000",
+    "right_ascension", "rightascension",
+}
+DEC_ALIASES = {"dec", "dec_deg", "decdeg", "dec_icrs", "dej2000", "declination"}
 
 
 def parse_catalogue_csv(

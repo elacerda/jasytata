@@ -6,7 +6,7 @@ import type {
   AladinLiteOverlay,
   AladinLiteSource,
 } from "aladin-lite";
-import type { CenterInput, RegionBounds, TileRecord, TilingProfile } from "./types";
+import type { CatalogueDataset, CenterInput, RegionBounds, TileRecord, TilingProfile } from "./types";
 import { regionBoundsFromCorners, tileFootprint } from "./sky";
 
 /** Map click behavior: normal inspection/pan or single-center placement. */
@@ -14,6 +14,7 @@ export type MapMode = "idle" | "add-tile";
 
 interface AladinMapProps {
   tiles: TileRecord[];
+  datasets: CatalogueDataset[];
   profile: TilingProfile | null;
   mode: MapMode;
   selectionRequest: number;
@@ -51,7 +52,10 @@ export default function AladinMap(props: AladinMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const aladinRef = useRef<AladinLiteInstance | null>(null);
   const propsRef = useRef(props);
-  const cataloguesRef = useRef<AladinLiteCatalogue[]>([]);
+  const cataloguesRef = useRef<Map<string, AladinLiteCatalogue>>(new Map());
+  const datasetFootprintsRef = useRef<Map<string, AladinLiteOverlay>>(new Map());
+  const proposalCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
+  const sourceLookupRef = useRef<WeakMap<AladinLiteSource, TileRecord>>(new WeakMap());
   const overlaysRef = useRef<AladinLiteOverlay[]>([]);
   const clickHandlerRef = useRef<(value: unknown) => void>(() => undefined);
   const objectHandlerRef = useRef<(value: unknown) => void>(() => undefined);
@@ -89,12 +93,13 @@ export default function AladinMap(props: AladinMapProps) {
         aladinRef.current = instance;
         instance.on("click", clickHandlerRef.current);
         instance.on("objectClicked", objectHandlerRef.current);
+        instance.on("objectHovered", objectHandlerRef.current);
         instance.on("positionChanged", redrawRef.current);
         instance.on("zoomChanged", redrawRef.current);
         resizeObserver = new ResizeObserver(() => redrawRef.current());
         resizeObserver.observe(containerRef.current);
-        rebuildCatalogues(instance, propsRef.current.tiles, cataloguesRef);
         rebuildOverlays(instance, overlaysRef);
+        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, sourceLookupRef.current);
         redrawRef.current();
         if (propsRef.current.focusRequest > 0) {
           focusOnCatalogue(instance, propsRef.current.tiles);
@@ -118,6 +123,7 @@ export default function AladinMap(props: AladinMapProps) {
       if (instance) {
         instance.off?.("click");
         instance.off?.("objectClicked");
+        instance.off?.("objectHovered");
         instance.off?.("positionChanged");
         instance.off?.("zoomChanged");
         instance.remove();
@@ -130,9 +136,9 @@ export default function AladinMap(props: AladinMapProps) {
   useEffect(() => {
     const instance = aladinRef.current;
     if (!instance) return;
-    rebuildCatalogues(instance, props.tiles, cataloguesRef);
+    syncCatalogues(instance, props.datasets, props.tiles, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, sourceLookupRef.current);
     redrawRef.current();
-  }, [props.tiles]);
+  }, [props.tiles, props.datasets]);
 
   useEffect(() => {
     redrawRef.current();
@@ -206,16 +212,6 @@ export default function AladinMap(props: AladinMapProps) {
         propsRef.current.onSkyClick(ra, dec);
         return;
       }
-      const nearest = propsRef.current.tiles
-        .map((tile) => {
-          const dx = wrappedRaDelta(ra, tile.ra_deg) * Math.cos((tile.dec_deg * Math.PI) / 180);
-          const dy = dec - tile.dec_deg;
-          const profile = propsRef.current.profile;
-          return { tile, distance: Math.hypot(dx, dy), inside: !!profile && Math.abs(dx) <= profile.tile_width_deg / 2 && Math.abs(dy) <= profile.tile_height_deg / 2 };
-        })
-        .filter((candidate) => candidate.inside)
-        .sort((left, right) => left.distance - right.distance)[0];
-      if (nearest) propsRef.current.onTileSelect(nearest.tile);
     } catch (error) {
       propsRef.current.onError(error instanceof Error ? error.message : "Could not read the clicked coordinate.");
     }
@@ -224,10 +220,7 @@ export default function AladinMap(props: AladinMapProps) {
   objectHandlerRef.current = (value: unknown) => {
     if (propsRef.current.mode === "add-tile") return;
     if (!value || typeof value !== "object") return;
-    const source = value as AladinLiteSource;
-    const id = source.data?.tileId ?? source.data?.id;
-    if (typeof id !== "string") return;
-    const tile = propsRef.current.tiles.find((item) => item.id === id);
+    const tile = sourceLookupRef.current.get(value as AladinLiteSource);
     if (tile) propsRef.current.onTileSelect(tile);
   };
 
@@ -235,7 +228,6 @@ export default function AladinMap(props: AladinMapProps) {
     const instance = aladinRef.current;
     if (!instance) return;
     const current = propsRef.current;
-    const originals = current.tiles.filter((tile) => tile.source === "original");
     const proposals = current.tiles.filter((tile) => tile.source === "proposed");
     const [centerRa, centerDec] = instance.getRaDec();
     const [fovX, fovY] = instance.getFoV();
@@ -249,14 +241,18 @@ export default function AladinMap(props: AladinMapProps) {
     const selected = current.tiles.find((tile) => tile.id === current.selectedTileId) ?? null;
     const anchorSet = new Set(current.anchorTileIds);
     const footprintLayers = overlaysRef.current;
-    const originalLayer = footprintLayers[0];
     const proposedLayer = footprintLayers[1];
     const selectedLayer = footprintLayers[2];
     const anchorLayer = footprintLayers[3];
     const candidateLayer = footprintLayers[4];
     for (const layer of footprintLayers) layer.removeAll();
+    for (const layer of datasetFootprintsRef.current.values()) layer.removeAll();
     if (drawFootprints && profile) {
-      originals.filter(visible).slice(0, 900).forEach((tile) => originalLayer.add(A.polyline(tileFootprint(tile, profile))));
+      for (const dataset of current.datasets) {
+        if (!dataset.visible) continue;
+        const layer = datasetFootprintsRef.current.get(dataset.id);
+        dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => layer?.add(A.polyline(tileFootprint(tile, profile))));
+      }
       proposals.filter(visible).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
       current.tiles
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
@@ -292,52 +288,83 @@ export default function AladinMap(props: AladinMapProps) {
   );
 }
 
-function rebuildCatalogues(
+/** Synchronize native Aladin catalogues without recreating imported layers.
+ *
+ * @param instance - Live Aladin viewport.
+ * @param datasets - Imported layers with visibility and display colors.
+ * @param tiles - Currently visible originals and proposal tiles.
+ * @param catalogues - Persistent imported catalogue handles by dataset ID.
+ * @param footprints - Persistent detailed-footprint overlays by dataset ID.
+ * @param proposalRef - Native proposal catalogue handle.
+ * @param lookup - Native source to full application pointing index.
+ */
+function syncCatalogues(
   instance: AladinLiteInstance,
+  datasets: CatalogueDataset[],
   tiles: TileRecord[],
-  refs: { current: AladinLiteCatalogue[] },
+  catalogues: Map<string, AladinLiteCatalogue>,
+  footprints: Map<string, AladinLiteOverlay>,
+  proposalRef: { current: AladinLiteCatalogue | null },
+  lookup: WeakMap<AladinLiteSource, TileRecord>,
 ) {
-  refs.current.forEach((catalogue) => {
-    if (instance.removeCatalog) instance.removeCatalog(catalogue);
-    else catalogue.remove?.();
-  });
-  refs.current = [];
-  const groups: Array<{ source: TileRecord["source"]; name: string; color: string; size: number }> = [
-    { source: "original", name: "Original centers", color: "#45cad6", size: 4 },
-    { source: "proposed", name: "Accepted proposals", color: "#ff9e54", size: 7 },
-  ];
-  for (const group of groups) {
-    const records = tiles.filter((tile) => tile.source === group.source);
-    if (!records.length) continue;
-    const catalogue = A.catalog({
-      name: group.name,
-      color: group.color,
-      sourceSize: group.size,
+  for (const dataset of datasets) {
+    let catalogue = catalogues.get(dataset.id);
+    if (!catalogue) {
+      catalogue = A.catalog({
+        name: dataset.filename,
+        color: dataset.color,
+        sourceSize: 4,
+        shape: "circle",
+        displayLabel: false,
+      });
+      catalogue.addSources(dataset.tiles.map((tile) => {
+        const source = A.source(tile.ra_deg, tile.dec_deg, {
+          ...tile.metadata,
+          RA: tile.ra_deg.toFixed(6),
+          DEC: tile.dec_deg.toFixed(6),
+          Dataset: dataset.filename,
+        });
+        lookup.set(source, tile);
+        return source;
+      }));
+      instance.addCatalog(catalogue);
+      catalogues.set(dataset.id, catalogue);
+      const overlay = A.graphicOverlay({ name: `${dataset.filename} footprints`, color: dataset.color, lineWidth: 1 });
+      instance.addOverlay(overlay);
+      footprints.set(dataset.id, overlay);
+    }
+    if (dataset.visible) catalogue.show();
+    else catalogue.hide();
+  }
+  const proposals = tiles.filter((tile) => tile.source === "proposed");
+  if (proposals.length && !proposalRef.current) {
+    proposalRef.current = A.catalog({
+      name: "Proposed tiles",
+      color: "#ff9e54",
+      sourceSize: 7,
       shape: "circle",
       displayLabel: false,
       lineWidth: 1,
     });
-    catalogue.addSources(
-      records.map((tile) =>
-        A.source(tile.ra_deg, tile.dec_deg, {
-          tileId: tile.id,
-          name: tile.name,
-          tileName: tile.name,
-          tileSource: tile.source,
-          pid: tile.pid,
-          epoch: tile.epoch,
-          status: tile.status,
-        }),
-      ),
+    instance.addCatalog(proposalRef.current);
+  }
+  if (proposalRef.current) {
+    proposalRef.current.removeAll();
+    proposalRef.current.addSources(
+      proposals.map((tile) => {
+        const source = A.source(tile.ra_deg, tile.dec_deg, {
+          RA: tile.ra_deg.toFixed(6), DEC: tile.dec_deg.toFixed(6), Dataset: "Proposal",
+        });
+        lookup.set(source, tile);
+        return source;
+      }),
     );
-    instance.addCatalog(catalogue);
-    refs.current.push(catalogue);
   }
 }
 
 function rebuildOverlays(instance: AladinLiteInstance, refs: { current: AladinLiteOverlay[] }) {
   const definitions = [
-    { name: "Original footprints", color: "#45cad6", lineWidth: 1 },
+    { name: "Imported footprints", color: "#45cad6", lineWidth: 1 },
     { name: "Proposed footprints", color: "#ff9e54", lineWidth: 1.6 },
     { name: "Selection and selected tile", color: "#f3ec65", lineWidth: 2 },
     { name: "Lattice anchors", color: "#d7a9ff", lineWidth: 2 },

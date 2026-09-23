@@ -17,6 +17,7 @@ export interface TileRecord {
   source: TileSource;
   generation_method: GenerationMethod | null;
   dataset_id?: string | null;
+  dataset_name?: string | null;
   group_id?: string | null;
   ra_column?: string | null;
   dec_column?: string | null;
@@ -35,6 +36,17 @@ export interface CatalogueResponse {
   ra_column?: string | null;
   dec_column?: string | null;
   needs_mapping?: boolean;
+}
+
+/** One independent uploaded CSV layer retained in the browser session. */
+export interface CatalogueDataset {
+  id: string;
+  filename: string;
+  color: string;
+  ra_column: string;
+  dec_column: string;
+  tiles: TileRecord[];
+  visible: boolean;
 }
 
 /** Validated observing geometry supplied by the backend profile registry. */

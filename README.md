@@ -6,7 +6,8 @@ The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use
 
 ## Features
 
-- Aladin Lite v3 pan, zoom, ICRS position inspection, tile centers, zoom-dependent approximate square footprints, region bounds, anchors, and candidate lattice positions.
+- Aladin Lite v3 pan, zoom, ICRS position inspection, native catalogue layers, zoom-dependent tile footprints, region bounds, anchors, and candidate lattice positions.
+- Multiple simultaneous CSV datasets with distinct colors, independent visibility, and source metadata inspection.
 - Single sky-click proposals, pasted RA/DEC center imports, and rectangular region selection using Aladin's pixel-to-world conversion.
 - `SPLUS_LEGACY_GRID_V1` geometry and a deterministic existing-grid inference layer.
 - Automatic planning and exact fixed-N planning. N counts only new proposal tiles.
@@ -25,7 +26,7 @@ reference/                  Legacy generator and representative source catalogue
 docs/ALGORITHM.md           Scientific and planner behavior
 ```
 
-The frontend keeps the uploaded catalogue and accepted proposals in client state. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus every source row's original CSV values and arbitrary non-coordinate metadata; every planning/export request carries its current session inputs. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
+The frontend keeps independent uploaded datasets and accepted proposals in client state. Each CSV creates a native Aladin catalogue layer with its own color and visibility; planning receives the union of visible dataset pointings. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus every source row's original CSV values and arbitrary non-coordinate metadata; every planning/export request carries its current session inputs. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
 
 ## Observing profiles
 
@@ -81,7 +82,7 @@ The two downloads always have exactly this header:
 PID,NAME,RA,DEC,EPOC,STATUS
 ```
 
-`new_tiles.csv` contains accepted proposed tiles only. `tiles_nc_updated.csv` contains original S-PLUS-compatible rows first, with their values preserved, followed by the accepted proposals. The current updated export remains specific to the six-column S-PLUS schema; generic export is planned for the next development run. New rows receive the configured PID, prefix + zero-padded sequence, EPOC, and STATUS (default `-5`). RA is written as integer-second sexagesimal hours and DEC as integer-second sexagesimal degrees. Export fails with a useful message if any generated NAME collides with an existing or earlier new NAME. Both downloads can be parsed again by this application.
+`new_tiles.csv` contains accepted proposed tiles only. `tiles_nc_updated.csv` contains original S-PLUS-compatible rows first, with their values preserved, followed by the accepted proposals. The updated export is available when exactly one compatible catalogue is loaded; generic export across datasets is planned for the next development run. New rows receive the configured PID, prefix + zero-padded sequence, EPOC, and STATUS (default `-5`). RA is written as integer-second sexagesimal hours and DEC as integer-second sexagesimal degrees. Export fails with a useful message if any generated NAME collides with an existing or earlier new NAME. Both downloads can be parsed again by this application.
 
 ## API
 
@@ -105,7 +106,7 @@ make typecheck
 make build
 ```
 
-Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, lattice inference/fallback, occupied-center exclusion, deterministic exact-N and automatic planning, export schema, name collision checks, and reload round trips. Frontend tests cover Aladin RA-wrap selection bounds and declination-corrected tile footprints.
+Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, lattice inference/fallback, occupied-center exclusion, deterministic exact-N and automatic planning, export schema, name collision checks, and reload round trips. Frontend tests cover RA-wrap selection bounds, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, independent native Aladin catalogue visibility, and source metadata.
 
 ## Known limits
 

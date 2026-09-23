@@ -24,7 +24,7 @@ The planner can extend a locally inferred S-PLUS tile lattice from multiple cata
 
 ## Operating Context
 
-Users work with six-column catalogue CSV files, celestial coordinates, tile footprints, local survey geometry, and proposed export metadata. Aladin Lite provides the interactive sky view.
+Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial coordinates, tile footprints, local survey geometry, and proposed export metadata. Aladin Lite provides independent native catalogue layers in the interactive sky view.
 
 ## Capabilities and Constraints
 
