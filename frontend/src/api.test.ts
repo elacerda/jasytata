@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { downloadCatalogue, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, planRegion, uploadCatalogue } from "./api";
 import type { TileRecord } from "./types";
 
 const proposals: TileRecord[] = [];
@@ -83,5 +83,24 @@ describe("catalogue upload", () => {
     expect(options.body.get("ra_column")).toBe("ra_deg");
     expect(options.body.get("dec_column")).toBe("DEC");
     expect(options.body.get("ra_unit")).toBe("degrees");
+  });
+});
+
+describe("region plan request", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends the same payload exposed to development diagnostics", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const polygon = { vertices: [
+      { ra_deg: 262, dec_deg: -40 }, { ra_deg: 277, dec_deg: -40 },
+      { ra_deg: 277, dec_deg: -27 }, { ra_deg: 262, dec_deg: -27 },
+    ] };
+    await planRegion(polygon, proposals, "splus-t80-south");
+    expect(fetchMock).toHaveBeenCalledWith("/api/plan/region", expect.objectContaining({
+      body: JSON.stringify(buildRegionPlanRequest(polygon, proposals, "splus-t80-south")),
+    }));
   });
 });

@@ -54,3 +54,20 @@ def test_disabled_tiles_are_excluded_from_export_and_originals_are_immutable() -
             id="original", ra_deg=150, dec_deg=-30, source=TileSource.ORIGINAL,
             original_values={"RA": "150", "DEC": "-30"}, enabled=False,
         )
+
+
+def test_disabled_existing_proposal_does_not_count_as_historical_coverage() -> None:
+    """An inactive accepted pointing cannot occupy sky in direct coverage."""
+    region = SkyPolygon(vertices=[
+        {"ra_deg": 150, "dec_deg": -31}, {"ra_deg": 154, "dec_deg": -31},
+        {"ra_deg": 154, "dec_deg": -27}, {"ra_deg": 150, "dec_deg": -27},
+    ])
+    disabled = TileRecord(
+        id="accepted-disabled", ra_deg=151, dec_deg=-30,
+        source=TileSource.PROPOSED, generation_method="region_extended", enabled=False,
+    )
+    metrics = measure_active_coverage(CoverageRequest(
+        polygon=region, existing_tiles=[disabled], proposed_tiles=[]
+    ))
+    assert metrics.existing_tiles_contributing == 0
+    assert metrics.already_covered_fraction == 0

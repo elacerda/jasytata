@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import type {
   CenterInput,
@@ -61,6 +61,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [debugRequestJson, setDebugRequestJson] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLElement>(null);
   const proposalBatchRef = useRef(0);
@@ -148,6 +149,8 @@ export default function App() {
     setDatasets((previous) => [...previous, createDataset(result, previous.length, crypto.randomUUID())]);
     setFocusRequest((previous) => previous + 1);
     setPending(null);
+    setProposalContext(null);
+    setActiveMetrics(null);
     setSelectedTileId(null);
     setNotice(`${result.row_count.toLocaleString()} catalogue rows added from ${result.filename}.`);
     setError(null);
@@ -213,6 +216,9 @@ export default function App() {
   async function handlePlanRegion() {
     if (!regionPolygon || !hasCatalogue) return;
     setSelectingRegion(false);
+    if (import.meta.env.DEV) {
+      setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id)));
+    }
     await runBusy(
       () => planRegion(
         regionPolygon,
@@ -414,11 +420,20 @@ export default function App() {
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
                 <button className="text-button" onClick={beginRegionSelection}>Redraw polygon</button>
+                {import.meta.env.DEV && <details className="development-plan-input">
+                  <summary>Development: plan input</summary>
+                  <pre>{JSON.stringify(regionPolygon.vertices, null, 2)}</pre>
+                  <button className="text-button" disabled={!debugRequestJson} onClick={() => {
+                    void navigator.clipboard.writeText(debugRequestJson)
+                      .then(() => setNotice("Last plan request JSON copied."))
+                      .catch(() => setError("Could not copy the plan request JSON."));
+                  }}>Copy last plan request JSON</button>
+                </details>}
               </div>
             ) : (
               <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
             )}
-            <button className="text-button" onClick={() => { setRegionPolygon(null); setSelectingRegion(false); setNotice("Selected polygon cleared; catalogues and proposals remain."); }} disabled={!regionPolygon}>Clear selection</button>
+            <button className="text-button" onClick={() => { setRegionPolygon(null); setSelectingRegion(false); setProposalContext(null); setActiveMetrics(null); setNotice("Selected polygon cleared; catalogues and proposals remain."); }} disabled={!regionPolygon}>Clear selection</button>
             <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
@@ -522,6 +537,8 @@ export default function App() {
               setSelectingRegion(false);
               setRegionPolygon(polygon);
               setPending(null);
+              setProposalContext(null);
+              setActiveMetrics(null);
               setNotice("Sky polygon finalized. Generate a plan when ready.");
             }}
             onError={setError}

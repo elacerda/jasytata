@@ -30,6 +30,10 @@ from app.science.grid import rectangular_grid_centers
 # 1.3667 deg. A 0.05 deg (3 arcmin) tolerance includes the observed variation
 # without treating unrelated sub-degree or 1.4+ degree layouts as anchors.
 INFERENCE_TOLERANCE_DEG = 0.05
+# The largest accepted phase residual is 2 * 0.05 deg. The Run C measured
+# historical midpoint scatter has a 7.47-arcsec p95 (14.93-arcsec holdout
+# limit), so a 0.12-deg exclusion also catches slightly misplaced inferred
+# sites without suppressing a distinct ~1.35-deg neighboring lattice site.
 OCCUPIED_CENTER_TOLERANCE_DEG = 0.12
 SAMPLE_STEP_DEG = 0.12
 MAX_CANDIDATES = 1200
@@ -130,11 +134,12 @@ def plan_region(
         If the selected region produces too many candidates or samples.
     """
     profile = profile or load_profile(request.profile_id)
+    existing_tiles = [tile for tile in request.existing_tiles if tile.enabled]
     bounds = request.polygon.bounds
     region_center_ra = (bounds.ra_start_deg + bounds.ra_span_deg / 2) % 360
     region_center_dec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2
     local_tiles = _tiles_near_region(
-        request.existing_tiles, bounds, region_center_ra, region_center_dec, profile
+        existing_tiles, bounds, region_center_ra, region_center_dec, profile
     )
     lattice = _infer_lattice(local_tiles, region_center_ra, region_center_dec, profile)
     if lattice is None:
@@ -173,10 +178,10 @@ def plan_region(
             f"This region produces {len(raw_candidates)} lattice candidates; reduce the selected "
             f"area to at most {MAX_CANDIDATES}."
         )
-    unique_candidates = _exclude_occupied(raw_candidates, request.existing_tiles)
+    unique_candidates = _exclude_occupied(raw_candidates, existing_tiles)
     grid = SamplingCoverageEngine().sample(request.polygon)
-    existing_mask = _covered_mask(grid, request.existing_tiles, profile)
-    contributing_count = _contributing_tile_count(grid, request.existing_tiles, profile)
+    existing_mask = _covered_mask(grid, existing_tiles, profile)
+    contributing_count = _contributing_tile_count(request.polygon, existing_tiles, profile)
     candidate_masks = [_tile_mask(grid, ra, dec, profile) for ra, dec in unique_candidates]
     useful: list[tuple[tuple[float, float], np.ndarray]] = []
     for center, mask in zip(unique_candidates, candidate_masks, strict=True):
@@ -258,7 +263,8 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
         raise ValueError("Coverage edits may contain only proposed tiles")
     profile = load_profile(request.profile_id)
     grid = SamplingCoverageEngine().sample(request.polygon)
-    existing_mask = _covered_mask(grid, request.existing_tiles, profile)
+    existing_tiles = [tile for tile in request.existing_tiles if tile.enabled]
+    existing_mask = _covered_mask(grid, existing_tiles, profile)
     enabled = [tile for tile in request.proposed_tiles if tile.enabled]
     selected = [
         (tile.ra_deg, tile.dec_deg, _tile_mask(grid, tile.ra_deg, tile.dec_deg, profile))
@@ -268,7 +274,7 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
         selected,
         existing_mask,
         grid,
-        _contributing_tile_count(grid, request.existing_tiles, profile),
+        _contributing_tile_count(request.polygon, existing_tiles, profile),
         profile,
     )
 
@@ -577,21 +583,58 @@ def _interpolate_spacing(spacings: dict[int, float], row: int, fallback: float) 
 def _exclude_occupied(
     centers: list[tuple[float, float]], tiles: list[TileRecord]
 ) -> list[tuple[float, float]]:
-    """Remove centers already represented by a nearby catalogue tile."""
+    """Remove lattice centers near any actual input pointing on the sphere.
+
+    Parameters
+    ----------
+    centers : list[tuple[float, float]]
+        Candidate ICRS (RA, DEC) pairs in decimal degrees.
+    tiles : list[TileRecord]
+        Actual loaded catalogue and accepted proposal centers in ICRS degrees;
+        their inferred row or anchor membership is irrelevant.
+
+    Returns
+    -------
+    list[tuple[float, float]]
+        Unoccupied ICRS centers whose great-circle distance from every input
+        pointing is at least ``OCCUPIED_CENTER_TOLERANCE_DEG``.
+    """
     kept: list[tuple[float, float]] = []
     for ra, dec in sorted(set(centers), key=lambda point: (point[1], point[0])):
         duplicate = any(
-            math.hypot(
-                _wrapped_ra_delta(ra, tile.ra_deg)
-                * math.cos(math.radians((dec + tile.dec_deg) / 2)),
-                dec - tile.dec_deg,
-            )
+            _angular_separation_deg(ra, dec, tile.ra_deg, tile.dec_deg)
             < OCCUPIED_CENTER_TOLERANCE_DEG
             for tile in tiles
         )
         if not duplicate:
             kept.append((float(ra % 360), float(dec)))
     return kept
+
+
+def _angular_separation_deg(ra_a: float, dec_a: float, ra_b: float, dec_b: float) -> float:
+    """Return great-circle separation of two ICRS centers in degrees.
+
+    Parameters
+    ----------
+    ra_a, ra_b : float
+        Right ascensions in decimal degrees, normalized modulo 360.
+    dec_a, dec_b : float
+        Declinations in decimal degrees.
+
+    Returns
+    -------
+    float
+        Angular separation in degrees from the stable haversine formula.
+    """
+    delta_dec = math.radians(dec_b - dec_a)
+    delta_ra = math.radians(_wrapped_ra_delta(ra_b, ra_a))
+    dec_a_rad = math.radians(dec_a)
+    dec_b_rad = math.radians(dec_b)
+    haversine = (
+        math.sin(delta_dec / 2) ** 2
+        + math.cos(dec_a_rad) * math.cos(dec_b_rad) * math.sin(delta_ra / 2) ** 2
+    )
+    return math.degrees(2 * math.asin(math.sqrt(min(1.0, max(0.0, haversine)))))
 
 
 def _sample_region(bounds: RegionBounds, polygon: SkyPolygon | None = None) -> _CoverageGrid:
@@ -688,10 +731,101 @@ def _covered_mask(
 
 
 def _contributing_tile_count(
-    grid: _CoverageGrid, tiles: list[TileRecord], profile: TilingProfile
+    polygon: SkyPolygon, tiles: list[TileRecord], profile: TilingProfile
 ) -> int:
-    """Count existing tiles whose footprints overlap any sampled region point."""
-    return sum(bool(np.any(_tile_mask(grid, tile.ra_deg, tile.dec_deg, profile))) for tile in tiles)
+    """Count actual input footprints with positive geometric polygon overlap.
+
+    Parameters
+    ----------
+    polygon : SkyPolygon
+        Selected ICRS region with ordered RA/DEC vertices in degrees.
+    tiles : list[TileRecord]
+        Actual input centers in ICRS degrees, regardless of inference or
+        display state.
+    profile : TilingProfile
+        Axis-aligned physical footprint width and height in degrees.
+
+    Returns
+    -------
+    int
+        Number of tile rectangles intersecting positive selected-region area.
+        Clipping is geometric, so a tile centered inside cannot be missed by
+        the numerical coverage sample grid.
+    """
+    center_ra = (polygon.bounds.ra_start_deg + polygon.bounds.ra_span_deg / 2) % 360
+    vertices = [
+        (center_ra + _wrapped_ra_delta(vertex.ra_deg, center_ra), vertex.dec_deg)
+        for vertex in polygon.vertices
+    ]
+    return sum(
+        _clipped_footprint_area(vertices, tile, profile, center_ra) > 1e-12
+        for tile in tiles
+    )
+
+
+def _clipped_footprint_area(
+    vertices: list[tuple[float, float]],
+    tile: TileRecord,
+    profile: TilingProfile,
+    center_ra: float,
+) -> float:
+    """Clip an ICRS polygon by one tile's local RA/DEC footprint rectangle.
+
+    Parameters
+    ----------
+    vertices : list[tuple[float, float]]
+        Ordered, locally unwrapped (RA, DEC) polygon vertices in degrees.
+    tile : TileRecord
+        Actual ICRS pointing center in decimal degrees.
+    profile : TilingProfile
+        Physical tile width and height in degrees, modeled as axis-aligned.
+    center_ra : float
+        RA unwrap reference in degrees for this selected polygon.
+
+    Returns
+    -------
+    float
+        Positive planar RA/DEC intersection area in square degrees. Only its
+        sign is used for contributor counting; coverage fractions retain the
+        declination-weighted sample model.
+    """
+    ra = center_ra + _wrapped_ra_delta(tile.ra_deg, center_ra)
+    half_ra = profile.tile_width_deg / (2 * max(math.cos(math.radians(tile.dec_deg)), 0.01))
+    x_min, x_max = ra - half_ra, ra + half_ra
+    y_min = tile.dec_deg - profile.tile_height_deg / 2
+    y_max = tile.dec_deg + profile.tile_height_deg / 2
+    clipped = vertices
+    for axis, boundary, keep_greater in (
+        (0, x_min, True), (0, x_max, False),
+        (1, y_min, True), (1, y_max, False),
+    ):
+        if not clipped:
+            return 0.0
+        result: list[tuple[float, float]] = []
+        previous = clipped[-1]
+        previous_inside = previous[axis] >= boundary if keep_greater else previous[axis] <= boundary
+        for current in clipped:
+            current_inside = (
+                current[axis] >= boundary if keep_greater else current[axis] <= boundary
+            )
+            if current_inside != previous_inside:
+                fraction = (boundary - previous[axis]) / (current[axis] - previous[axis])
+                result.append((
+                    previous[0] + fraction * (current[0] - previous[0]),
+                    previous[1] + fraction * (current[1] - previous[1]),
+                ))
+            if current_inside:
+                result.append(current)
+            previous, previous_inside = current, current_inside
+        clipped = result
+    if len(clipped) < 3:
+        return 0.0
+    origin_x, origin_y = clipped[0]
+    return abs(sum(
+        (point[0] - origin_x) * (clipped[(index + 1) % len(clipped)][1] - origin_y)
+        - (clipped[(index + 1) % len(clipped)][0] - origin_x) * (point[1] - origin_y)
+        for index, point in enumerate(clipped)
+    )) / 2
 
 
 def _greedy_choose(

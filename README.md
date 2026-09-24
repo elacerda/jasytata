@@ -109,6 +109,8 @@ make build
 
 Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, polygon validation and sampling, lattice inference/fallback, historical holdout reconstruction, occupied-center exclusion, deterministic planning, profile epoch rules, and generic export round trips. Frontend tests cover RA-wrap polygon selection, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, reversible proposal editing, independent map layer visibility, and source metadata. [Run C acceptance measurements](docs/RUN_C_ACCEPTANCE.md) record the real-catalogue holdout residuals.
 
+[The large SPLUS-b overlap regression](docs/RUN_C_OVERLAP_REGRESSION.md) checks direct historical footprint coverage, spherical candidate occupancy, and the separation between inference diagnostics and coverage. In Vite development mode, the Region plan panel shows finalized polygon vertices and can copy the exact last submitted plan request JSON for reproducing browser cases. Production builds omit this diagnostic control.
+
 ## Known limits
 
 - Tile footprints use an axis-aligned 1.4° RA/DEC rectangle approximation; selected-area coverage is sampled inside the chosen polygon rather than computed by exact spherical clipping.

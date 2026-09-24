@@ -111,19 +111,30 @@ export async function planRegion(
     await fetch("/api/plan/region", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        polygon,
-        existing_tiles: existingTiles,
-        profile_id: profileId,
-      }),
+      body: JSON.stringify(buildRegionPlanRequest(polygon, existingTiles, profileId)),
     }),
   );
+}
+
+/** Build the exact JSON-serializable scientific input sent to region planning.
+ *
+ * @param polygon - Ordered ICRS vertices in decimal degrees.
+ * @param existingTiles - Actual loaded centers plus enabled accepted proposals.
+ * @param profileId - Active footprint profile identifier.
+ * @returns Request payload shared by the API call and development diagnostics.
+ */
+export function buildRegionPlanRequest(
+  polygon: SkyPolygon,
+  existingTiles: TileRecord[],
+  profileId?: string,
+) {
+  return { polygon, existing_tiles: existingTiles, profile_id: profileId };
 }
 
 /** Recompute polygon coverage after manual proposal toggles.
  *
  * @param polygon - Ordered selected ICRS sky vertices.
- * @param existingTiles - Visible immutable catalogue pointings.
+ * @param existingTiles - Every loaded immutable catalogue pointing, regardless of visibility.
  * @param proposedTiles - Full proposal; only enabled centers contribute.
  * @param profileId - Active profile identifier.
  * @returns Updated sampled coverage metrics without replacement proposals.

@@ -5,6 +5,9 @@ import App from "./App";
 import type { CenterInput, CatalogueResponse, RegionPlanResponse, TileRecord } from "./types";
 
 const apiMocks = vi.hoisted(() => ({
+  buildRegionPlanRequest: vi.fn((polygon: unknown, existingTiles: unknown, profileId: unknown) => ({
+    polygon, existing_tiles: existingTiles, profile_id: profileId,
+  })),
   downloadCatalogue: vi.fn(),
   loadDefaultProfile: vi.fn(),
   loadReferenceCatalogue: vi.fn(),
@@ -53,6 +56,12 @@ vi.mock("./AladinMap", async () => {
           },
           "Mock select region",
         ),
+        React.createElement("button", {
+          onClick: () => props.onRegionSelect({ vertices: [
+            { ra_deg: 262, dec_deg: -40 }, { ra_deg: 277, dec_deg: -40 },
+            { ra_deg: 277, dec_deg: -27 }, { ra_deg: 262, dec_deg: -27 },
+          ] }),
+        }, "Mock select different region"),
         React.createElement(
           "button",
           { onClick: () => props.onSkyClick(150.5, -24.25) },
@@ -346,11 +355,15 @@ describe("Tile Planner proposal workflow", () => {
         expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
       ]), "splus-t80-south",
     );
+    const firstPlanInputs = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
+    const initialMetrics = screen.getByText("Already covered").closest(".metrics-panel")?.textContent;
     await user.click(firstToggle);
     expect((secondToggle as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("Existing grid extended")).toBeTruthy();
+    expect(screen.getByText("Already covered").closest(".metrics-panel")?.textContent).toBe(initialMetrics);
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     const plannedTiles = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
+    expect(plannedTiles).toEqual(firstPlanInputs);
     expect(plannedTiles.some((tile) => tile.name === original.name)).toBe(true);
     expect(plannedTiles.some((tile) => tile.name === second.name)).toBe(true);
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
@@ -390,6 +403,24 @@ describe("Tile Planner proposal workflow", () => {
     );
   });
 
+  it("exposes finalized vertices and the submitted plan payload in development", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByText("Development: plan input"));
+    expect(screen.getByText(/"ra_deg": 120/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy last plan request JSON" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(screen.getByRole("button", { name: "Copy last plan request JSON" }));
+    const [polygon, existingTiles, profileId] = apiMocks.planRegion.mock.lastCall ?? [];
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify({
+      polygon, existing_tiles: existingTiles, profile_id: profileId,
+    }));
+  });
+
   it("keeps inference evidence consistent when coverage is recalculated", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -406,6 +437,26 @@ describe("Tile Planner proposal workflow", () => {
     await user.click(screen.getByRole("button", { name: "Remove all" }));
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
+  });
+
+  it("does not pair a new polygon's coverage with anchors from an older plan", async () => {
+    const user = userEvent.setup();
+    apiMocks.measureCoverage.mockImplementation(async (polygon: { vertices: CenterInput[] }) =>
+      polygon.vertices[0].ra_deg === 262
+        ? { ...makePlan(2).metrics, existing_tiles_contributing: 11, already_covered_fraction: 0.033 }
+        : makePlan(2).metrics);
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(screen.getByText("Inference anchors used")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Mock select different region" }));
+    await waitFor(() => expect(screen.getByText("Existing contributors").parentElement?.textContent).toContain("11"));
+    expect(screen.getByText("Already covered").parentElement?.textContent).toContain("3.3%");
+    expect(screen.queryByText("Inference anchors used")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Show Inference anchors" }).closest("label")?.textContent).toContain("0");
+    expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
   });
 
   it("shows fallback anchor candidates and zero matched anchors", async () => {
