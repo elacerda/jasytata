@@ -4,6 +4,8 @@
 
 # Jasytata
 
+[![Release](https://img.shields.io/github/v/release/elacerda/jasytata?label=Release)](https://github.com/elacerda/jasytata/releases) [![Jasytata Online](https://img.shields.io/website?url=https%3A%2F%2Felacerda.github.io%2Fjasytata%2F&label=Jasytata%20Online)](https://elacerda.github.io/jasytata/) [![GitHub Pages](https://github.com/elacerda/jasytata/actions/workflows/pages.yml/badge.svg)](https://github.com/elacerda/jasytata/actions/workflows/pages.yml) [![License](https://img.shields.io/github/license/elacerda/jasytata)](LICENSE)
+
 **Browser-based telescope pointing and coverage planner**
 
 Jasytata plans telescope pointings and sky coverage from catalogue CSV files. Its scientific computations run in the browser using React and TypeScript. The application needs no backend, server, Python, database, secrets, or server-side filesystem.
