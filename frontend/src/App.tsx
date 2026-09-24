@@ -42,9 +42,19 @@ interface GeometryDraft {
 
 const EMPTY_CENTERS: CenterInput[] = [];
 const EMPTY_IDS: string[] = [];
+type ThemeMode = "light" | "dark";
+
+const THEME_STORAGE_KEY = "jasytata-theme";
 
 /** Render the stateless catalogue, sky planning, proposal, and export workspace. */
 export default function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    try {
+      return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  });
   const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
@@ -104,6 +114,14 @@ export default function App() {
     const ids = new Set(context.inference?.anchor_tile_ids ?? []);
     return planningTiles.filter((tile) => ids.has(tile.id));
   }, [pending, proposalContext, planningTiles]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Theme selection still works for this session when storage is unavailable.
+    }
+  }, [theme]);
 
   useEffect(() => {
     void loadDefaultProfile().then((loaded) => {
@@ -392,7 +410,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" data-theme={theme}>
       <header className="topbar">
         <div className="brand-block">
           <h1 className="brand-title"><img className="brand-logo" src={jasytataLogo} alt="Jasytata" /></h1>
@@ -406,6 +424,17 @@ export default function App() {
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
+          <button
+            className="button theme-toggle"
+            type="button"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-pressed={theme === "dark"}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+          >
+            <Icon name={theme === "dark" ? "sun" : "moon"} />
+            <span className="theme-toggle-label">{theme === "dark" ? "Light" : "Dark"}</span>
+          </button>
           <button className="button button-quiet" onClick={() => void runBusy(loadReferenceCatalogue, applyCatalogue)} disabled={busy}>
             <Icon name="sample" /> Load reference
           </button>
@@ -847,7 +876,7 @@ function Metric({ label, value, emphasis = false }: { label: string; value: stri
   return <div className={`metric-row ${emphasis ? "is-emphasis" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "region" | "chevron" | "spark" | "check" | "undo" | "trash" | "download" | "target" }) {
+function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "region" | "chevron" | "spark" | "check" | "undo" | "trash" | "download" | "target" | "sun" | "moon" }) {
   const paths: Record<string, ReactNode> = {
     upload: <><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5" /><path d="M5 14v5h14v-5" /></>,
     sample: <><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5a13 13 0 0 1 0 17M12 3.5a13 13 0 0 0 0 17" /></>,
@@ -861,6 +890,8 @@ function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "re
     trash: <><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" /></>,
     download: <><path d="M12 3v12m0 0 4.5-4.5M12 15 7.5 10.5" /><path d="M5 17v3h14v-3" /></>,
     target: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="2.5" /><path d="M12 1v3M12 20v3M1 12h3m16 0h3" /></>,
+    sun: <><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></>,
+    moon: <path d="M20.2 15.3A8.5 8.5 0 0 1 8.7 3.8a8.5 8.5 0 1 0 11.5 11.5Z" />,
   };
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
