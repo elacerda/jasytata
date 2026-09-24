@@ -235,7 +235,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .icon-button:disabled { opacity: .4; cursor: not-allowed; }
 .icon-button .icon { width: 14px; height: 14px; }
 .icon-button.danger-icon:hover:not(:disabled) { color: var(--danger); background: #f9e9e6; }
-.accepted-list { display: grid; }
+.accepted-list { display: grid; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #bfccd0 transparent; scrollbar-width: thin; }
 .accepted-row { min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 5px 3px; text-align: left; border: 0; border-bottom: 1px solid #e1e8e9; background: transparent; cursor: pointer; }
 .accepted-row:hover, .accepted-row.is-selected { background: #eaf4f3; }
 .accepted-swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px #f4e4d9; }

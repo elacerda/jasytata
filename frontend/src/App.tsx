@@ -65,6 +65,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLElement>(null);
   const proposalBatchRef = useRef(0);
+  const regionRevisionRef = useRef(0);
 
   const hasCatalogue = datasets.length > 0;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles), [datasets]);
@@ -215,6 +216,7 @@ export default function App() {
 
   async function handlePlanRegion() {
     if (!regionPolygon || !hasCatalogue) return;
+    const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
       setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id)));
@@ -226,6 +228,7 @@ export default function App() {
         profile?.id,
       ),
       (result: RegionPlanResponse) => {
+        if (regionRevision !== regionRevisionRef.current) return;
         setPending({
           tiles: result.tiles,
           candidateCenters: result.candidate_centers,
@@ -278,6 +281,7 @@ export default function App() {
   }
 
   function beginRegionSelection() {
+    regionRevisionRef.current += 1;
     setMapMode("idle");
     setRegionPolygon(null);
     setPending(null);
@@ -286,6 +290,15 @@ export default function App() {
     setSelectingRegion(true);
     setSelectionRequest((previous) => previous + 1);
     setNotice("Click successive sky points, then double-click to close the polygon.");
+  }
+
+  function clearRegionSelection() {
+    regionRevisionRef.current += 1;
+    setRegionPolygon(null);
+    setSelectingRegion(false);
+    setProposalContext(null);
+    setActiveMetrics(null);
+    setNotice("Selected polygon cleared; catalogues and proposals remain.");
   }
 
   function setAllProposals(enabled: boolean) {
@@ -425,7 +438,7 @@ export default function App() {
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
                 <div className="region-actions">
                   <button className="button button-outline" onClick={beginRegionSelection} disabled={busy}>Redraw polygon</button>
-                  <button className="button button-quiet" onClick={() => { setRegionPolygon(null); setProposalContext(null); setActiveMetrics(null); setNotice("Selected polygon cleared; catalogues and proposals remain."); }}>Clear selection</button>
+                  <button className="button button-quiet" onClick={clearRegionSelection}>Clear selection</button>
                 </div>
                 {import.meta.env.DEV && <details className="development-plan-input">
                   <summary>Development: plan input</summary>
@@ -502,6 +515,7 @@ export default function App() {
             <PlanningLayer label="Candidate lattice" color="var(--green)" checked={planningLayers.lattice}
               count={activeContext?.candidateCenters.length ?? 0}
               onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, lattice: checked }))} />
+            <p className="fine-print">Visibility affects only the map. Hidden catalogues still contribute to plans. Disabled proposals appear as gray crosses.</p>
           </section>
         </aside>
 
@@ -540,6 +554,7 @@ export default function App() {
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
             onRegionSelect={(polygon) => {
+              regionRevisionRef.current += 1;
               setSelectingRegion(false);
               setRegionPolygon(polygon);
               setPending(null);
@@ -570,7 +585,7 @@ export default function App() {
               <div className="inspector-empty">
                 <div className="empty-cross"><span /><span /></div>
                 <strong>No tile selected</strong>
-                <p>Click a center marker or footprint to inspect catalogue metadata.</p>
+                <p>Click a tile center marker to inspect its coordinates and metadata.</p>
               </div>
             )}
           </section>
@@ -612,7 +627,7 @@ export default function App() {
               <SectionHeading title="Generated proposal" trailing={String(proposals.length)} />
               <div className="accepted-actions">
                 <button className="text-button" onClick={() => setAllProposals(true)} disabled={!proposals.length}>Restore all</button>
-                <button className="text-button" onClick={() => setAllProposals(false)} disabled={!proposals.length}>Remove all</button>
+                <button className="text-button" onClick={() => setAllProposals(false)} disabled={!proposals.length}>Disable all</button>
                 <button className="text-button" onClick={clearProposals} disabled={!proposals.length && !pending}>Clear proposal</button>
               </div>
             </div>
@@ -620,14 +635,13 @@ export default function App() {
             {activeMetrics && <MetricsPanel metrics={activeMetrics} inference={proposalContext?.inference ?? null} candidateCount={proposalContext?.candidateCenters.length ?? 0} />}
             {proposals.length ? (
               <div className="accepted-list">
-                {proposals.slice(-8).reverse().map((tile, index) => (
+                {[...proposals].reverse().map((tile, index) => (
                   <button className={`accepted-row ${tile.id === selectedTileId ? "is-selected" : ""} ${tile.enabled === false ? "is-disabled" : ""}`} key={tile.id} onClick={() => setSelectedTileId(tile.id)}>
                     <span className="accepted-swatch" />
                     <span><strong>{tile.name || `Proposed tile ${proposals.length - index}`}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
                     <span className="accepted-type">{tile.enabled === false ? "DISABLED" : shortMethod(tile.generation_method)}</span>
                   </button>
                 ))}
-                {proposals.length > 8 && <p className="more-row">Showing 8 of {proposals.length} accepted tiles</p>}
               </div>
             ) : <p className="panel-copy">Accept a proposal to edit and export its tile centers.</p>}
           </section>

@@ -203,7 +203,7 @@ describe("Tile Planner proposal workflow", () => {
     );
     await user.click(screen.getByRole("button", { name: "Enable tile" }));
     expect(screen.getByRole("button", { name: "Disable tile" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Remove all" }));
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
     expect(screen.getByText("0 enabled · 2 disabled")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Restore all" }));
     expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
@@ -265,6 +265,35 @@ describe("Tile Planner proposal workflow", () => {
     expect(screen.getByRole("button", { name: "Generate plan" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(screen.getByTestId("map-selection").textContent).toBe("[]");
+  });
+
+  it("ignores a plan response for a selection cleared while the request was pending", async () => {
+    const user = userEvent.setup();
+    let resolvePlan: (value: RegionPlanResponse) => void = () => undefined;
+    apiMocks.planRegion.mockReturnValueOnce(new Promise<RegionPlanResponse>((resolve) => { resolvePlan = resolve; }));
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    resolvePlan(makePlan(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: /load reference/i })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /accept proposal/i })).toBeNull();
+    expect(screen.getByTestId("map-selection").textContent).toBe("[]");
+  });
+
+  it("makes every accepted tile in a long proposal selectable from the inspector", async () => {
+    const user = userEvent.setup();
+    apiMocks.planRegion.mockResolvedValueOnce(makePlan(10));
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    expect(screen.getByRole("button", { name: /PROPOSED_0010/ })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    expect(screen.getByRole("button", { name: "Disable tile" })).toBeTruthy();
   });
 
   it("previews single-tile placement and lets the user cancel it", async () => {
@@ -341,7 +370,7 @@ describe("Tile Planner proposal workflow", () => {
       expect.arrayContaining([expect.objectContaining({ enabled: true })]),
       "splus-t80-south", "2000", "sexagesimal",
     );
-    await user.click(screen.getByRole("button", { name: "Remove all" }));
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
     expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
   });
 
@@ -480,7 +509,7 @@ describe("Tile Planner proposal workflow", () => {
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
     expect(screen.getByText("Nearby anchor candidates").parentElement?.textContent).toContain("7");
     expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
-    await user.click(screen.getByRole("button", { name: "Remove all" }));
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Inference anchors used").parentElement?.textContent).toContain("1");
   });

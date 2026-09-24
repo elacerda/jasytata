@@ -9,3 +9,13 @@ frontend/node_modules/
 frontend/dist/
 *.egg-info/
 .DS_Store
+# Local browser-testing catalogue; keep reference/tiles_nc.csv tracked.
+/tiles_nc.csv
+# Local editor, secrets, logs, and screenshots.
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+*.log
+/screenshots/

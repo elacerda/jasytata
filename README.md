@@ -1,6 +1,6 @@
 # Tile Planner
 
-Tile Planner displays astronomical catalogue footprints on an Aladin Lite sky map and prepares auditable tile proposals. Its bundled S-PLUS/T80-South catalogue is the initial compatibility profile. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
+Tile Planner is a generic, configurable web application for planning telescope pointings and tiles on the sky. It displays catalogue footprints on an Aladin Lite map and prepares auditable tile proposals. The bundled S-PLUS / T80-South setup is the default profile and compatibility case. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
 
 The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. Other CSV files need only RA and DEC columns.
 
@@ -8,11 +8,13 @@ The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use
 
 - Aladin Lite v3 pan, zoom, ICRS position inspection, native catalogue layers, zoom-dependent tile footprints, polygon selection, anchors, and candidate lattice positions.
 - Multiple simultaneous CSV datasets with distinct colors, independent visibility, and source metadata inspection.
-- Single sky-click proposals, pasted RA/DEC center imports, and native Aladin polygon selection with ICRS vertices.
+- Single sky-click proposals, pasted RA/DEC center imports, and polygon selection with ICRS vertices. Redraw replaces the old selection; Clear selection removes it without changing catalogues or accepted proposals.
 - `SPLUS_LEGACY_GRID_V1` geometry and a deterministic existing-grid inference layer.
 - Deterministic polygon-aware planning from every loaded catalogue, independent of map-layer visibility.
-- Proposal preview and acceptance, reversible per-tile enable/disable, Restore all, Remove all, and independent Clear proposal/Clear selection actions.
+- Proposal preview and acceptance, reversible per-tile enable/disable, Restore all, Disable all, and independent Clear proposal/Clear selection actions.
 - Generic `RA,DEC,EPOCH` export of enabled proposals in decimal degrees or sexagesimal coordinates.
+
+Typical workflow: load one or more catalogues, inspect tile centers, draw a polygon, generate and review a plan, toggle map layers, accept the proposal, disable or restore individual proposed tiles, and export enabled centers. Clear proposal removes the proposal while retaining the polygon; Clear selection removes the polygon while retaining accepted proposals and catalogues.
 
 ## Architecture
 
@@ -30,7 +32,7 @@ The frontend keeps independent uploaded datasets and accepted proposals in clien
 
 ## Observing profiles
 
-YAML files in `backend/profiles/` define an instrument's tile width and height in degrees, effective edge overlap in arcseconds, ICRS coordinates, a generation algorithm, and allowed export epoch labels. The installed default is `splus-t80-south` (S-PLUS / T80-South): 1.4° × 1.4°, 120 arcsec effective overlap, `SPLUS_LEGACY_GRID_V1`, and the sole export epoch option `2000`. The historical helper used a 30 arcsec base overlap multiplied internally by four; profile files use the physically meaningful 120 arcsec value. Add another YAML file with a distinct identifier and `RECT_GRID_V1` to describe another rectangular instrument. `GET /api/profiles` exposes installed profiles to clients; region planning accepts `profile_id`.
+YAML files in `backend/profiles/` define an instrument's tile width and height in degrees, effective edge overlap in arcseconds, ICRS coordinates, a generation algorithm, and allowed export epoch labels. The installed default is `splus-t80-south` (S-PLUS / T80-South): nominal 1.4° × 1.4° tiles, 120 arcsec effective overlap, `SPLUS_LEGACY_GRID_V1`, and the sole export epoch option `2000`. The historical helper used a 30 arcsec base overlap multiplied internally by four; profile files use the physically meaningful 120 arcsec value. Add another YAML file with a distinct identifier and `RECT_GRID_V1` to describe another rectangular instrument. `GET /api/profiles` exposes installed profiles to clients; region planning accepts `profile_id`.
 
 ## Development setup
 
@@ -49,7 +51,7 @@ To build and run the production-serving FastAPI app:
 make run
 ```
 
-`make run` builds the frontend first, then starts FastAPI on port 8000. The Makefile keeps the `uv` cache in an ignored workspace directory, which also makes the commands work in restricted environments.
+`make run` builds the frontend first, then starts FastAPI on port 8000 for local use. No server deployment or container setup is supplied. The Makefile keeps the `uv` cache in an ignored workspace directory, which also makes the commands work in restricted environments.
 
 The sky imagery comes from Aladin Lite's configured HiPS survey service, so the browser needs network access to the survey host. Catalogue parsing, planning, and export remain local to this application.
 
@@ -107,14 +109,16 @@ make typecheck
 make build
 ```
 
-Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, polygon validation and sampling, lattice inference/fallback, historical holdout reconstruction, occupied-center exclusion, deterministic planning, profile epoch rules, and generic export round trips. Frontend tests cover RA-wrap polygon selection, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, reversible proposal editing, independent map layer visibility, and source metadata. [Run C acceptance measurements](docs/RUN_C_ACCEPTANCE.md) record the real-catalogue holdout residuals.
+Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, polygon validation and sampling, lattice inference/fallback, historical holdout reconstruction, occupied-center exclusion, deterministic planning, profile epoch rules, and generic export round trips. Frontend tests cover RA-wrap polygon selection, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, reversible proposal editing, independent map layer visibility, and source metadata. [Run C acceptance measurements](docs/RUN_C_ACCEPTANCE.md) record the real-catalogue holdout residuals. These historical regressions validate the default S-PLUS / T80-South profile; they do not establish scientific validation for arbitrary future instruments or profiles.
 
 [The large SPLUS-b overlap regression](docs/RUN_C_OVERLAP_REGRESSION.md) checks direct historical footprint coverage, spherical candidate occupancy, and the separation between inference diagnostics and coverage. In Vite development mode, the Region plan panel shows finalized polygon vertices and can copy the exact last submitted plan request JSON for reproducing browser cases. Production builds omit this diagnostic control.
 
 ## Known limits
 
 - Tile footprints use an axis-aligned 1.4° RA/DEC rectangle approximation; selected-area coverage is sampled inside the chosen polygon rather than computed by exact spherical clipping.
-- The region planner uses a dense, declination-weighted sample grid capped at 90,000 points; the returned coverage is an estimate, not a survey-completeness certification.
+- The region planner uses a dense, declination-weighted sample grid capped at 90,000 points; the returned coverage is an estimate, not a survey-completeness certification. There is no MOC coverage engine yet.
 - Region selection supports simple polygons with a local RA span no wider than 180° and declinations strictly between the poles. The current planner models the approximately axis-aligned S-PLUS grid and does not infer rotated or warped survey tilings.
 - Sessions are client/in-memory only. Reloading the browser discards accepted proposals; export before closing the session.
+- There is no observing schedule or Tile Budget / Fixed N planning mode.
+- There is no server deployment or container setup yet; `make run` serves a local build.
 - The initial UI uses Aladin Lite's DSS2 color HiPS background; access to remote HiPS tiles depends on network availability.
