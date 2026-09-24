@@ -148,7 +148,7 @@ function makePlan(count: number): RegionPlanResponse {
   };
 }
 
-describe("Tile Planner proposal workflow", () => {
+describe("Jasytata proposal workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.loadDefaultProfile.mockResolvedValue({

@@ -639,7 +639,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tile-planner"
+name = "jasytata"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

@@ -348,7 +348,7 @@ def test_built_frontend_and_client_route_are_served_when_available() -> None:
 
     home = client.get("/")
     assert home.status_code == 200
-    assert "Tile Planner" in home.text
+    assert "Jasytata" in home.text
     match = re.search(r'(?:src|href)="([^"]+\.(?:js|css))"', home.text)
     assert match, "Built HTML should reference a JS or CSS asset"
     asset = client.get(match.group(1))
@@ -357,4 +357,4 @@ def test_built_frontend_and_client_route_are_served_when_available() -> None:
 
     deep_link = client.get("/planner/session")
     assert deep_link.status_code == 200
-    assert "Tile Planner" in deep_link.text
+    assert "Jasytata" in deep_link.text

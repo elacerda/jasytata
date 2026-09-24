@@ -6,6 +6,14 @@
 
 web
 
+## Name
+
+Jasytata
+
+## Description
+
+Telescope pointing and coverage planner.
+
 ## Stack
 
 Delegated by the implementation brief: FastAPI, Astropy, NumPy, Pydantic, React, TypeScript, Vite, and Aladin Lite v3.

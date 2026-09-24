@@ -1,1 +1,1 @@
-"""Backend package for Tile Planner."""
+"""Backend package for Jasytata."""

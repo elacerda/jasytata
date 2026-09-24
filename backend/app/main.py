@@ -1,4 +1,4 @@
-"""FastAPI application for Tile Planner."""
+"""FastAPI application for Jasytata, a telescope pointing and coverage planner."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from app.science.export import build_export_csv
 from app.science.planner import measure_active_coverage, plan_region
 
 app = FastAPI(
-    title="Tile Planner API",
+    title="Jasytata API",
     version="0.1.0",
     description="Catalogue parsing, configurable tile geometry, region planning, and CSV export.",
 )
@@ -89,7 +89,7 @@ async def health() -> dict[str, str]:
     dict[str, str]
         Service status and application identifier.
     """
-    return {"status": "ok", "service": "tile-planner"}
+    return {"status": "ok", "service": "jasytata"}
 
 
 @app.post("/api/catalogue/parse", response_model=CatalogueResponse)

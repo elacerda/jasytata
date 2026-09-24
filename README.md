@@ -1,6 +1,12 @@
-# Tile Planner
+# Jasytata
 
-Tile Planner is a generic, configurable web application for planning telescope pointings and tiles on the sky. It displays catalogue footprints on an Aladin Lite map and prepares auditable tile proposals. The bundled S-PLUS / T80-South setup is the default profile and compatibility case. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
+**Telescope pointing and coverage planner**
+
+Jasytata is a configurable web application for planning telescope pointings and sky coverage. It displays catalogue footprints on an Aladin Lite map and prepares auditable tile proposals. The bundled S-PLUS / T80-South setup is the default profile and compatibility case. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
+
+Jasytata takes its name from a Kaiowá word recorded for “star”.
+
+Repository: [github.com/elacerda/jasytata](https://github.com/elacerda/jasytata)
 
 The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. Other CSV files need only RA and DEC columns.
 
@@ -43,6 +49,8 @@ The backend loads installed YAML files from `backend/profiles/`; the UI does not
 Requirements: Python 3.12+, Node.js 20+, npm, and `uv`.
 
 ```bash
+git clone https://github.com/elacerda/jasytata.git
+cd jasytata
 make setup
 make dev
 ```
@@ -126,3 +134,7 @@ Backend tests execute the checked-in legacy helper for golden coordinates and ex
 - There is no observing schedule or Tile Budget / Fixed N planning mode.
 - There is no server deployment or container setup yet; `make run` serves a local build.
 - The initial UI uses Aladin Lite's DSS2 color HiPS background; access to remote HiPS tiles depends on network availability.
+
+## License
+
+License: MIT. Copyright (c) 2026 Eduardo Lacerda. See [LICENSE](LICENSE).
