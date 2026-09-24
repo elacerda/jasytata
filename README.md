@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/src/assets/jasytata_logo.png" alt="Jasytata" width="700" />
+</p>
+
 # Jasytata
 
 **Telescope pointing and coverage planner**

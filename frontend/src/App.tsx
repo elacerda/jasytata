@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
 import { buildRegionPlanRequest, downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue, validateCustomProfile } from "./api";
 import { createDataset } from "./datasets";
@@ -394,13 +395,10 @@ export default function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11" /><path d="M5 16h22M16 5v22M8 8l16 16M24 8 8 24" /></svg>
-          </div>
-          <div>
-            <h1>Jasytata</h1>
-            <p>{profile?.display_name ?? "Astronomical tile planning"}</p>
-          </div>
+          <h1 className="brand-title"><img className="brand-logo" src={jasytataLogo} alt="Jasytata" /></h1>
+          <span className="brand-profile" title={profile?.display_name ?? "Astronomical tile planning"}>
+            {profile?.display_name ?? "Astronomical tile planning"}
+          </span>
         </div>
         <div className="topbar-state">
           <span className={`status-dot ${hasCatalogue ? "is-ready" : ""}`} />
