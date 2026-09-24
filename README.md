@@ -63,7 +63,30 @@ To build and run the production-serving FastAPI app:
 make run
 ```
 
-`make run` builds the frontend first, then starts FastAPI on port 8000 for local use. No server deployment or container setup is supplied. The Makefile keeps the `uv` cache in an ignored workspace directory, which also makes the commands work in restricted environments.
+`make run` builds the frontend first, then starts FastAPI on port 8000 for local use. The Makefile keeps the `uv` cache in an ignored workspace directory, which also makes the commands work in restricted environments.
+
+## Docker deployment
+
+Build and start the production container:
+
+```bash
+docker compose up -d --build
+```
+
+Check status and follow logs:
+
+```bash
+docker compose ps
+docker compose logs -f jasytata
+```
+
+Stop the service:
+
+```bash
+docker compose down
+```
+
+Open `http://<server-ip>:8010` in a browser. The initial deployment uses plain HTTP with direct port access; nginx, DNS, and TLS may be added later. The bind address and published port can be changed with `JASYTATA_BIND` and `JASYTATA_PORT` in a local `.env` file; see `.env.example`.
 
 The sky imagery comes from Aladin Lite's configured HiPS survey service, so the browser needs network access to the survey host. Catalogue parsing, planning, and export remain local to this application.
 
@@ -132,7 +155,6 @@ Backend tests execute the checked-in legacy helper for golden coordinates and ex
 - Region selection supports simple polygons with a local RA span no wider than 180° and declinations strictly between the poles. The current planner models the approximately axis-aligned S-PLUS grid and does not infer rotated or warped survey tilings.
 - Sessions are client/in-memory only. Reloading the browser discards accepted proposals; export before closing the session.
 - There is no observing schedule or Tile Budget / Fixed N planning mode.
-- There is no server deployment or container setup yet; `make run` serves a local build.
 - The initial UI uses Aladin Lite's DSS2 color HiPS background; access to remote HiPS tiles depends on network availability.
 
 ## License
