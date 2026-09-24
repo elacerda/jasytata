@@ -80,19 +80,22 @@ describe("local facade and download", () => {
   });
 });
 
-describe("temporary numerical backend bridge", () => {
+describe("local numerical facade", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("sends the same payload exposed to development diagnostics", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  it("plans locally from the same payload exposed to development diagnostics", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const polygon = { vertices: [
-      { ra_deg: 262, dec_deg: -40 }, { ra_deg: 277, dec_deg: -40 },
-      { ra_deg: 277, dec_deg: -27 }, { ra_deg: 262, dec_deg: -27 },
+      { ra_deg: 150, dec_deg: -31 }, { ra_deg: 152, dec_deg: -31 },
+      { ra_deg: 152, dec_deg: -29 }, { ra_deg: 150, dec_deg: -29 },
     ] };
-    await planRegion(polygon, [], "splus-t80-south");
-    expect(fetchMock).toHaveBeenCalledWith("/api/plan/region", expect.objectContaining({
-      body: JSON.stringify(buildRegionPlanRequest(polygon, [], "splus-t80-south")),
-    }));
+    const result = await planRegion(polygon, [], "splus-t80-south");
+    expect(result.solution).toBe("profile_fallback");
+    expect(result.tiles.length).toBeGreaterThan(0);
+    expect(buildRegionPlanRequest(polygon, [], "splus-t80-south")).toEqual({
+      polygon, existing_tiles: [], profile_id: "splus-t80-south",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

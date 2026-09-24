@@ -8,9 +8,7 @@ setup:
 	cd frontend && npm install
 
 dev:
-	@trap 'kill 0' EXIT INT TERM; \
-	  uv run --project backend uvicorn app.main:app --app-dir backend --reload --port 8000 & \
-	  cd frontend && npm run dev
+	cd frontend && npm run dev
 
 backend:
 	uv run --project backend uvicorn app.main:app --app-dir backend --reload --port 8000
@@ -37,7 +35,7 @@ build:
 	cd frontend && npm run build
 
 run: build
-	uv run --project backend uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+	cd frontend && npm run preview
 
 clean:
 	rm -rf backend/.venv backend/.pytest_cache frontend/node_modules frontend/dist

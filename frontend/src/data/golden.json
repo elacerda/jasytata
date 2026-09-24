@@ -393,6 +393,38 @@
       ]
     ]
   },
+  "rounding": [
+    {
+      "value": 2.675,
+      "digits": 2,
+      "result": 2.67
+    },
+    {
+      "value": 1.005,
+      "digits": 2,
+      "result": 1.0
+    },
+    {
+      "value": 5e-06,
+      "digits": 5,
+      "result": 1e-05
+    },
+    {
+      "value": 1.25,
+      "digits": 1,
+      "result": 1.2
+    },
+    {
+      "value": -1.25,
+      "digits": 1,
+      "result": -1.2
+    },
+    {
+      "value": -0.0,
+      "digits": 5,
+      "result": -0.0
+    }
+  ],
   "historical_holdout": {
     "hidden_names": [
       "SPLUS-b076",
@@ -721,5 +753,2471 @@
       "outside_region_coverage_deg2": 0.0,
       "sample_step_deg": 0.12
     }
-  }
+  },
+  "historical_cases": [
+    {
+      "id": "splus_b_single",
+      "hidden_names": [
+        "SPLUS-b076"
+      ],
+      "existing_names": [
+        "SPLUS-b028",
+        "SPLUS-b029",
+        "SPLUS-b030",
+        "SPLUS-b031",
+        "SPLUS-b032",
+        "SPLUS-b033",
+        "SPLUS-b034",
+        "SPLUS-b041",
+        "SPLUS-b042",
+        "SPLUS-b043",
+        "SPLUS-b044",
+        "SPLUS-b045",
+        "SPLUS-b046",
+        "SPLUS-b047",
+        "SPLUS-b048",
+        "SPLUS-b057",
+        "SPLUS-b058",
+        "SPLUS-b059",
+        "SPLUS-b060",
+        "SPLUS-b061",
+        "SPLUS-b062",
+        "SPLUS-b063",
+        "SPLUS-b064",
+        "SPLUS-b073",
+        "SPLUS-b074",
+        "SPLUS-b075",
+        "SPLUS-b077",
+        "SPLUS-b078",
+        "SPLUS-b079",
+        "SPLUS-b081",
+        "SPLUS-b089",
+        "SPLUS-b090",
+        "SPLUS-b091",
+        "SPLUS-b092",
+        "SPLUS-b093",
+        "SPLUS-b094",
+        "SPLUS-b095",
+        "SPLUS-b096",
+        "SPLUS-b098",
+        "SPLUS-b107",
+        "SPLUS-b108",
+        "SPLUS-b109",
+        "SPLUS-b110",
+        "SPLUS-b111",
+        "SPLUS-b112",
+        "SPLUS-b113",
+        "SPLUS-b114",
+        "SPLUS-b115",
+        "SPLUS-b116",
+        "SPLUS-b123",
+        "SPLUS-b124",
+        "SPLUS-b125",
+        "SPLUS-b126",
+        "SPLUS-b127",
+        "SPLUS-b128",
+        "SPLUS-b129",
+        "SPLUS-b130",
+        "SPLUS-b131",
+        "SPLUS-b132",
+        "SPLUS-b133"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 263.92722018440617,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 265.58111314892705,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 265.58111314892705,
+            "dec_deg": -28.743055555555557,
+            "label": null
+          },
+          {
+            "ra_deg": 263.92722018440617,
+            "dec_deg": -28.743055555555557,
+            "label": null
+          }
+        ]
+      },
+      "solution": "extended_existing_grid",
+      "generation_method": "region_extended",
+      "proposal_centers": [
+        [
+          264.7527777760872,
+          -29.463055555555556
+        ]
+      ],
+      "candidate_centers": [
+        [
+          264.7527777760872,
+          -29.463055555555556
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 44,
+        "anchor_tile_ids": [
+          "original-413",
+          "original-414",
+          "original-415",
+          "original-416",
+          "original-417",
+          "original-424",
+          "original-425",
+          "original-426",
+          "original-427",
+          "original-428",
+          "original-429",
+          "original-438",
+          "original-439",
+          "original-440",
+          "original-441",
+          "original-442",
+          "original-443",
+          "original-454",
+          "original-455",
+          "original-456",
+          "original-458",
+          "original-459",
+          "original-460",
+          "original-468",
+          "original-469",
+          "original-470",
+          "original-471",
+          "original-472",
+          "original-473",
+          "original-474",
+          "original-484",
+          "original-485",
+          "original-486",
+          "original-487",
+          "original-488",
+          "original-489",
+          "original-490",
+          "original-501",
+          "original-502",
+          "original-503",
+          "original-504",
+          "original-505",
+          "original-506",
+          "original-507"
+        ],
+        "compatible_neighbor_pairs": 77,
+        "dec_spacing_deg": 1.3858333333333341,
+        "ra_spacing_deg": 1.4058553004901826
+      },
+      "diagnostics": [
+        "Extended the local grid using 77 compatible neighbor pairs and 44 anchor tiles.",
+        "Median DEC spacing 1.3858 deg and inferred physical RA spacing 1.4059 deg; compatibility tolerance is 0.05 deg."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 6,
+        "new_tiles": 1,
+        "selected_region_area_deg2": 2.0735,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.12
+      }
+    },
+    {
+      "id": "splus_b_three_holes",
+      "hidden_names": [
+        "SPLUS-b075",
+        "SPLUS-b076",
+        "SPLUS-b077"
+      ],
+      "existing_names": [
+        "SPLUS-b028",
+        "SPLUS-b029",
+        "SPLUS-b030",
+        "SPLUS-b031",
+        "SPLUS-b032",
+        "SPLUS-b033",
+        "SPLUS-b034",
+        "SPLUS-b041",
+        "SPLUS-b042",
+        "SPLUS-b043",
+        "SPLUS-b044",
+        "SPLUS-b045",
+        "SPLUS-b046",
+        "SPLUS-b047",
+        "SPLUS-b048",
+        "SPLUS-b057",
+        "SPLUS-b058",
+        "SPLUS-b059",
+        "SPLUS-b060",
+        "SPLUS-b061",
+        "SPLUS-b062",
+        "SPLUS-b063",
+        "SPLUS-b064",
+        "SPLUS-b073",
+        "SPLUS-b074",
+        "SPLUS-b078",
+        "SPLUS-b079",
+        "SPLUS-b081",
+        "SPLUS-b089",
+        "SPLUS-b090",
+        "SPLUS-b091",
+        "SPLUS-b092",
+        "SPLUS-b093",
+        "SPLUS-b094",
+        "SPLUS-b095",
+        "SPLUS-b096",
+        "SPLUS-b098",
+        "SPLUS-b107",
+        "SPLUS-b108",
+        "SPLUS-b109",
+        "SPLUS-b110",
+        "SPLUS-b111",
+        "SPLUS-b112",
+        "SPLUS-b113",
+        "SPLUS-b114",
+        "SPLUS-b115",
+        "SPLUS-b116",
+        "SPLUS-b123",
+        "SPLUS-b124",
+        "SPLUS-b125",
+        "SPLUS-b126",
+        "SPLUS-b127",
+        "SPLUS-b128",
+        "SPLUS-b129",
+        "SPLUS-b130",
+        "SPLUS-b131",
+        "SPLUS-b132",
+        "SPLUS-b133"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 262.31055351773955,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 267.1936131489271,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 267.1936131489271,
+            "dec_deg": -28.743055555555557,
+            "label": null
+          },
+          {
+            "ra_deg": 262.31055351773955,
+            "dec_deg": -28.743055555555557,
+            "label": null
+          }
+        ]
+      },
+      "solution": "extended_existing_grid",
+      "generation_method": "region_extended",
+      "proposal_centers": [
+        [
+          263.1385416666666,
+          -29.463055555555556
+        ],
+        [
+          266.3677083333333,
+          -29.463055555555556
+        ],
+        [
+          264.75312499999995,
+          -29.463055555555556
+        ]
+      ],
+      "candidate_centers": [
+        [
+          263.1385416666666,
+          -29.463055555555556
+        ],
+        [
+          264.75312499999995,
+          -29.463055555555556
+        ],
+        [
+          266.3677083333333,
+          -29.463055555555556
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 50,
+        "anchor_tile_ids": [
+          "original-413",
+          "original-414",
+          "original-415",
+          "original-416",
+          "original-417",
+          "original-418",
+          "original-424",
+          "original-425",
+          "original-426",
+          "original-427",
+          "original-428",
+          "original-429",
+          "original-430",
+          "original-438",
+          "original-439",
+          "original-440",
+          "original-441",
+          "original-442",
+          "original-443",
+          "original-444",
+          "original-454",
+          "original-455",
+          "original-459",
+          "original-460",
+          "original-467",
+          "original-468",
+          "original-469",
+          "original-470",
+          "original-471",
+          "original-472",
+          "original-473",
+          "original-474",
+          "original-483",
+          "original-484",
+          "original-485",
+          "original-486",
+          "original-487",
+          "original-488",
+          "original-489",
+          "original-490",
+          "original-491",
+          "original-500",
+          "original-501",
+          "original-502",
+          "original-503",
+          "original-504",
+          "original-505",
+          "original-506",
+          "original-507",
+          "original-508"
+        ],
+        "compatible_neighbor_pairs": 85,
+        "dec_spacing_deg": 1.3858333333333341,
+        "ra_spacing_deg": 1.406100141096235
+      },
+      "diagnostics": [
+        "Extended the local grid using 85 compatible neighbor pairs and 50 anchor tiles.",
+        "Median DEC spacing 1.3858 deg and inferred physical RA spacing 1.4061 deg; compatibility tolerance is 0.05 deg."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 10,
+        "new_tiles": 3,
+        "selected_region_area_deg2": 6.1221,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.0189,
+        "sample_step_deg": 0.12
+      }
+    },
+    {
+      "id": "splus_b_adjacent_rows",
+      "hidden_names": [
+        "SPLUS-b076",
+        "SPLUS-b060",
+        "SPLUS-b077",
+        "SPLUS-b061"
+      ],
+      "existing_names": [
+        "SPLUS-b018",
+        "SPLUS-b019",
+        "SPLUS-b020",
+        "SPLUS-b021",
+        "SPLUS-b022",
+        "SPLUS-b023",
+        "SPLUS-b024",
+        "SPLUS-b028",
+        "SPLUS-b029",
+        "SPLUS-b030",
+        "SPLUS-b031",
+        "SPLUS-b032",
+        "SPLUS-b033",
+        "SPLUS-b034",
+        "SPLUS-b035",
+        "SPLUS-b041",
+        "SPLUS-b042",
+        "SPLUS-b043",
+        "SPLUS-b044",
+        "SPLUS-b045",
+        "SPLUS-b046",
+        "SPLUS-b047",
+        "SPLUS-b048",
+        "SPLUS-b049",
+        "SPLUS-b057",
+        "SPLUS-b058",
+        "SPLUS-b059",
+        "SPLUS-b062",
+        "SPLUS-b063",
+        "SPLUS-b064",
+        "SPLUS-b065",
+        "SPLUS-b073",
+        "SPLUS-b074",
+        "SPLUS-b075",
+        "SPLUS-b078",
+        "SPLUS-b079",
+        "SPLUS-b081",
+        "SPLUS-b089",
+        "SPLUS-b090",
+        "SPLUS-b091",
+        "SPLUS-b092",
+        "SPLUS-b093",
+        "SPLUS-b094",
+        "SPLUS-b095",
+        "SPLUS-b096",
+        "SPLUS-b098",
+        "SPLUS-b107",
+        "SPLUS-b108",
+        "SPLUS-b109",
+        "SPLUS-b110",
+        "SPLUS-b111",
+        "SPLUS-b112",
+        "SPLUS-b113",
+        "SPLUS-b114",
+        "SPLUS-b115",
+        "SPLUS-b116",
+        "SPLUS-b124",
+        "SPLUS-b125",
+        "SPLUS-b126",
+        "SPLUS-b127",
+        "SPLUS-b128",
+        "SPLUS-b129",
+        "SPLUS-b130",
+        "SPLUS-b131",
+        "SPLUS-b132",
+        "SPLUS-b133"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 263.93277173712767,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 268.4338949295389,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 268.4338949295389,
+            "dec_deg": -27.357222222222223,
+            "label": null
+          },
+          {
+            "ra_deg": 263.93277173712767,
+            "dec_deg": -27.357222222222223,
+            "label": null
+          }
+        ]
+      },
+      "solution": "extended_existing_grid",
+      "generation_method": "region_extended",
+      "proposal_centers": [
+        [
+          267.6097222709327,
+          -28.077222222222222
+        ],
+        [
+          264.7541666666666,
+          -29.463055555555556
+        ],
+        [
+          266.01805560426607,
+          -28.077222222222222
+        ],
+        [
+          266.3666666666666,
+          -29.463055555555556
+        ]
+      ],
+      "candidate_centers": [
+        [
+          264.7541666666666,
+          -29.463055555555556
+        ],
+        [
+          266.3666666666666,
+          -29.463055555555556
+        ],
+        [
+          266.01805560426607,
+          -28.077222222222222
+        ],
+        [
+          267.6097222709327,
+          -28.077222222222222
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 56,
+        "anchor_tile_ids": [
+          "original-403",
+          "original-404",
+          "original-405",
+          "original-406",
+          "original-407",
+          "original-408",
+          "original-413",
+          "original-414",
+          "original-415",
+          "original-416",
+          "original-417",
+          "original-418",
+          "original-419",
+          "original-424",
+          "original-425",
+          "original-426",
+          "original-427",
+          "original-428",
+          "original-429",
+          "original-430",
+          "original-438",
+          "original-439",
+          "original-440",
+          "original-443",
+          "original-444",
+          "original-445",
+          "original-454",
+          "original-455",
+          "original-456",
+          "original-459",
+          "original-460",
+          "original-461",
+          "original-468",
+          "original-469",
+          "original-470",
+          "original-471",
+          "original-472",
+          "original-473",
+          "original-474",
+          "original-475",
+          "original-484",
+          "original-485",
+          "original-486",
+          "original-487",
+          "original-488",
+          "original-489",
+          "original-490",
+          "original-491",
+          "original-501",
+          "original-502",
+          "original-503",
+          "original-504",
+          "original-505",
+          "original-506",
+          "original-507",
+          "original-508"
+        ],
+        "compatible_neighbor_pairs": 92,
+        "dec_spacing_deg": 1.3858333333333341,
+        "ra_spacing_deg": 1.4058553004901826
+      },
+      "diagnostics": [
+        "Extended the local grid using 92 compatible neighbor pairs and 56 anchor tiles.",
+        "Median DEC spacing 1.3858 deg and inferred physical RA spacing 1.4059 deg; compatibility tolerance is 0.05 deg."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 12,
+        "new_tiles": 4,
+        "selected_region_area_deg2": 11.1482,
+        "already_covered_fraction": 0.28947,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 0.71053,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.1061,
+        "sample_step_deg": 0.1185
+      }
+    },
+    {
+      "id": "splus_n_north",
+      "hidden_names": [
+        "SPLUS-n13s49",
+        "SPLUS-n13s50"
+      ],
+      "existing_names": [
+        "SPLUS-n10s43",
+        "SPLUS-n10s44",
+        "SPLUS-n10s45",
+        "SPLUS-n10s46",
+        "SPLUS-n10s47",
+        "SPLUS-n10s48",
+        "SPLUS-n10s49",
+        "SPLUS-n10s50",
+        "SPLUS-n10s51",
+        "SPLUS-n10s52",
+        "SPLUS-n10s53",
+        "SPLUS-n10s54",
+        "SPLUS-n11s44",
+        "SPLUS-n11s45",
+        "SPLUS-n11s46",
+        "SPLUS-n11s47",
+        "SPLUS-n11s48",
+        "SPLUS-n11s49",
+        "SPLUS-n11s50",
+        "SPLUS-n11s51",
+        "SPLUS-n11s52",
+        "SPLUS-n11s53",
+        "SPLUS-n11s54",
+        "SPLUS-n11s55",
+        "SPLUS-n12s43",
+        "SPLUS-n12s44",
+        "SPLUS-n12s45",
+        "SPLUS-n12s46",
+        "SPLUS-n12s47",
+        "SPLUS-n12s48",
+        "SPLUS-n12s49",
+        "SPLUS-n12s50",
+        "SPLUS-n12s51",
+        "SPLUS-n12s52",
+        "SPLUS-n12s53",
+        "SPLUS-n13s43",
+        "SPLUS-n13s45",
+        "SPLUS-n13s46",
+        "SPLUS-n13s47",
+        "SPLUS-n13s48",
+        "SPLUS-n13s51",
+        "SPLUS-n13s52",
+        "SPLUS-n13s53",
+        "SPLUS-n13s54",
+        "SPLUS-n13s55",
+        "SPLUS-n14s43",
+        "SPLUS-n14s44",
+        "SPLUS-n14s45",
+        "SPLUS-n14s46",
+        "SPLUS-n14s47",
+        "SPLUS-n14s48",
+        "SPLUS-n14s49",
+        "SPLUS-n14s50",
+        "SPLUS-n14s51",
+        "SPLUS-n14s52",
+        "SPLUS-n14s53",
+        "SPLUS-n15s43",
+        "SPLUS-n15s44",
+        "SPLUS-n15s45",
+        "SPLUS-n15s46",
+        "SPLUS-n15s47",
+        "SPLUS-n15s48",
+        "SPLUS-n15s49",
+        "SPLUS-n15s50",
+        "SPLUS-n15s51",
+        "SPLUS-n15s52",
+        "SPLUS-n15s53",
+        "SPLUS-n16s42",
+        "SPLUS-n16s43",
+        "SPLUS-n16s44",
+        "SPLUS-n16s45",
+        "SPLUS-n16s46",
+        "SPLUS-n16s47",
+        "SPLUS-n16s48",
+        "SPLUS-n16s49",
+        "SPLUS-n16s50",
+        "SPLUS-n16s51",
+        "SPLUS-n16s52"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 215.8126543394104,
+            "dec_deg": -16.93972222222222,
+            "label": null
+          },
+          {
+            "ra_deg": 218.7206789939229,
+            "dec_deg": -16.93972222222222,
+            "label": null
+          },
+          {
+            "ra_deg": 218.7206789939229,
+            "dec_deg": -15.49972222222222,
+            "label": null
+          },
+          {
+            "ra_deg": 215.8126543394104,
+            "dec_deg": -15.49972222222222,
+            "label": null
+          }
+        ]
+      },
+      "solution": "extended_existing_grid",
+      "generation_method": "region_extended",
+      "proposal_centers": [
+        [
+          216.56354166666665,
+          -16.21972222222222
+        ],
+        [
+          217.96979166666665,
+          -16.21972222222222
+        ]
+      ],
+      "candidate_centers": [
+        [
+          216.56354166666665,
+          -16.21972222222222
+        ],
+        [
+          217.96979166666665,
+          -16.21972222222222
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 57,
+        "anchor_tile_ids": [
+          "original-1808",
+          "original-1809",
+          "original-1810",
+          "original-1811",
+          "original-1812",
+          "original-1813",
+          "original-1814",
+          "original-1815",
+          "original-1816",
+          "original-1863",
+          "original-1864",
+          "original-1865",
+          "original-1866",
+          "original-1867",
+          "original-1868",
+          "original-1869",
+          "original-1870",
+          "original-1916",
+          "original-1917",
+          "original-1918",
+          "original-1919",
+          "original-1920",
+          "original-1921",
+          "original-1922",
+          "original-1923",
+          "original-1924",
+          "original-1970",
+          "original-1971",
+          "original-1972",
+          "original-1975",
+          "original-1976",
+          "original-1977",
+          "original-2024",
+          "original-2025",
+          "original-2026",
+          "original-2027",
+          "original-2028",
+          "original-2029",
+          "original-2030",
+          "original-2031",
+          "original-2076",
+          "original-2077",
+          "original-2078",
+          "original-2079",
+          "original-2080",
+          "original-2081",
+          "original-2082",
+          "original-2083",
+          "original-2084",
+          "original-2128",
+          "original-2129",
+          "original-2130",
+          "original-2131",
+          "original-2132",
+          "original-2133",
+          "original-2134",
+          "original-2135"
+        ],
+        "compatible_neighbor_pairs": 107,
+        "dec_spacing_deg": 1.3438888888888858,
+        "ra_spacing_deg": 1.3521755506292124
+      },
+      "diagnostics": [
+        "Extended the local grid using 107 compatible neighbor pairs and 57 anchor tiles.",
+        "Median DEC spacing 1.3439 deg and inferred physical RA spacing 1.3522 deg; compatibility tolerance is 0.05 deg."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 8,
+        "new_tiles": 2,
+        "selected_region_area_deg2": 4.0208,
+        "already_covered_fraction": 0.23333,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 0.76667,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.26281,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.12
+      }
+    },
+    {
+      "id": "splus_b_row_edge",
+      "hidden_names": [
+        "SPLUS-b041",
+        "SPLUS-b042"
+      ],
+      "existing_names": [
+        "SPLUS-b010",
+        "SPLUS-b011",
+        "SPLUS-b012",
+        "SPLUS-b013",
+        "SPLUS-b014",
+        "SPLUS-b018",
+        "SPLUS-b019",
+        "SPLUS-b020",
+        "SPLUS-b021",
+        "SPLUS-b022",
+        "SPLUS-b028",
+        "SPLUS-b029",
+        "SPLUS-b030",
+        "SPLUS-b031",
+        "SPLUS-b032",
+        "SPLUS-b033",
+        "SPLUS-b043",
+        "SPLUS-b044",
+        "SPLUS-b045",
+        "SPLUS-b046",
+        "SPLUS-b047",
+        "SPLUS-b057",
+        "SPLUS-b058",
+        "SPLUS-b059",
+        "SPLUS-b060",
+        "SPLUS-b061",
+        "SPLUS-b062",
+        "SPLUS-b063",
+        "SPLUS-b073",
+        "SPLUS-b074",
+        "SPLUS-b075",
+        "SPLUS-b076",
+        "SPLUS-b077",
+        "SPLUS-b078",
+        "SPLUS-b079",
+        "SPLUS-b089",
+        "SPLUS-b090",
+        "SPLUS-b091",
+        "SPLUS-b092",
+        "SPLUS-b093",
+        "SPLUS-b094",
+        "SPLUS-b095",
+        "SPLUS-b096"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 261.2983035407929,
+            "dec_deg": -27.40972222222222,
+            "label": null
+          },
+          {
+            "ra_deg": 264.48919645920694,
+            "dec_deg": -27.40972222222222,
+            "label": null
+          },
+          {
+            "ra_deg": 264.48919645920694,
+            "dec_deg": -25.969722222222224,
+            "label": null
+          },
+          {
+            "ra_deg": 261.2983035407929,
+            "dec_deg": -25.969722222222224,
+            "label": null
+          }
+        ]
+      },
+      "solution": "extended_existing_grid",
+      "generation_method": "region_extended",
+      "proposal_centers": [
+        [
+          262.1041666666667,
+          -26.689722222222223
+        ],
+        [
+          263.68333333333334,
+          -26.689722222222223
+        ]
+      ],
+      "candidate_centers": [
+        [
+          260.52500000000003,
+          -26.689722222222223
+        ],
+        [
+          262.1041666666667,
+          -26.689722222222223
+        ],
+        [
+          263.68333333333334,
+          -26.689722222222223
+        ],
+        [
+          261.81666666666666,
+          -25.30027777777778
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 32,
+        "anchor_tile_ids": [
+          "original-395",
+          "original-396",
+          "original-397",
+          "original-403",
+          "original-404",
+          "original-405",
+          "original-413",
+          "original-414",
+          "original-415",
+          "original-416",
+          "original-426",
+          "original-427",
+          "original-428",
+          "original-438",
+          "original-439",
+          "original-440",
+          "original-441",
+          "original-442",
+          "original-443",
+          "original-454",
+          "original-455",
+          "original-456",
+          "original-457",
+          "original-458",
+          "original-459",
+          "original-467",
+          "original-468",
+          "original-469",
+          "original-470",
+          "original-471",
+          "original-472",
+          "original-473"
+        ],
+        "compatible_neighbor_pairs": 53,
+        "dec_spacing_deg": 1.3874999999999993,
+        "ra_spacing_deg": 1.4058553004901826
+      },
+      "diagnostics": [
+        "Extended the local grid using 53 compatible neighbor pairs and 32 anchor tiles.",
+        "Median DEC spacing 1.3875 deg and inferred physical RA spacing 1.4059 deg; compatibility tolerance is 0.05 deg."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 6,
+        "new_tiles": 2,
+        "selected_region_area_deg2": 4.1052,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 0.96296,
+        "incremental_coverage": 0.96296,
+        "remaining_uncovered_fraction": 0.03704,
+        "remaining_uncovered_area_deg2": 0.152,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.12
+      }
+    },
+    {
+      "id": "splus_d_south",
+      "hidden_names": [
+        "SPLUS-d513",
+        "SPLUS-d514"
+      ],
+      "existing_names": [
+        "SPLUS-d488",
+        "SPLUS-d489",
+        "SPLUS-d490",
+        "SPLUS-d491",
+        "SPLUS-d492",
+        "SPLUS-d493",
+        "SPLUS-d496",
+        "SPLUS-d497",
+        "SPLUS-d498",
+        "SPLUS-d499",
+        "SPLUS-d500",
+        "SPLUS-d501",
+        "SPLUS-d504",
+        "SPLUS-d505",
+        "SPLUS-d506",
+        "SPLUS-d507",
+        "SPLUS-d508",
+        "SPLUS-d509",
+        "SPLUS-d510",
+        "SPLUS-d511",
+        "SPLUS-d512",
+        "SPLUS-d515",
+        "SPLUS-d516",
+        "SPLUS-d517",
+        "SPLUS-d518",
+        "SPLUS-d521",
+        "SPLUS-d522"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 122.1452266184275,
+            "dec_deg": -58.726388888888884,
+            "label": null
+          },
+          {
+            "ra_deg": 127.49227338157243,
+            "dec_deg": -58.726388888888884,
+            "label": null
+          },
+          {
+            "ra_deg": 127.49227338157243,
+            "dec_deg": -57.28638888888889,
+            "label": null
+          },
+          {
+            "ra_deg": 122.1452266184275,
+            "dec_deg": -57.28638888888889,
+            "label": null
+          }
+        ]
+      },
+      "solution": "extended_existing_grid",
+      "generation_method": "region_extended",
+      "proposal_centers": [
+        [
+          126.13020832687809,
+          -58.006388888888885
+        ],
+        [
+          123.50104166021143,
+          -58.006388888888885
+        ]
+      ],
+      "candidate_centers": [
+        [
+          124.50972221741557,
+          -59.328611111111115
+        ],
+        [
+          127.21805555074891,
+          -59.328611111111115
+        ],
+        [
+          123.50104166021143,
+          -58.006388888888885
+        ],
+        [
+          126.13020832687809,
+          -58.006388888888885
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 26,
+        "anchor_tile_ids": [
+          "original-1021",
+          "original-1022",
+          "original-1023",
+          "original-1024",
+          "original-1025",
+          "original-1026",
+          "original-1028",
+          "original-1029",
+          "original-1030",
+          "original-1031",
+          "original-1032",
+          "original-1033",
+          "original-1034",
+          "original-1035",
+          "original-1036",
+          "original-1037",
+          "original-1038",
+          "original-1039",
+          "original-1040",
+          "original-1041",
+          "original-1044",
+          "original-1045",
+          "original-1046",
+          "original-1047",
+          "original-1048",
+          "original-1049"
+        ],
+        "compatible_neighbor_pairs": 45,
+        "dec_spacing_deg": 1.3313888888888812,
+        "ra_spacing_deg": 1.3929974338845146
+      },
+      "diagnostics": [
+        "Extended the local grid using 45 compatible neighbor pairs and 26 anchor tiles.",
+        "Median DEC spacing 1.3314 deg and inferred physical RA spacing 1.3930 deg; compatibility tolerance is 0.05 deg."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 6,
+        "new_tiles": 2,
+        "selected_region_area_deg2": 4.0794,
+        "already_covered_fraction": 0.10123,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 0.89877,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.12076,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.12
+      }
+    },
+    {
+      "id": "splus_b_one_anchor",
+      "hidden_names": [
+        "SPLUS-b076"
+      ],
+      "existing_names": [
+        "SPLUS-b075"
+      ],
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 263.92722018440617,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 265.58111314892705,
+            "dec_deg": -30.183055555555555,
+            "label": null
+          },
+          {
+            "ra_deg": 265.58111314892705,
+            "dec_deg": -28.743055555555557,
+            "label": null
+          },
+          {
+            "ra_deg": 263.92722018440617,
+            "dec_deg": -28.743055555555557,
+            "label": null
+          }
+        ]
+      },
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          263.9388892120376,
+          -28.816388888888888
+        ],
+        [
+          265.4987103321945,
+          -28.816388888888888
+        ],
+        [
+          263.9388892120376,
+          -30.183055555555555
+        ],
+        [
+          265.5199043353534,
+          -30.183055555555555
+        ]
+      ],
+      "candidate_centers": [
+        [
+          263.9388892120376,
+          -30.183055555555555
+        ],
+        [
+          265.5199043353534,
+          -30.183055555555555
+        ],
+        [
+          263.9388892120376,
+          -28.816388888888888
+        ],
+        [
+          265.4987103321945,
+          -28.816388888888888
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 1,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 1 nearby tiles; used SPLUS_LEGACY_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 1,
+        "new_tiles": 4,
+        "selected_region_area_deg2": 2.0735,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 5.7665,
+        "sample_step_deg": 0.12
+      }
+    }
+  ],
+  "planner_cases": [
+    {
+      "id": "empty_rectangle",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -27.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -27.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "profile": null,
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          153.16702371204315,
+          -29.633333333333333
+        ],
+        [
+          151.57409897144197,
+          -28.266666666666666
+        ],
+        [
+          153.125801479412,
+          -28.266666666666666
+        ],
+        [
+          151.59471008775756,
+          -29.633333333333333
+        ],
+        [
+          150.02239646347195,
+          -28.266666666666666
+        ],
+        [
+          151.61679543966622,
+          -31.0
+        ],
+        [
+          153.21119441586052,
+          -31.0
+        ],
+        [
+          150.02239646347195,
+          -29.633333333333333
+        ],
+        [
+          151.55488183296123,
+          -26.9
+        ],
+        [
+          153.08736720245048,
+          -26.9
+        ],
+        [
+          150.02239646347195,
+          -31.0
+        ],
+        [
+          150.02239646347195,
+          -26.9
+        ],
+        [
+          154.677503987382,
+          -28.266666666666666
+        ]
+      ],
+      "candidate_centers": [
+        [
+          150.02239646347195,
+          -31.0
+        ],
+        [
+          151.61679543966622,
+          -31.0
+        ],
+        [
+          153.21119441586052,
+          -31.0
+        ],
+        [
+          150.02239646347195,
+          -29.633333333333333
+        ],
+        [
+          151.59471008775756,
+          -29.633333333333333
+        ],
+        [
+          153.16702371204315,
+          -29.633333333333333
+        ],
+        [
+          154.73933733632876,
+          -29.633333333333333
+        ],
+        [
+          150.02239646347195,
+          -28.266666666666666
+        ],
+        [
+          151.57409897144197,
+          -28.266666666666666
+        ],
+        [
+          153.125801479412,
+          -28.266666666666666
+        ],
+        [
+          154.677503987382,
+          -28.266666666666666
+        ],
+        [
+          150.02239646347195,
+          -26.9
+        ],
+        [
+          151.55488183296123,
+          -26.9
+        ],
+        [
+          153.08736720245048,
+          -26.9
+        ],
+        [
+          154.61985257193976,
+          -26.9
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 0,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 0 nearby tiles; used SPLUS_LEGACY_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 13,
+        "selected_region_area_deg2": 13.9911,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 0.9956,
+        "incremental_coverage": 0.9956,
+        "remaining_uncovered_fraction": 0.0044,
+        "remaining_uncovered_area_deg2": 0.0615,
+        "redundant_coverage": 0.03353,
+        "outside_region_coverage_deg2": 11.1291,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "wrapped_rectangle",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 359.2,
+            "dec_deg": -30.0,
+            "label": null
+          },
+          {
+            "ra_deg": 0.8,
+            "dec_deg": -30.0,
+            "label": null
+          },
+          {
+            "ra_deg": 0.8,
+            "dec_deg": -28.0,
+            "label": null
+          },
+          {
+            "ra_deg": 359.2,
+            "dec_deg": -28.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "profile": null,
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          0.7708377887946085,
+          -28.633333333333333
+        ],
+        [
+          359.2137454835442,
+          -28.633333333333333
+        ],
+        [
+          0.7918362193291841,
+          -30.0
+        ],
+        [
+          359.2137454835442,
+          -30.0
+        ]
+      ],
+      "candidate_centers": [
+        [
+          0.7918362193291841,
+          -30.0
+        ],
+        [
+          359.2137454835442,
+          -30.0
+        ],
+        [
+          0.7708377887946085,
+          -28.633333333333333
+        ],
+        [
+          359.2137454835442,
+          -28.633333333333333
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 0,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 0 nearby tiles; used SPLUS_LEGACY_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 4,
+        "selected_region_area_deg2": 2.7986,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 5.0414,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "triangle",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -27.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "profile": null,
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          151.59471008775756,
+          -29.633333333333333
+        ],
+        [
+          150.02239646347195,
+          -29.633333333333333
+        ],
+        [
+          151.61679543966622,
+          -31.0
+        ],
+        [
+          150.02239646347195,
+          -28.266666666666666
+        ],
+        [
+          153.21119441586052,
+          -31.0
+        ],
+        [
+          150.02239646347195,
+          -31.0
+        ],
+        [
+          151.57409897144197,
+          -28.266666666666666
+        ],
+        [
+          153.16702371204315,
+          -29.633333333333333
+        ],
+        [
+          150.02239646347195,
+          -26.9
+        ]
+      ],
+      "candidate_centers": [
+        [
+          150.02239646347195,
+          -31.0
+        ],
+        [
+          151.61679543966622,
+          -31.0
+        ],
+        [
+          153.21119441586052,
+          -31.0
+        ],
+        [
+          150.02239646347195,
+          -29.633333333333333
+        ],
+        [
+          151.59471008775756,
+          -29.633333333333333
+        ],
+        [
+          153.16702371204315,
+          -29.633333333333333
+        ],
+        [
+          154.73933733632876,
+          -29.633333333333333
+        ],
+        [
+          150.02239646347195,
+          -28.266666666666666
+        ],
+        [
+          151.57409897144197,
+          -28.266666666666666
+        ],
+        [
+          153.125801479412,
+          -28.266666666666666
+        ],
+        [
+          154.677503987382,
+          -28.266666666666666
+        ],
+        [
+          150.02239646347195,
+          -26.9
+        ],
+        [
+          151.55488183296123,
+          -26.9
+        ],
+        [
+          153.08736720245048,
+          -26.9
+        ],
+        [
+          154.61985257193976,
+          -26.9
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 0,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 0 nearby tiles; used SPLUS_LEGACY_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 9,
+        "selected_region_area_deg2": 6.914,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.03857,
+        "outside_region_coverage_deg2": 10.4486,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "concave",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 156.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 156.0,
+            "dec_deg": -29.0,
+            "label": null
+          },
+          {
+            "ra_deg": 152.0,
+            "dec_deg": -29.0,
+            "label": null
+          },
+          {
+            "ra_deg": 152.0,
+            "dec_deg": -25.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -25.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "profile": null,
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          151.60225889978656,
+          -29.633333333333333
+        ],
+        [
+          153.17457252407215,
+          -29.633333333333333
+        ],
+        [
+          154.74688614835776,
+          -29.633333333333333
+        ],
+        [
+          151.56243064499023,
+          -26.9
+        ],
+        [
+          151.544534830216,
+          -25.53333333333333
+        ],
+        [
+          151.58164778347097,
+          -28.266666666666666
+        ],
+        [
+          150.02994527550095,
+          -28.266666666666666
+        ],
+        [
+          153.21874322788952,
+          -31.0
+        ],
+        [
+          151.62434425169522,
+          -31.0
+        ],
+        [
+          154.81314220408382,
+          -31.0
+        ],
+        [
+          150.02994527550095,
+          -29.633333333333333
+        ],
+        [
+          150.02994527550095,
+          -26.9
+        ],
+        [
+          150.02994527550095,
+          -25.53333333333333
+        ],
+        [
+          156.31919977264337,
+          -29.633333333333333
+        ],
+        [
+          150.02994527550095,
+          -31.0
+        ],
+        [
+          156.4075411802781,
+          -31.0
+        ]
+      ],
+      "candidate_centers": [
+        [
+          150.02994527550095,
+          -31.0
+        ],
+        [
+          151.62434425169522,
+          -31.0
+        ],
+        [
+          153.21874322788952,
+          -31.0
+        ],
+        [
+          154.81314220408382,
+          -31.0
+        ],
+        [
+          156.4075411802781,
+          -31.0
+        ],
+        [
+          150.02994527550095,
+          -29.633333333333333
+        ],
+        [
+          151.60225889978656,
+          -29.633333333333333
+        ],
+        [
+          153.17457252407215,
+          -29.633333333333333
+        ],
+        [
+          154.74688614835776,
+          -29.633333333333333
+        ],
+        [
+          156.31919977264337,
+          -29.633333333333333
+        ],
+        [
+          150.02994527550095,
+          -28.266666666666666
+        ],
+        [
+          151.58164778347097,
+          -28.266666666666666
+        ],
+        [
+          153.133350291441,
+          -28.266666666666666
+        ],
+        [
+          154.685052799411,
+          -28.266666666666666
+        ],
+        [
+          156.23675530738103,
+          -28.266666666666666
+        ],
+        [
+          150.02994527550095,
+          -26.9
+        ],
+        [
+          151.56243064499023,
+          -26.9
+        ],
+        [
+          153.09491601447948,
+          -26.9
+        ],
+        [
+          154.62740138396876,
+          -26.9
+        ],
+        [
+          156.15988675345804,
+          -26.9
+        ],
+        [
+          150.02994527550095,
+          -25.53333333333333
+        ],
+        [
+          151.544534830216,
+          -25.53333333333333
+        ],
+        [
+          153.05912438493104,
+          -25.53333333333333
+        ],
+        [
+          154.5737139396461,
+          -25.53333333333333
+        ],
+        [
+          156.08830349436113,
+          -25.53333333333333
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 0,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 0 nearby tiles; used SPLUS_LEGACY_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 16,
+        "selected_region_area_deg2": 17.7995,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.03131,
+        "outside_region_coverage_deg2": 12.9853,
+        "sample_step_deg": 0.12
+      }
+    },
+    {
+      "id": "tiny_triangle",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -30.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.03,
+            "dec_deg": -30.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -29.97,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "profile": null,
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          150.0059250810814,
+          -30.0
+        ]
+      ],
+      "candidate_centers": [
+        [
+          150.0059250810814,
+          -30.0
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 0,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 0 nearby tiles; used SPLUS_LEGACY_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 1,
+        "selected_region_area_deg2": 0.0004,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 1.9596,
+        "sample_step_deg": 0.0038
+      }
+    },
+    {
+      "id": "custom_rectangle",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 10.0,
+            "dec_deg": -1.0,
+            "label": null
+          },
+          {
+            "ra_deg": 16.0,
+            "dec_deg": -1.0,
+            "label": null
+          },
+          {
+            "ra_deg": 16.0,
+            "dec_deg": 4.0,
+            "label": null
+          },
+          {
+            "ra_deg": 10.0,
+            "dec_deg": 4.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "profile": {
+        "id": "custom",
+        "display_name": "Custom",
+        "description": "T80-South survey camera",
+        "tile_width_deg": 2.25,
+        "tile_height_deg": 1.75,
+        "effective_overlap_arcsec": 90.0,
+        "coordinate_frame": "icrs",
+        "export_epoch_default": "2000",
+        "export_epoch_options": [
+          "2000"
+        ],
+        "algorithm": "RECT_GRID_V1"
+      },
+      "solution": "profile_fallback",
+      "generation_method": "region_legacy",
+      "proposal_centers": [
+        [
+          12.22488256818108,
+          0.7250000000000001
+        ],
+        [
+          14.450060707481558,
+          0.7250000000000001
+        ],
+        [
+          12.22767937417489,
+          2.45
+        ],
+        [
+          14.454715093575738,
+          2.45
+        ],
+        [
+          9.9997044288806,
+          0.7250000000000001
+        ],
+        [
+          12.225124657394865,
+          -1.0
+        ],
+        [
+          14.45046358729256,
+          -1.0
+        ],
+        [
+          10.000643654774045,
+          2.45
+        ],
+        [
+          12.233527777743962,
+          4.175000000000001
+        ],
+        [
+          14.464447884589939,
+          4.175000000000001
+        ],
+        [
+          9.99978572749717,
+          -1.0
+        ],
+        [
+          16.675238846782037,
+          0.7250000000000001
+        ],
+        [
+          10.002607670897987,
+          4.175000000000001
+        ],
+        [
+          16.681750812976585,
+          2.45
+        ],
+        [
+          16.675802517190256,
+          -1.0
+        ],
+        [
+          16.695367991435916,
+          4.175000000000001
+        ]
+      ],
+      "candidate_centers": [
+        [
+          9.99978572749717,
+          -1.0
+        ],
+        [
+          12.225124657394865,
+          -1.0
+        ],
+        [
+          14.45046358729256,
+          -1.0
+        ],
+        [
+          16.675802517190256,
+          -1.0
+        ],
+        [
+          9.9997044288806,
+          0.7250000000000001
+        ],
+        [
+          12.22488256818108,
+          0.7250000000000001
+        ],
+        [
+          14.450060707481558,
+          0.7250000000000001
+        ],
+        [
+          16.675238846782037,
+          0.7250000000000001
+        ],
+        [
+          10.000643654774045,
+          2.45
+        ],
+        [
+          12.22767937417489,
+          2.45
+        ],
+        [
+          14.454715093575738,
+          2.45
+        ],
+        [
+          16.681750812976585,
+          2.45
+        ],
+        [
+          10.002607670897987,
+          4.175000000000001
+        ],
+        [
+          12.233527777743962,
+          4.175000000000001
+        ],
+        [
+          14.464447884589939,
+          4.175000000000001
+        ],
+        [
+          16.695367991435916,
+          4.175000000000001
+        ]
+      ],
+      "inference": {
+        "nearby_tile_count": 0,
+        "anchor_tile_ids": [],
+        "compatible_neighbor_pairs": 0,
+        "dec_spacing_deg": null,
+        "ra_spacing_deg": null
+      },
+      "diagnostics": [
+        "No reliable local lattice was found from 0 nearby tiles; used RECT_GRID_V1 around the selected polygon."
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 16,
+        "selected_region_area_deg2": 29.9802,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 1.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.00943,
+        "outside_region_coverage_deg2": 32.8679,
+        "sample_step_deg": 0.12
+      }
+    }
+  ],
+  "coverage_cases": [
+    {
+      "id": "zero",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -27.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -27.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "proposed_tiles": [],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 0,
+        "selected_region_area_deg2": 13.9911,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 0.0,
+        "incremental_coverage": 0.0,
+        "remaining_uncovered_fraction": 1.0,
+        "remaining_uncovered_area_deg2": 13.9911,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "partial",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -27.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -27.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "proposed_tiles": [
+        {
+          "id": "coverage-proposed",
+          "name": "",
+          "ra_deg": 151.7,
+          "dec_deg": -30.0,
+          "source": "proposed",
+          "enabled": true,
+          "dataset_id": null,
+          "group_id": null,
+          "ra_column": null,
+          "dec_column": null,
+          "generation_method": "manual",
+          "original_values": null,
+          "metadata": {}
+        }
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 1,
+        "selected_region_area_deg2": 13.9911,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 0.12251,
+        "incremental_coverage": 0.12251,
+        "remaining_uncovered_fraction": 0.87749,
+        "remaining_uncovered_area_deg2": 12.277,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.246,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "disabled",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -27.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -27.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "proposed_tiles": [
+        {
+          "id": "coverage-proposed",
+          "name": "",
+          "ra_deg": 151.7,
+          "dec_deg": -30.0,
+          "source": "proposed",
+          "enabled": false,
+          "dataset_id": null,
+          "group_id": null,
+          "ra_column": null,
+          "dec_column": null,
+          "generation_method": "manual",
+          "original_values": null,
+          "metadata": {}
+        }
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 0,
+        "selected_region_area_deg2": 13.9911,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 0.0,
+        "incremental_coverage": 0.0,
+        "remaining_uncovered_fraction": 1.0,
+        "remaining_uncovered_area_deg2": 13.9911,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "overlap",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -31.0,
+            "label": null
+          },
+          {
+            "ra_deg": 154.0,
+            "dec_deg": -27.0,
+            "label": null
+          },
+          {
+            "ra_deg": 150.0,
+            "dec_deg": -27.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [
+        {
+          "id": "coverage-original",
+          "name": "",
+          "ra_deg": 151.0,
+          "dec_deg": -30.0,
+          "source": "original",
+          "enabled": true,
+          "dataset_id": null,
+          "group_id": null,
+          "ra_column": null,
+          "dec_column": null,
+          "generation_method": null,
+          "original_values": {
+            "RA": "151",
+            "DEC": "-30"
+          },
+          "metadata": {}
+        }
+      ],
+      "proposed_tiles": [
+        {
+          "id": "coverage-proposed",
+          "name": "",
+          "ra_deg": 151.7,
+          "dec_deg": -30.0,
+          "source": "proposed",
+          "enabled": true,
+          "dataset_id": null,
+          "group_id": null,
+          "ra_column": null,
+          "dec_column": null,
+          "generation_method": "manual",
+          "original_values": null,
+          "metadata": {}
+        }
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 1,
+        "new_tiles": 1,
+        "selected_region_area_deg2": 13.9911,
+        "already_covered_fraction": 0.12251,
+        "selected_region_coverage": 0.17905,
+        "incremental_coverage": 0.05654,
+        "remaining_uncovered_fraction": 0.82095,
+        "remaining_uncovered_area_deg2": 11.4859,
+        "redundant_coverage": 0.53846,
+        "outside_region_coverage_deg2": 0.246,
+        "sample_step_deg": 0.1176
+      }
+    },
+    {
+      "id": "full_existing",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 150.8,
+            "dec_deg": -30.2,
+            "label": null
+          },
+          {
+            "ra_deg": 151.2,
+            "dec_deg": -30.2,
+            "label": null
+          },
+          {
+            "ra_deg": 151.2,
+            "dec_deg": -29.8,
+            "label": null
+          },
+          {
+            "ra_deg": 150.8,
+            "dec_deg": -29.8,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [
+        {
+          "id": "coverage-original",
+          "name": "",
+          "ra_deg": 151.0,
+          "dec_deg": -30.0,
+          "source": "original",
+          "enabled": true,
+          "dataset_id": null,
+          "group_id": null,
+          "ra_column": null,
+          "dec_column": null,
+          "generation_method": null,
+          "original_values": {
+            "RA": "151",
+            "DEC": "-30"
+          },
+          "metadata": {}
+        }
+      ],
+      "proposed_tiles": [],
+      "metrics": {
+        "existing_tiles_contributing": 1,
+        "new_tiles": 0,
+        "selected_region_area_deg2": 0.1386,
+        "already_covered_fraction": 1.0,
+        "selected_region_coverage": 1.0,
+        "incremental_coverage": 0.0,
+        "remaining_uncovered_fraction": 0.0,
+        "remaining_uncovered_area_deg2": 0.0,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.0,
+        "sample_step_deg": 0.05
+      }
+    },
+    {
+      "id": "wrapped_partial",
+      "polygon": {
+        "vertices": [
+          {
+            "ra_deg": 359.2,
+            "dec_deg": -30.0,
+            "label": null
+          },
+          {
+            "ra_deg": 0.8,
+            "dec_deg": -30.0,
+            "label": null
+          },
+          {
+            "ra_deg": 0.8,
+            "dec_deg": -28.0,
+            "label": null
+          },
+          {
+            "ra_deg": 359.2,
+            "dec_deg": -28.0,
+            "label": null
+          }
+        ]
+      },
+      "existing_tiles": [],
+      "proposed_tiles": [
+        {
+          "id": "coverage-proposed",
+          "name": "",
+          "ra_deg": 359.5,
+          "dec_deg": -29.0,
+          "source": "proposed",
+          "enabled": true,
+          "dataset_id": null,
+          "group_id": null,
+          "ra_column": null,
+          "dec_column": null,
+          "generation_method": "manual",
+          "original_values": null,
+          "metadata": {}
+        }
+      ],
+      "metrics": {
+        "existing_tiles_contributing": 0,
+        "new_tiles": 1,
+        "selected_region_area_deg2": 2.7986,
+        "already_covered_fraction": 0.0,
+        "selected_region_coverage": 0.4622,
+        "incremental_coverage": 0.4622,
+        "remaining_uncovered_fraction": 0.5378,
+        "remaining_uncovered_area_deg2": 1.5051,
+        "redundant_coverage": 0.0,
+        "outside_region_coverage_deg2": 0.6665,
+        "sample_step_deg": 0.1176
+      }
+    }
+  ]
 }

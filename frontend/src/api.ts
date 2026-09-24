@@ -2,12 +2,17 @@ import type {
   CenterInput,
   CatalogueResponse,
   CoordinateFormat,
+  PlanMetrics,
+  RegionPlanResponse,
+  SkyPolygon,
   TileRecord,
   TilingProfile,
 } from "./types";
 import { loadProfile, listProfiles, validateProfile } from "./profiles";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
 import { buildExportCsv } from "./science/export";
+import { planRegion as planRegionLocal } from "./science/planner";
+import { measureActiveCoverage } from "./science/coverage";
 
 /** Load the installed default observing profile and its physical tile geometry.
  *
@@ -107,4 +112,36 @@ export async function downloadCatalogue(
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export { buildRegionPlanRequest, planRegion, measureCoverage } from "./legacyBackend";
+/** Plan a selected ICRS region entirely in the browser.
+ * @param polygon - Ordered selected vertices in decimal degrees.
+ * @param existingTiles - Original and accepted pointings.
+ * @param profileId - Bundled or custom profile ID.
+ * @param profile - Inline custom geometry when selected.
+ * @returns Auditable proposal and sampled metrics.
+ */
+export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile): Promise<RegionPlanResponse> {
+  return planRegionLocal(polygon, existingTiles, profileId, profile);
+}
+
+/** Build the scientific planning input shared with development diagnostics.
+ * @param polygon - Ordered ICRS vertices in decimal degrees.
+ * @param existingTiles - Actual loaded centers and enabled accepted proposals.
+ * @param profileId - Active footprint profile ID.
+ * @param profile - Optional inline custom profile.
+ * @returns JSON-compatible planning request shape.
+ */
+export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile) {
+  return { polygon, existing_tiles: existingTiles, profile_id: profileId, ...(profile ? { profile } : {}) };
+}
+
+/** Recompute sampled coverage from enabled proposals without HTTP.
+ * @param polygon - Ordered selected ICRS vertices in decimal degrees.
+ * @param existingTiles - All original and accepted pointings.
+ * @param proposedTiles - Editable proposal records.
+ * @param profileId - Active observing profile ID.
+ * @param profile - Optional inline custom profile.
+ * @returns Existing, incremental, and total coverage measurements.
+ */
+export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile): Promise<PlanMetrics> {
+  return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile);
+}
