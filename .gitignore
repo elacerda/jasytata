@@ -1,21 +1,11 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-.venv/
-.uv-cache/
-backend/.venv/
 frontend/node_modules/
 frontend/dist/
-*.egg-info/
-.DS_Store
-# Local browser-testing catalogue; keep reference/tiles_nc.csv tracked.
+# Local browser-testing catalogue; the production catalogue lives in frontend/public/data.
 /tiles_nc.csv
-# Local editor, secrets, logs, and screenshots.
+.DS_Store
 .idea/
 .vscode/
 .env
 .env.*
-!.env.example
 *.log
 /screenshots/

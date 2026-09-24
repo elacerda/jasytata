@@ -1,39 +1,56 @@
-# Backendless migration
+# Backendless migration record
 
-## Runtime architecture
+## Former architecture
 
-Jasytata is now a static React and TypeScript application. The browser parses catalogues, validates profiles, infers observing grids, plans region pointings, measures coverage, and exports CSV. `frontend/src/api.ts` preserves the UI-facing async facade but calls local TypeScript for every scientific operation. Production use needs no Python, FastAPI, database, Docker, secrets, server filesystem, or Jasytata `/api/*` requests. The retained Python backend is a scientific reference and fixture generator only.
+The original Jasytata deployment used a React/Vite frontend backed by a stateless FastAPI application. Python handled profile validation, coordinate and catalogue parsing, legacy grid generation, lattice inference, proposal selection, sampled coverage, and CSV serialization. The Docker runtime included Python, NumPy, Astropy, Pydantic, and FastAPI and served both the API and built frontend.
 
-Vite emits relative asset URLs (`base: "./"`). The 4,774-row supplied catalogue is a static asset at `frontend/public/data/tiles_nc.csv`, fetched relative to the deployed site base. `index.html` also uses a relative module entry. There is no client-side router or application route requiring a server fallback. The logo and other existing UI assets remain in place. `make dev` and `make run` launch only the frontend; `make backend` remains available for reference work.
+## Final architecture
 
-## Responsibility map
+Jasytata is a static React and TypeScript application hosted at <https://elacerda.github.io/jasytata/>. All Jasytata scientific computation runs in the browser. The production build uses Vite base `/jasytata/`; local development uses `/`. The application requires no Python runtime, FastAPI, NumPy, Astropy, backend server, database, Docker runtime, Orion deployment, secrets, or server filesystem.
 
-| Old endpoint | Browser responsibility |
+| Former responsibility | Current browser implementation |
 | --- | --- |
-| `GET /api/profiles` | `profiles/loadProfile` and bundled validated definitions |
-| `POST /api/profiles/validate` | `profiles/validateProfile` |
-| `GET /api/catalogue/reference` | Static CSV asset plus `science/catalogue` |
-| `POST /api/catalogue/parse` | Browser File bytes plus `science/catalogue` |
-| `POST /api/centers/parse` | `science/catalogue.parseCenterText` |
-| `POST /api/proposals/centers` | `science/catalogue.makeCenterProposals` |
-| `POST /api/plan/region` | `science/planner`, `grid`, `geometry`, and `coverage` |
-| `POST /api/coverage/region` | `science/coverage.measureActiveCoverage` |
-| `POST /api/export` | `science/export.buildExportCsv` and Blob/Object URL download |
-| `GET /api/health` | No browser responsibility |
-| `GET /{frontend_path:path}` | Static site hosting |
+| Installed profile listing and validation | `frontend/src/profiles` |
+| Reference and uploaded catalogue parsing | `frontend/src/science/catalogue.ts`; static reference CSV at `frontend/public/data/tiles_nc.csv` |
+| RA/DEC parsing and formatting | `frontend/src/science/coordinates.ts` |
+| Proposal center creation | `frontend/src/science/catalogue.ts` |
+| Legacy and rectangular tile grids | `frontend/src/science/grid.ts` |
+| Polygon validation, bounds, footprint intersection, lattice inference, proposal planning | `frontend/src/science/geometry.ts` and `planner.ts` |
+| Sampled existing and proposed coverage | `frontend/src/science/coverage.ts` |
+| CSV serialization and browser download | `frontend/src/science/export.ts` and Blob/Object URL in `frontend/src/api.ts` |
+| Static site routing and assets | GitHub Pages serves Vite output from `frontend/dist` |
 
-`frontend/src/legacyBackend.ts` and the Vite API proxy are removed. The only explicit application `fetch` loads the bundled catalogue from the site's own static asset path. Aladin Lite still requests external sky survey/HiPS imagery at runtime. Its packaged code also contains an optional desktop SAMP hub connector (`http://localhost:`) and an `/api/v3/` URL for Aladin's own embed script; neither is a Jasytata service or used for scientific calculations. The development-only plan-input copy action uses the browser clipboard API, not HTTP.
+`frontend/src/api.ts` remains an async UI facade. It calls local TypeScript modules. The former `/api/*` responsibilities have no Jasytata HTTP equivalents. The only application `fetch` loads the bundled catalogue through `import.meta.env.BASE_URL`.
 
-## Scientific parity
+## Scientific parity and fixture provenance
 
-Run `uv run --project backend python scripts/generate_parity_fixtures.py` to regenerate `frontend/src/data/golden.json` from the checked-in Python reference and catalogue. The committed fixture is self-contained for frontend tests and stores compact inputs and outputs rather than duplicating the full catalogue. The frontend test suite compares local TypeScript results directly with it; Python is not needed when running frontend tests.
+`frontend/src/data/golden.json` was generated from the former Python scientific reference and the bundled S-PLUS catalogue before the Python implementation was removed. During migration, the Python fixture generator produced compact expected inputs and outputs, and the TypeScript planner, coverage, coordinate, catalogue, profile, and export tests were compared directly against those outputs. The Python generator was intentionally removed with its implementation dependency; golden values are committed and are never regenerated from TypeScript.
 
-The planner parity suite covers seven historical holdouts (including one-anchor fallback), six direct region cases (empty existing catalogue, RA wrap, triangle, concave polygon, tiny polygon, and custom profile), the separate historical holdout and fallback records, and the full 4,774-center existing-overlap regression. It compares the full ordered candidate and chosen-center sequences, solution and generation method, lattice spacings, anchor IDs and neighbor-pair counts, diagnostics, and all metrics. The overlap case checks existing-only coverage as well. Direct coverage fixtures cover zero, partial, disabled, overlapping, fully existing, and wrapped partial coverage. Additional contracts check spherical occupancy near a pole, real footprint slivers smaller than a sample cell, invalid polygon crossing, repeatability, and proposal enable/disable recalculation. Existing coordinate, catalogue, profile, proposal-center, and CSV fixtures remain in use.
+The TypeScript suite retains the scientific regression authority and covers:
 
-Discrete outcomes, IDs, ordering, diagnostics, CSV bytes, and API metrics are compared **exactly**. The Python API rounds coverage fractions to five decimal places and areas/sample steps to four; matching those exposed values exactly prevents a tolerance from hiding a changed selection or sampling result. Python decimal tie cases are also fixture-tested against the IEEE-754 values. Proposal and candidate coordinates, inferred lattice spacings, and legacy grid centers use an absolute tolerance of **1e-10 degree** to account for JavaScript/Python floating-point operation differences (approximately 0.36 microarcseconds). No looser planner or coverage tolerance is used. The Python historical recovery scatter tolerance and independent overlap integration tolerance remain in the Python suite; they are not substitutes for the direct golden comparisons.
+- Seven historical planner cases, including the one-anchor profile fallback.
+- Six additional cases: empty catalogue, RA wraparound, triangle, concave polygon, tiny polygon, and a custom profile.
+- The historical multi-center holdout and single-anchor fallback records.
+- The full 4,774-center existing-overlap regression and existing-only coverage.
+- Six direct coverage cases: zero, partial, disabled, overlap, full existing coverage, and wrapped partial coverage.
+- Deterministic ordering, IDs, proposal decisions, profile behavior, polygon boundaries, spherical occupancy, real footprint slivers, coordinate formats, decimal rounding ties, catalogue columns, and exact CSV output.
 
-## Backend independence and next cleanup
+Discrete decisions, identifiers, ordering, diagnostics, and exposed metrics are compared exactly. Coordinates, inferred spacings, and grid centers use an absolute tolerance of **1e-10 degree** (approximately 0.36 microarcseconds) for floating-point operation differences. Python-compatible decimal tie cases are stored in the fixture. No widening tolerance is used to hide a semantic mismatch.
 
-The frontend application code contains zero Jasytata `/api/*` calls, backend base URLs, or port assumptions. The application-level backend-off test mounts the real App and local facade, loads the static reference catalogue, plans the large-overlap region, accepts a proposal, recomputes coverage, triggers CSV download, parses an uploaded catalogue, and stages pasted centers; it mocks the visual Aladin map and browser delivery mechanisms. A production Vite preview serves the built shell and catalogue while FastAPI port 8000 is stopped. No GUI browser was available in the validation environment, so interactive map rendering under the final GitHub Pages URL remains part of the deployment task.
+## Removal and validation status
 
-The scientific and runtime conditions for deleting `backend/` are now satisfied: local planning and coverage pass golden parity and Python regressions, the runtime has no backend calls, and the static build runs with FastAPI stopped. Keep the Python reference until the next task has completed final repository cleanup, GitHub Pages base/path configuration, deployment, and an interactive browser smoke test of Aladin and its external imagery. Docker and Python tooling remain in the repository solely for reference/testing until that cleanup.
+The Python/FastAPI implementation, its tests and manifests, the Docker runtime, and the Python fixture-generation script have been removed. The golden data and all TypeScript regression tests remain. Before removal, 58 Python reference tests passed. After removal, the application-level backend-off test exercises reference loading, region planning, overlap coverage, CSV download, uploaded catalogue parsing, and center import using the real App and local facade.
+
+After backend removal, the repository-level checks are `make test`, `make lint`, `make typecheck`, `make build`, and `make check`. The GitHub Actions workflow runs tests, lint, typecheck, and the production build before uploading only `frontend/dist` to Pages. The workflow triggers on pushes to `main` and manual dispatch and uses the Pages artifact deployment actions.
+
+Pages configuration check: the unauthenticated Pages API returned 404, and the available local `gh` credential is invalid, so the repository source setting cannot be changed from this environment. A repository administrator must select **Repository → Settings → Pages → Build and deployment → Source → GitHub Actions**. The workflow is committed and will deploy on a push to `main` after that source is enabled.
+
+Deployment status: pending Pages source enablement, push, and workflow completion.
+
+## Legitimate external networking
+
+Jasytata itself makes one application-level network request for `data/tiles_nc.csv`, resolved relative to the deployment base. Aladin Lite uses external sky survey/HiPS imagery and its packaged code contains an optional desktop SAMP hub connector at localhost and an Aladin-owned embed URL containing `/api/v3/`. These are third-party visualization/protocol facilities; no Jasytata planning, parsing, profile, coverage, or export depends on them.
+
+## Static hosting and routing
+
+The app has no client-side history routes. The logo is imported through Vite, the reference catalogue is copied from `frontend/public`, and generated scripts/styles receive the `/jasytata/` base in production. GitHub Pages can serve the single application document directly without a server-side routing fallback.

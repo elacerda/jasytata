@@ -1,6 +1,6 @@
 import type { TilingProfile } from "../types";
 
-/** Bundled observing profile, equivalent to backend/profiles/splus-t80-south.yaml. */
+/** Bundled and validated default S-PLUS / T80-South observing profile. */
 export const DEFAULT_PROFILE: TilingProfile = {
   id: "splus-t80-south", display_name: "S-PLUS / T80-South", description: "T80-South survey camera",
   tile_width_deg: 1.4, tile_height_deg: 1.4, effective_overlap_arcsec: 120,

@@ -4,9 +4,13 @@
 
 # Jasytata
 
-**Telescope pointing and coverage planner**
+**Browser-based telescope pointing and coverage planner**
 
-Jasytata is a configurable web application for planning telescope pointings and sky coverage. It displays catalogue footprints on an Aladin Lite map and prepares auditable tile proposals. The bundled S-PLUS / T80-South setup is the default profile and compatibility case. Catalogue rows and proposed rows stay separate until acceptance and export. The application has no database; browser state is the working session.
+Jasytata plans telescope pointings and sky coverage from catalogue CSV files. Its scientific computations run in the browser using React and TypeScript. The application needs no backend, server, Python, database, secrets, or server-side filesystem.
+
+**Public application:** <https://elacerda.github.io/jasytata/>
+
+Jasytata uses Aladin Lite for its interactive sky map. Aladin and its external HiPS astronomy services may make their own network requests; they do not provide Jasytata planning or catalogue processing.
 
 Jasytata takes its name from a Kaiowá word recorded for “star”.
 
@@ -14,134 +18,38 @@ Repository: [github.com/elacerda/jasytata](https://github.com/elacerda/jasytata)
 
 User guide: [T80-South User Guide](docs/T80_SOUTH_USER_GUIDE.md)
 
-The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. Other CSV files need only RA and DEC columns.
-
 ## Features
 
-- Aladin Lite v3 pan, zoom, ICRS position inspection, native catalogue layers, zoom-dependent tile footprints, polygon selection, anchors, and candidate lattice positions.
-- Multiple simultaneous CSV datasets with distinct colors, independent visibility, and source metadata inspection.
-- Single sky-click proposals, pasted RA/DEC center imports, and polygon selection with ICRS vertices. Redraw replaces the old selection; Clear selection removes it without changing catalogues or accepted proposals.
-- `SPLUS_LEGACY_GRID_V1` geometry and a deterministic existing-grid inference layer.
-- Deterministic polygon-aware planning from every loaded catalogue, independent of map-layer visibility.
-- Proposal preview and acceptance, reversible per-tile enable/disable, Restore all, Disable all, and independent Clear proposal/Clear selection actions.
-- Generic `RA,DEC,EPOCH` export of enabled proposals in decimal degrees or sexagesimal coordinates.
+- Display catalogue footprints on an Aladin Lite sky map, inspect ICRS positions, and select a polygon.
+- Load multiple CSV catalogues with independent visibility and metadata.
+- Parse common decimal and sexagesimal RA/DEC formats in the browser.
+- Infer a local S-PLUS/T80-South grid or use the profile fallback, then review proposed centers and sampled coverage.
+- Accept and reversibly edit a proposal without changing original catalogue rows.
+- Export enabled proposed centers as decimal-degree or sexagesimal CSV.
 
-Typical workflow: load one or more catalogues, inspect tile centers, draw a polygon, generate and review a plan, toggle map layers, accept the proposal, disable or restore individual proposed tiles, and export enabled centers. Clear proposal removes the proposal while retaining the polygon; Clear selection removes the polygon while retaining accepted proposals and catalogues.
+Typical workflow: load a catalogue, select a region, generate and review a plan, accept it, adjust proposed fields if needed, and export the enabled centers. Session state is held in the browser and is cleared when the page reloads.
 
-## Architecture
+The supplied reference catalogue is bundled at `frontend/public/data/tiles_nc.csv`. Choose **Load reference** to try the application without preparing a CSV file.
 
-```text
-backend/app/science/       Astropy geometry, parsing, inference, coverage, CSV export
-backend/app/models.py      Typed Pydantic request/response models
-backend/profiles/           Validated, file-backed observing profiles
-backend/app/main.py        Stateless FastAPI endpoints and production static serving
-frontend/src/              React/TypeScript workspace and Aladin Lite v3 overlays
-reference/                  Legacy generator and representative source catalogue
-docs/ALGORITHM.md           Scientific and planner behavior
-```
+## Scientific behavior
 
-The frontend keeps independent uploaded datasets and accepted proposals in client state. Each CSV creates a native Aladin catalogue layer with its own color and visibility; planning receives every loaded catalogue pointing and every enabled proposal center regardless of map visibility. Planning layers also control proposed tiles, selected region, inference anchors, and candidate lattice display. Backend calls are stateless: catalogue parsing returns canonical decimal-degree centers plus every source row's original CSV values and arbitrary non-coordinate metadata; every planning/export request carries its current session inputs. Disabled proposals remain in memory and appear as crosses when the proposal layer is shown, but are excluded from planning, coverage, and export. Coverage is recomputed after manual edits without creating replacement tiles. The production FastAPI process serves `frontend/dist` when that directory exists. Development runs Vite and FastAPI separately.
+The default profile is **S-PLUS / T80-South**: 1.4° × 1.4° tile footprints with 120 arcseconds effective overlap and the `SPLUS_LEGACY_GRID_V1` fallback geometry. Planning first checks actual input pointings for a compatible local lattice. Candidate selection and coverage sampling run entirely in TypeScript. Coverage is a declination-weighted sample estimate, not a formal completeness certification.
 
-## Observing profiles
+The compatibility decisions and limitations are described in [Scientific and planning algorithms](docs/ALGORITHM.md). The committed golden fixture at `frontend/src/data/golden.json` and TypeScript tests preserve the former Python-reference outputs, including planner holdouts and large-catalogue overlap behavior.
 
-YAML files in `backend/profiles/` define an instrument's tile width and height in degrees, effective edge overlap in arcseconds, ICRS coordinates, a generation algorithm, and allowed export epoch labels. The validated default is `splus-t80-south` (S-PLUS / T80-South): nominal 1.4° × 1.4° tiles, 120 arcsec effective overlap, `SPLUS_LEGACY_GRID_V1`, and the sole export epoch option `2000`. The historical helper used a 30 arcsec base overlap multiplied internally by four; profile files use the physically meaningful 120 arcsec value. Add another YAML file with a distinct identifier and `RECT_GRID_V1` to describe another rectangular instrument. `GET /api/profiles` exposes installed profiles to clients; region planning accepts `profile_id`.
+## Development
 
-The **Tile profile** control shows the active geometry from the backend profile. **Create custom profile** copies its current width, height, and overlap into an editable session-only profile. Width and height are entered in degrees; overlap is entered in arcseconds. **Apply** asks the backend to validate the complete canonical profile and uses `RECT_GRID_V1` for future plans. Width and height must each be greater than zero and at most 180°, overlap must be nonnegative and smaller than both dimensions after conversion to degrees, and all values must be finite. **Reset to S-PLUS** restores the installed validated preset. Changing the active profile clears proposals, candidate lattice, inference diagnostics, old coverage metrics, and selected proposed tile; loaded catalogues, visibility, and the finalized polygon remain, so press **Generate plan** again. Custom geometry alone does not establish scientific validation for a new instrument or survey. Instrument-specific historical-lattice validation currently exists for S-PLUS / T80-South.
-
-The backend loads installed YAML files from `backend/profiles/`; the UI does not yet load or download YAML. Browser uploads would require a separate safe YAML import API. The interactive custom profile uses the same `TilingProfile` schema in JSON and is not persisted.
-
-## Development setup
-
-Requirements: Python 3.12+, Node.js 20+, npm, and `uv`.
+Requirements: Node.js 24 LTS (or a compatible supported Node.js release) and npm.
 
 ```bash
 git clone https://github.com/elacerda/jasytata.git
 cd jasytata
-make setup
-make dev
+cd frontend
+npm ci
+npm run dev
 ```
 
-Open the Vite URL printed by the frontend command, normally `http://localhost:5173`. FastAPI runs at `http://localhost:8000`; its interactive API docs are at `/docs`.
-
-To build and run the production-serving FastAPI app:
-
-```bash
-make run
-```
-
-`make run` builds the frontend first, then starts FastAPI on port 8000 for local use. The Makefile keeps the `uv` cache in an ignored workspace directory, which also makes the commands work in restricted environments.
-
-## Docker deployment
-
-Build and start the production container:
-
-```bash
-docker compose up -d --build
-```
-
-Check status and follow logs:
-
-```bash
-docker compose ps
-docker compose logs -f jasytata
-```
-
-Stop the service:
-
-```bash
-docker compose down
-```
-
-Open `http://<server-ip>:8010` in a browser. The initial deployment uses plain HTTP with direct port access; nginx, DNS, and TLS may be added later. The bind address and published port can be changed with `JASYTATA_BIND` and `JASYTATA_PORT` in a local `.env` file; see `.env.example`.
-
-The sky imagery comes from Aladin Lite's configured HiPS survey service, so the browser needs network access to the survey host. Catalogue parsing, planning, and export remain local to this application.
-
-## Input catalogue
-
-The bundled S-PLUS example uses:
-
-```csv
-PID,NAME,RA,DEC,EPOC,STATUS
-HYDRA,HYDRA_0011,10:03:05,-23:54:31,2000,1
-```
-
-The importer discovers common RA and DEC headers, including `ra`, `ra_deg`, `dec`, and `dec_deg`, without requiring any other column. Ambiguous or unrecognized headers prompt for a RA/DEC column choice and a numeric RA unit. Colon-separated RA sexagesimal values are hours; decimal RA values are degrees unless the selected unit or `ra_hours` header explicitly declares hours. DEC sexagesimal and decimal values use degrees. Astropy converts coordinates to canonical ICRS decimal degrees. Every other column remains attached as metadata and all original values are retained. Invalid rows report their CSV line number.
-
-Center import accepts comma, semicolon, or whitespace separated RA/DEC pairs, one per line. It accepts sexagesimal RA + DEC and decimal-degree RA + DEC; a `RA,DEC` heading may be included.
-
-## Geometry and inference
-
-The explicit compatibility algorithm is `SPLUS_LEGACY_GRID_V1`. It keeps the legacy half-tile seed at the lower RA/DEC bounds, the 1.4° tile size, the legacy 4× overlap multiplier, and a row-dependent RA correction. The original helper's configured overlap is 30 arcsec, so each step uses an **effective 120 arcsec (2 arcmin) overlap** and center spacing `1.4° - 120/3600° = 1.366666…°`. RA increments divide that spacing by `cos(dec)`.
-
-For selected regions near a regular catalogue lattice, the planner measures east-west neighbor spacing at each pair's mean declination, retains observed declination rows and their local RA pitches, and checks each row's RA phase against its anchors before continuing the local pattern. Missing rows interpolate from observed rows; new edge rows use local extrapolation. The catalogue-calibrated inference tolerance is 0.05° (3 arcmin). If there are too few consistent anchors, the response explicitly reports `profile_fallback` and uses the active profile's grid builder around the polygon bounds with a half-tile margin. Candidate centers remain on the inferred lattice; coverage scoring chooses among them without moving their coordinates.
-
-The planner adds useful lattice centers until sampled selected-polygon coverage reaches 99.5% or no candidate makes a meaningful contribution. Existing footprints are counted before proposal scoring. Polygon bounds accelerate candidate generation; sample scoring uses only the polygon interior. See [docs/ALGORITHM.md](docs/ALGORITHM.md) for projection assumptions, inference, thresholds, score ordering, and known limits.
-
-## Export
-
-The enabled new-tile download, `new_tiles.csv`, has this header:
-
-```text
-RA,DEC,EPOCH
-```
-
-The file contains only currently enabled proposed centers. Decimal degrees are the default and use eight digits after the decimal point. The sexagesimal option uses Astropy, with RA in hours and DEC in degrees to millisecond precision. The EPOCH column repeats the profile-approved catalogue epoch label for practical CSV interoperability. It is metadata, not an ICRS equinox or a precession/proper-motion operation. The S-PLUS profile currently permits only `2000`. Imported metadata, including source PID, NAME, EPOC, and STATUS, remains available in tile inspection but is never copied to generated rows. The generic file reloads through the same catalogue importer.
-
-## API
-
-- `GET /api/health`
-- `GET /api/profiles`
-- `GET /api/catalogue/reference`
-- `POST /api/catalogue/parse` (multipart CSV upload)
-- `POST /api/centers/parse`
-- `POST /api/proposals/centers`
-- `POST /api/plan/region`
-- `POST /api/coverage/region`
-- `POST /api/export`
-
-All payloads use explicit Pydantic models. No API state is persisted between requests.
-
-## Tests and quality checks
+Vite prints the local URL, normally <http://localhost:5173/>. The dev server uses `/` as its base; production builds use `/jasytata/` for GitHub Pages. To run the repository-level checks from the root:
 
 ```bash
 make test
@@ -150,19 +58,19 @@ make typecheck
 make build
 ```
 
-Backend tests execute the checked-in legacy helper for golden coordinates and exercise the supplied 4,774-row catalogue, Astropy coordinate conversion, polygon validation and sampling, lattice inference/fallback, historical holdout reconstruction, occupied-center exclusion, deterministic planning, profile epoch rules, and generic export round trips. Frontend tests cover RA-wrap polygon selection, declination-corrected tile footprints, coordinate-column mapping, two concurrent datasets, reversible proposal editing, independent map layer visibility, and source metadata. [Run C acceptance measurements](docs/RUN_C_ACCEPTANCE.md) record the real-catalogue holdout residuals. These historical regressions validate the default S-PLUS / T80-South profile; they do not establish scientific validation for arbitrary future instruments or profiles.
+`make check` runs all four checks. `make preview` builds the production site and serves it locally; open the `/jasytata/` path on the preview server.
 
-[The large SPLUS-b overlap regression](docs/RUN_C_OVERLAP_REGRESSION.md) checks direct historical footprint coverage, spherical candidate occupancy, and the separation between inference diagnostics and coverage. In Vite development mode, the Region plan panel shows finalized polygon vertices and can copy the exact last submitted plan request JSON for reproducing browser cases. Production builds omit this diagnostic control.
+## Deployment
 
-## Known limits
+A GitHub Actions workflow tests and builds the static site when changes are pushed to `main`, then deploys only `frontend/dist` to GitHub Pages. It also supports manual runs with `workflow_dispatch`. The production site is <https://elacerda.github.io/jasytata/>.
 
-- Tile footprints use an axis-aligned 1.4° RA/DEC rectangle approximation; selected-area coverage is sampled inside the chosen polygon rather than computed by exact spherical clipping.
-- The region planner uses a dense, declination-weighted sample grid capped at 90,000 points; the returned coverage is an estimate, not a survey-completeness certification. There is no MOC coverage engine yet.
-- Region selection supports simple polygons with a local RA span no wider than 180° and declinations strictly between the poles. The current planner models the approximately axis-aligned S-PLUS grid and does not infer rotated or warped survey tilings.
-- Sessions are client/in-memory only. Reloading the browser discards accepted proposals; export before closing the session.
-- There is no observing schedule or Tile Budget / Fixed N planning mode.
-- The initial UI uses Aladin Lite's DSS2 color HiPS background; access to remote HiPS tiles depends on network availability.
+## User guide and regression records
+
+- [T80-South User Guide](docs/T80_SOUTH_USER_GUIDE.md)
+- [Run C historical reconstruction acceptance](docs/RUN_C_ACCEPTANCE.md)
+- [Run C large-overlap regression](docs/RUN_C_OVERLAP_REGRESSION.md)
+- [Backendless migration record](docs/BACKENDLESS_MIGRATION.md)
 
 ## License
 
-License: MIT. Copyright (c) 2026 Eduardo Lacerda. See [LICENSE](LICENSE).
+MIT. Copyright (c) 2026 Eduardo Lacerda. See [LICENSE](LICENSE).

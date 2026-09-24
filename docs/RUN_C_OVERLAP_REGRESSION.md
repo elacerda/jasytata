@@ -1,6 +1,6 @@
 # Run C large-overlap regression
 
-The browser's 153.47 deg² polygon vertices and request body were unavailable. These measurements use a separate deterministic ICRS rectangle, RA 262°–277° and DEC −40° to −27°, against all 4,774 actual centers in `reference/tiles_nc.csv`. No browser vertices were inferred from screenshots.
+The browser's 153.47 deg² polygon vertices and request body were unavailable. These historical Python-reference measurements use a separate deterministic ICRS rectangle, RA 262°–277° and DEC −40° to −27°, against all 4,774 actual centers in `frontend/public/data/tiles_nc.csv`. No browser vertices were inferred from screenshots. The corresponding compact golden outputs remain under TypeScript regression tests.
 
 | Measurement | Result |
 | --- | ---: |
@@ -14,7 +14,7 @@ The browser's 153.47 deg² polygon vertices and request body were unavailable. T
 | Redundant proposal coverage | 1.694% |
 | Final sampled coverage | 99.555% |
 
-The test counts center containment and footprint intersection independently of the planner, and checks existing coverage with a finer declination-weighted grid. Every one of the 64 actual centers inside the polygon is separately asserted to contribute. It also checks every returned candidate against the 0.12° spherical occupancy threshold, and verifies that every proposal comes from an unoccupied returned lattice site. Frontend tests confirm that hiding a catalogue leaves the complete plan input and all displayed scientific metrics unchanged.
+The former Python reference regression independently counted center containment and footprint intersection, and checked existing coverage with a finer declination-weighted grid. It asserted that every one of the 64 actual centers inside the polygon contributes, checked candidates against the 0.12° spherical occupancy threshold, and verified every proposal came from an unoccupied returned lattice site. The current TypeScript golden tests retain the selected centers, inference result, proposal ordering, metrics, and direct coverage output. Frontend tests also confirm that hiding a catalogue leaves plan input and scientific metrics unchanged.
 
 ## Why anchor and contributor counts diverged
 

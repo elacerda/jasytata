@@ -1,12 +1,12 @@
 # Scientific and planning algorithms
 
-This document distinguishes the exact compatibility geometry in `SPLUS_LEGACY_GRID_V1` from the newer local-grid inference and coverage-selection layer. Geometry is implemented in `backend/app/science/geometry.py`; planning lives in `planner.py` and calls that module only for the fallback.
+This document distinguishes the compatibility geometry in `SPLUS_LEGACY_GRID_V1` from local-grid inference and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `planner.ts`, and `coverage.ts`. Golden expected results were generated from the former Python implementation before its removal; the current TypeScript tests compare directly against those committed values.
 
 ## 1. Coordinate conventions
 
 - Coordinates are ICRS/equatorial in decimal degrees after parsing.
 - Sexagesimal RA is interpreted as hour angle (`HH:MM:SS`); one hour equals 15 degrees.
-- Sexagesimal DEC is interpreted in degrees (`±DD:MM:SS`). Astropy `Angle` and `Longitude` perform the conversions and RA normalization.
+- Sexagesimal DEC is interpreted in degrees (`±DD:MM:SS`). TypeScript coordinate helpers preserve the former Astropy parsing and RA normalization behavior.
 - The legacy grid treats RA/DEC as longitude/latitude offsets with a local `cos(dec)` approximation. It does not use a gnomonic or great-circle lattice.
 - A tile is modeled for display and scoring as an axis-aligned 1.4° × 1.4° rectangle in local RA/DEC: ±0.7° in DEC and ±0.7° physical RA, where physical RA separation is `ΔRA × cos(tile_center_DEC)`.
 
@@ -44,7 +44,7 @@ For each row `j`, RA centers step by:
 
 The division by cosine is applied to the angular increment as in the reference's Astropy `Longitude` handling. This is a small-angle physical-spacing approximation: `Δα_j cos(δ_j) = S`. Centers stop at the upper input bounds, just as the legacy loops do. Reversed non-wrapping bounds are normalized to ascending bounds; RA intervals that cross zero must be explicitly marked as wrap intervals so the short interval is not mistaken for a 350° span. Degenerate fixed-coordinate axes retain the legacy behavior of placing that coordinate on the supplied boundary.
 
-Golden tests import and execute `reference/create_tiles.py` for RA 143°–151°, DEC −40°–−20°. New and reference center sequences must match to better than `1e-10` degree in each coordinate. The implementation intentionally does not replace the half-tile seed with a modern centered-grid convention.
+The committed Python-generated compatibility fixture records legacy grid centers and RA wrap behavior. TypeScript grid tests compare center sequences to the fixture within `1e-10` degree. The implementation intentionally does not replace the half-tile seed with a modern centered-grid convention.
 
 ## 3. Local existing-grid inference
 
@@ -87,7 +87,7 @@ Returned coverage metrics include selected polygon area, existing tiles contribu
 
 ## 5. Export integrity
 
-Original catalogue records retain every source CSV string and arbitrary non-coordinate metadata for display. Generated records contain only ICRS positions, an enabled flag, and generation provenance. Generic export writes currently enabled centers with `RA,DEC,EPOCH`: decimal-degree RA/DEC at eight fractional digits by default, or Astropy-formatted sexagesimal hour-angle RA and degree DEC at millisecond precision. The EPOCH value comes from the active profile's allowed export labels. It does not change ICRS coordinates or imply a particular equinox. Both representations are covered by importer round-trip tests.
+Original catalogue records retain every source CSV string and arbitrary non-coordinate metadata for display. Generated records contain only ICRS positions, an enabled flag, and generation provenance. Generic export writes currently enabled centers with `RA,DEC,EPOCH`: decimal-degree RA/DEC at eight fractional digits by default, or sexagesimal hour-angle RA and degree DEC at millisecond precision. The EPOCH value comes from the active profile's allowed export labels. It does not change ICRS coordinates or imply a particular equinox. Both representations are covered by golden export tests.
 
 ## 6. Deliberate limitations
 

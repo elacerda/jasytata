@@ -1,31 +1,18 @@
-.PHONY: setup dev backend frontend test test-backend test-frontend lint typecheck build run clean
-
-UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
-export UV_CACHE_DIR
+.PHONY: setup dev preview test lint typecheck build check clean
 
 setup:
-	uv sync --project backend --all-groups
-	cd frontend && npm install
+	cd frontend && npm ci
 
 dev:
 	cd frontend && npm run dev
 
-backend:
-	uv run --project backend uvicorn app.main:app --app-dir backend --reload --port 8000
+preview: build
+	cd frontend && npm run preview
 
-frontend:
-	cd frontend && npm run dev
-
-test: test-backend test-frontend
-
-test-backend:
-	uv run --project backend pytest
-
-test-frontend:
+test:
 	cd frontend && npm test
 
 lint:
-	uv run --project backend ruff check backend/app backend/tests
 	cd frontend && npm run lint
 
 typecheck:
@@ -34,8 +21,7 @@ typecheck:
 build:
 	cd frontend && npm run build
 
-run: build
-	cd frontend && npm run preview
+check: test lint typecheck build
 
 clean:
-	rm -rf backend/.venv backend/.pytest_cache frontend/node_modules frontend/dist
+	rm -rf frontend/node_modules frontend/dist frontend/*.tsbuildinfo

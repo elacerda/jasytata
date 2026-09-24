@@ -177,7 +177,7 @@ describe("Jasytata proposal workflow", () => {
 
   afterEach(() => cleanup());
 
-  it("shows backend profile geometry, protects the preset, and copies it into a custom draft", async () => {
+  it("shows local profile geometry, protects the preset, and copies it into a custom draft", async () => {
     const user = userEvent.setup();
     render(<App />);
     expect(await screen.findByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
@@ -246,7 +246,7 @@ describe("Jasytata proposal workflow", () => {
     ["Tile width", "0", "tile_width_deg: Input should be greater than 0"],
     ["Tile height", "-1", "tile_height_deg: Input should be greater than 0"],
     ["Tile overlap", "6000", "Effective overlap must be smaller than both tile dimensions"],
-  ])("shows backend validation for invalid %s", async (label, value, message) => {
+  ])("shows local validation for invalid %s", async (label, value, message) => {
     const user = userEvent.setup();
     apiMocks.validateCustomProfile.mockRejectedValueOnce(new Error(message));
     render(<App />);

@@ -13,9 +13,11 @@ O uso normal é simples:
 
 Abra o Jasytata no navegador.
 
-Endereço atual:
+Aplicação pública:
 
-**http://152.84.203.222:8010/**
+**https://elacerda.github.io/jasytata/**
+
+O planejamento, a cobertura e a exportação são executados no navegador. Não é necessário iniciar um servidor. O mapa Aladin Lite e as imagens astronômicas podem acessar serviços externos.
 
 Ao abrir a página, o perfil padrão deve aparecer como:
 

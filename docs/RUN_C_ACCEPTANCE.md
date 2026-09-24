@@ -1,8 +1,8 @@
 # Run C historical reconstruction acceptance
 
-The holdout tests select ICRS centers from `reference/tiles_nc.csv`, remove them from the planner input, retain neighboring real SPLUS centers from one local patch, and plan a polygon around the hidden positions. Recovery uses one-to-one matches by true spherical angular separation. Extras are proposals without a matched hidden center.
+This historical acceptance record was measured by the former Python regression suite using ICRS centers from the bundled `frontend/public/data/tiles_nc.csv`. The suite removed holdout centers from planner input, retained neighboring real SPLUS centers from one local patch, and planned a polygon around hidden positions. Recovery used one-to-one matches by true spherical angular separation. Extras are proposals without a matched hidden center. Compact expected cases remain in `frontend/src/data/golden.json` and are checked by the TypeScript test suite.
 
-The tolerance is **14.93 arcseconds**: twice the measured 95th percentile (**7.47 arcseconds**) of midpoint residuals for 1,701 uninterrupted three-center runs in the catalogue's SPLUS-b/n/d rows. This includes sexagesimal coordinate rounding and is far below an arcminute. A many-arcminute displacement fails. The test recalculates this threshold from the reference CSV and requires it to stay below 18 arcseconds.
+The historical tolerance was **14.93 arcseconds**: twice the measured 95th percentile (**7.47 arcseconds**) of midpoint residuals for 1,701 uninterrupted three-center runs in the catalogue's SPLUS-b/n/d rows. This includes sexagesimal coordinate rounding and is far below an arcminute. A many-arcminute displacement fails. The committed golden cases preserve expected proposal coordinates independently of the current implementation.
 
 | Region | Hidden | Recovered | Recovery fraction | Median residual | Max residual | Extras | Mode |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |

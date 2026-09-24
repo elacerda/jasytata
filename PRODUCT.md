@@ -1,10 +1,8 @@
 # Product
 
-<!-- impeccable:product-schema 1 -->
-
 ## Platform
 
-web
+Static browser application hosted on GitHub Pages.
 
 ## Name
 
@@ -12,11 +10,11 @@ Jasytata
 
 ## Description
 
-Telescope pointing and coverage planner.
+Browser-based telescope pointing and coverage planner.
 
 ## Stack
 
-Delegated by the implementation brief: FastAPI, Astropy, NumPy, Pydantic, React, TypeScript, Vite, and Aladin Lite v3.
+React, TypeScript, Vite, and Aladin Lite v3. All Jasytata catalogue parsing, profile validation, coordinate conversion, grid inference, region planning, coverage calculation, and CSV export execute client-side.
 
 ## Users
 
@@ -28,24 +26,24 @@ Load one or more tile catalogues, inspect their sky footprints, select a polygon
 
 ## Positioning
 
-The planner can extend a locally inferred S-PLUS tile lattice from multiple catalogue anchors while preserving an explicit compatibility mode for the legacy tile generator.
+The planner extends a locally inferred S-PLUS tile lattice where catalogue evidence supports it and preserves a documented fallback for legacy tile geometry.
 
 ## Operating Context
 
-Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial coordinates, tile footprints, local survey geometry, and profile-driven export epoch metadata. Aladin Lite provides independent native catalogue layers and polygon interaction in the sky view.
+Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial coordinates, tile footprints, local survey geometry, and profile-driven export epoch metadata. Aladin Lite provides interactive sky imagery, catalogue layers, and polygon selection. External astronomy services supply sky survey/HiPS imagery; Jasytata science does not depend on those services.
 
 ## Capabilities and Constraints
 
 - Original catalogue rows are immutable and their source metadata remains available for inspection.
-- Proposals remain separate until accepted; editing state is client/in-memory only and is not persisted across reloads.
-- The no-database MVP exposes parsing, planning, and export through a stateless FastAPI API.
-- The planner uses a documented local tangent approximation and dense sampled coverage estimates; it is not a spherical polygon certification engine.
+- Proposals remain separate until accepted; editing state lives in browser memory and is not persisted across reloads.
+- No Jasytata backend, server, database, secrets, or server filesystem is required.
+- The planner uses a documented local tangent approximation and sampled coverage estimates; it is not an exact spherical completeness engine.
 
 ## Evidence on Hand
 
-- `reference/create_tiles.py`: legacy geometry source.
-- `reference/tiles_nc.csv`: representative source catalogue.
-- No commercial or accuracy claims are asserted beyond tests against the included scientific reference.
+- `frontend/src/data/golden.json`: outputs generated from the former Python scientific reference before its removal and validated against TypeScript.
+- `frontend/public/data/tiles_nc.csv`: representative bundled catalogue.
+- `docs/ALGORITHM.md`: assumptions, thresholds, score ordering, and limitations.
 
 ## Product Principles
 
