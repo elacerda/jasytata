@@ -12,6 +12,13 @@ export interface RegionBounds {
 
 type Point = readonly [number, number];
 
+/** Continuous RA coordinates of an ICRS polygon, relative to its western edge. */
+export interface PolygonLocalGeometry {
+  bounds: RegionBounds;
+  originRaDeg: number;
+  ra: number[];
+}
+
 /** Validate the Python SkyPolygon contract before browser planning or coverage.
  * @param polygon - Ordered ICRS vertices in decimal degrees, without repeated closure.
  * @throws On invalid coordinates, duplicate/crossing edges, zero area, or RA span above 180°.
@@ -56,21 +63,36 @@ function unwrapRas(polygon: SkyPolygon): number[] {
   return ras;
 }
 
+/** Unwrap polygon RA once and place every vertex in the same local frame.
+ * @param polygon - Ordered ICRS vertices in decimal degrees, spanning at most 180° in RA.
+ * @returns Continuous local RA coordinates in [0, ra_span_deg], their unwrapped
+ *   origin, and canonical ICRS bounds; declinations remain in degrees.
+ * @throws If fewer than three vertices are supplied.
+ */
+export function polygonLocalGeometry(polygon: SkyPolygon): PolygonLocalGeometry {
+  if (polygon.vertices.length < 3) throw new Error("Polygon requires at least three vertices");
+  const ras = unwrapRas(polygon);
+  const originRaDeg = Math.min(...ras);
+  const maxRa = Math.max(...ras);
+  return {
+    originRaDeg,
+    ra: ras.map((ra) => ra - originRaDeg),
+    bounds: {
+      ra_start_deg: modulo(originRaDeg, 360), ra_end_deg: modulo(maxRa, 360),
+      ra_span_deg: maxRa - originRaDeg,
+      dec_min_deg: Math.min(...polygon.vertices.map((vertex) => vertex.dec_deg)),
+      dec_max_deg: Math.max(...polygon.vertices.map((vertex) => vertex.dec_deg)),
+    },
+  };
+}
+
 /** Minimal eastward ICRS bounds of a validated polygon.
  * @param polygon - Ordered ICRS vertices in decimal degrees, spanning at most 180° in RA.
- * @returns Wrapped RA start/end/span and declination bounds in degrees.
+ * @returns Canonical RA start/end, continuous RA span, and declination bounds in degrees.
  * @throws If fewer than three vertices are supplied.
  */
 export function polygonBounds(polygon: SkyPolygon): RegionBounds {
-  if (polygon.vertices.length < 3) throw new Error("Polygon requires at least three vertices");
-  const ras = unwrapRas(polygon);
-  const start = modulo(Math.min(...ras), 360);
-  const end = modulo(Math.max(...ras), 360);
-  return {
-    ra_start_deg: start, ra_end_deg: end, ra_span_deg: modulo(end - start, 360),
-    dec_min_deg: Math.min(...polygon.vertices.map((vertex) => vertex.dec_deg)),
-    dec_max_deg: Math.max(...polygon.vertices.map((vertex) => vertex.dec_deg)),
-  };
+  return polygonLocalGeometry(polygon).bounds;
 }
 
 /** Stable great-circle distance between ICRS centers.
@@ -88,10 +110,10 @@ export function angularSeparationDeg(raA: number, decA: number, raB: number, dec
 }
 
 /** Planar positive-area intersection of an ICRS polygon and one tile footprint.
- * @param vertices - Polygon vertices locally unwrapped around centerRa, [RA, DEC] degrees.
+ * @param vertices - Polygon vertices in one continuous local [RA, DEC] frame, degrees.
  * @param tile - Actual ICRS tile center in decimal degrees.
  * @param profile - Axis-aligned physical footprint width/height in degrees.
- * @param centerRa - RA unwrap reference in degrees.
+ * @param centerRa - Midpoint of that unwrapped RA frame in degrees.
  * @returns Clipped planar RA/DEC area in square degrees; only positivity is used.
  */
 export function clippedFootprintArea(vertices: readonly Point[], tile: Pick<TileRecord, "ra_deg" | "dec_deg">, profile: TilingProfile, centerRa: number): number {
@@ -138,9 +160,9 @@ export function clippedFootprintArea(vertices: readonly Point[], tile: Pick<Tile
  * @returns Number of actual footprints with positive selected-area overlap.
  */
 export function contributingTileCount(polygon: SkyPolygon, tiles: readonly TileRecord[], profile: TilingProfile): number {
-  const bounds = polygonBounds(polygon);
-  const centerRa = modulo(bounds.ra_start_deg + bounds.ra_span_deg / 2, 360);
-  const vertices: Point[] = polygon.vertices.map((vertex) => [centerRa + wrappedRaDelta(vertex.ra_deg, centerRa), vertex.dec_deg]);
+  const { bounds, originRaDeg, ra } = polygonLocalGeometry(polygon);
+  const centerRa = originRaDeg + bounds.ra_span_deg / 2;
+  const vertices: Point[] = polygon.vertices.map((vertex, index) => [originRaDeg + ra[index], vertex.dec_deg]);
   let contributing = 0;
   for (const tile of tiles) {
     if (clippedFootprintArea(vertices, tile, profile, centerRa) > 1e-12) contributing += 1;

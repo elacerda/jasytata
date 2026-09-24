@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import golden from "../data/golden.json";
 import referenceCsv from "../../public/data/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
-import { measureActiveCoverage } from "./coverage";
+import { measureActiveCoverage, sampleRegion, type CoverageGrid } from "./coverage";
 import { contributingTileCount, angularSeparationDeg } from "./geometry";
 import { legacyGridCenters } from "./grid";
 import { roundDecimal } from "./math";
@@ -12,6 +12,26 @@ import type { RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "
 
 const catalogue = parseCatalogueCsv(new TextEncoder().encode(referenceCsv), "tiles_nc.csv").tiles;
 const byName = new Map(catalogue.map((tile) => [tile.name, tile]));
+
+// Sexagesimal ICRS vertices: 02 30 44.67 -21 10 19.5; 02 28 32.97
+// -13 46 19.8; 01 45 40.92 -14 24 19.0; 01 41 44.18 -21 13 59.5.
+const widePolygon: SkyPolygon = { vertices: [
+  { ra_deg: 15 * (2 + 30 / 60 + 44.67 / 3600), dec_deg: -(21 + 10 / 60 + 19.5 / 3600) },
+  { ra_deg: 15 * (2 + 28 / 60 + 32.97 / 3600), dec_deg: -(13 + 46 / 60 + 19.8 / 3600) },
+  { ra_deg: 15 * (1 + 45 / 60 + 40.92 / 3600), dec_deg: -(14 + 24 / 60 + 19 / 3600) },
+  { ra_deg: 15 * (1 + 41 / 60 + 44.18 / 3600), dec_deg: -(21 + 13 / 60 + 59.5 / 3600) },
+] };
+
+/** Return the weight of the nearest ICRS sample to a requested sky position. */
+function nearestWeight(grid: CoverageGrid, ra: number, dec: number): number {
+  let nearest = 0;
+  let distance = Infinity;
+  for (let index = 0; index < grid.ra.length; index += 1) {
+    const squared = (grid.ra[index] - ra) ** 2 + (grid.dec[index] - dec) ** 2;
+    if (squared < distance) { distance = squared; nearest = index; }
+  }
+  return grid.weights[nearest];
+}
 
 function centersMatch(actual: TileRecord[], expected: number[][]): void {
   expect(actual).toHaveLength(expected.length);
@@ -107,6 +127,54 @@ describe("Python direct coverage golden parity", () => {
 });
 
 describe("scientific geometry and coverage contracts", () => {
+  it("samples the full sexagesimal polygon and plans across its interior", () => {
+    const grid = sampleRegion(widePolygon);
+    const area = grid.totalWeight * grid.cellAreaDeg2;
+    expect(area).toBeGreaterThan(77);
+    expect(area).toBeLessThan(79);
+    for (const ra of [28, 30, 32, 34, 36]) expect(nearestWeight(grid, ra, -18)).toBeGreaterThan(0);
+    expect(nearestWeight(grid, 26, -14)).toBe(0);
+
+    const plan = planRegion(widePolygon, []);
+    expect(plan.metrics.selected_region_area_deg2).toBeCloseTo(area, 3);
+    expect(plan.metrics.selected_region_area_deg2).toBe(77.7009);
+    expect(plan.metrics.selected_region_coverage).toBeGreaterThan(0.95);
+    expect(plan.metrics.remaining_uncovered_area_deg2).toBeLessThan(4);
+    expect(plan.tiles.length).toBeGreaterThan(5);
+  });
+
+  it("keeps polygon sampling invariant under all cyclic starts and both windings", () => {
+    const baseline = sampleRegion(widePolygon);
+    const baselineArea = baseline.totalWeight * baseline.cellAreaDeg2;
+    const plans: Array<{ area: number; coverage: number; tileCount: number }> = [];
+    for (const vertices of [widePolygon.vertices, [...widePolygon.vertices].reverse()]) {
+      for (let start = 0; start < vertices.length; start += 1) {
+        const polygon = { vertices: [...vertices.slice(start), ...vertices.slice(0, start)] };
+        const grid = sampleRegion(polygon);
+        expect(Math.abs(grid.totalWeight * grid.cellAreaDeg2 - baselineArea)).toBeLessThan(0.2);
+        for (const ra of [28, 30, 32, 34, 36]) expect(nearestWeight(grid, ra, -18)).toBeGreaterThan(0);
+        expect(nearestWeight(grid, 26, -14)).toBe(0);
+        const plan = planRegion(polygon, []);
+        plans.push({ area: plan.metrics.selected_region_area_deg2, coverage: plan.metrics.selected_region_coverage, tileCount: plan.tiles.length });
+      }
+    }
+    for (const plan of plans) {
+      expect(Math.abs(plan.area - baselineArea)).toBeLessThan(0.001);
+      expect(plan.coverage).toBe(1);
+      expect(plan.tileCount).toBe(plans[0].tileCount);
+    }
+  });
+
+  it("samples both sides of the ICRS RA zero meridian", () => {
+    const grid = sampleRegion({ vertices: [
+      { ra_deg: 359.2, dec_deg: -30 }, { ra_deg: 0.8, dec_deg: -30 },
+      { ra_deg: 0.8, dec_deg: -28 }, { ra_deg: 359.2, dec_deg: -28 },
+    ] });
+    expect(nearestWeight(grid, 359.5, -29)).toBeGreaterThan(0);
+    expect(nearestWeight(grid, 0.5, -29)).toBeGreaterThan(0);
+    expect(grid.totalWeight * grid.cellAreaDeg2).toBeCloseTo(2.7986, 3);
+  });
+
   it.each(golden.rounding)("uses Python decimal rounding for $value at $digits places", ({ value, digits, result }) => {
     expect(Object.is(roundDecimal(value, digits), result)).toBe(true);
   });

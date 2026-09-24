@@ -1,5 +1,5 @@
 import type { PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
-import { contributingTileCount, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
+import { contributingTileCount, polygonLocalGeometry, validatePolygon, type PolygonLocalGeometry } from "./geometry";
 import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 import { resolveProfile } from "../profiles";
@@ -38,11 +38,10 @@ export interface MaskedCenter {
  * @throws If the polygon contains no selected sample cells.
  */
 export function sampleRegion(polygon: SkyPolygon): CoverageGrid {
-  const bounds = polygonBounds(polygon);
-  return sampleBounds(bounds, polygon);
+  return sampleBounds(polygonLocalGeometry(polygon), polygon);
 }
 
-function sampleBounds(bounds: RegionBounds, polygon: SkyPolygon): CoverageGrid {
+function sampleBounds({ bounds, originRaDeg, ra: polygonX }: PolygonLocalGeometry, polygon: SkyPolygon): CoverageGrid {
   const centerDec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2;
   const widthDeg = bounds.ra_span_deg * Math.max(Math.cos(radians(centerDec)), 0.01);
   const heightDeg = bounds.dec_max_deg - bounds.dec_min_deg;
@@ -65,7 +64,6 @@ function sampleBounds(bounds: RegionBounds, polygon: SkyPolygon): CoverageGrid {
   const ra = new Float64Array(size);
   const dec = new Float64Array(size);
   const weights = new Float64Array(size);
-  const polygonX = polygon.vertices.map((vertex) => modulo(vertex.ra_deg - bounds.ra_start_deg, 360));
   const polygonY = polygon.vertices.map((vertex) => vertex.dec_deg);
   let totalWeight = 0;
   let selectedSamples = 0;
@@ -75,10 +73,9 @@ function sampleBounds(bounds: RegionBounds, polygon: SkyPolygon): CoverageGrid {
     for (let col = 0; col < cols; col += 1) {
       const index = row * cols + col;
       const offset = (col + 0.5) * bounds.ra_span_deg / cols;
-      const raValue = modulo(bounds.ra_start_deg + offset, 360);
-      ra[index] = raValue;
+      ra[index] = modulo(originRaDeg + offset, 360);
       dec[index] = decValue;
-      const x = modulo(raValue - bounds.ra_start_deg, 360);
+      const x = offset;
       let inside = false;
       for (let vertex = 0; vertex < polygonX.length; vertex += 1) {
         const next = (vertex + 1) % polygonX.length;
@@ -92,7 +89,7 @@ function sampleBounds(bounds: RegionBounds, polygon: SkyPolygon): CoverageGrid {
   if (!selectedSamples) throw new Error("Polygon is too small for the coverage sample resolution");
   return {
     ra, dec, weights, totalWeight, stepDeg: step,
-    centerRaDeg: modulo(bounds.ra_start_deg + bounds.ra_span_deg / 2, 360),
+    centerRaDeg: modulo(originRaDeg + bounds.ra_span_deg / 2, 360),
     centerDecDeg: centerDec, raSpanDeg: bounds.ra_span_deg,
     decMinDeg: bounds.dec_min_deg, decMaxDeg: bounds.dec_max_deg,
     cellAreaDeg2: (bounds.ra_span_deg / cols) * (heightDeg / rows),
