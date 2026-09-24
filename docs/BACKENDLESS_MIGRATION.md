@@ -43,9 +43,7 @@ The Python/FastAPI implementation, its tests and manifests, the Docker runtime, 
 
 After backend removal, the repository-level checks are `make test`, `make lint`, `make typecheck`, `make build`, and `make check`. The GitHub Actions workflow runs tests, lint, typecheck, and the production build before uploading only `frontend/dist` to Pages. The workflow triggers on pushes to `main` and manual dispatch and uses the Pages artifact deployment actions.
 
-Pages configuration check: the unauthenticated Pages API returned 404, and the available local `gh` credential is invalid, so the repository source setting cannot be changed from this environment. A repository administrator must select **Repository → Settings → Pages → Build and deployment → Source → GitHub Actions**. The workflow is committed and will deploy on a push to `main` after that source is enabled.
-
-Deployment status: pending Pages source enablement, push, and workflow completion.
+GitHub Pages is configured with **GitHub Actions** as its deployment source. Workflow run [36054844513](https://github.com/elacerda/jasytata/actions/runs/36054844513) completed successfully after the setting was enabled. The production site is available at <https://elacerda.github.io/jasytata/>. HTTP checks returned 200 for the page, generated JavaScript and CSS, the imported logo, and `/jasytata/data/tiles_nc.csv`.
 
 ## Legitimate external networking
 
