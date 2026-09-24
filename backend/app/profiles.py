@@ -25,9 +25,9 @@ class TilingProfile(BaseModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     display_name: str = Field(min_length=1)
     description: str | None = None
-    tile_width_deg: float = Field(gt=0, le=180)
-    tile_height_deg: float = Field(gt=0, le=180)
-    effective_overlap_arcsec: float = Field(ge=0)
+    tile_width_deg: float = Field(gt=0, le=180, allow_inf_nan=False)
+    tile_height_deg: float = Field(gt=0, le=180, allow_inf_nan=False)
+    effective_overlap_arcsec: float = Field(ge=0, allow_inf_nan=False)
     coordinate_frame: str = "icrs"
     export_epoch_default: str = "2000"
     export_epoch_options: list[str] = Field(default_factory=lambda: ["2000"], min_length=1)
@@ -132,3 +132,33 @@ def list_profiles(directory: Path = PROFILE_DIR) -> list[TilingProfile]:
         Every installed and validated profile.
     """
     return [load_profile(path.stem, directory) for path in sorted(directory.glob("*.yaml"))]
+
+
+def resolve_profile(profile_id: str, inline_profile: TilingProfile | None) -> TilingProfile:
+    """Resolve an installed preset or a validated session-only custom profile.
+
+    Parameters
+    ----------
+    profile_id : str
+        Installed profile identifier, or ``custom`` for an inline profile.
+    inline_profile : TilingProfile or None
+        Canonical profile data with width and height in degrees and effective
+        edge overlap in arcseconds.
+
+    Returns
+    -------
+    TilingProfile
+        The installed preset or validated custom geometry.
+
+    Raises
+    ------
+    ValueError
+        If an inline profile tries to replace an installed algorithm.
+    """
+    if inline_profile is None:
+        return load_profile(profile_id)
+    if profile_id != "custom" or inline_profile.id != "custom":
+        raise ValueError("Inline profiles must use the custom identifier")
+    if inline_profile.algorithm != "RECT_GRID_V1":
+        raise ValueError("Custom profiles must use RECT_GRID_V1")
+    return inline_profile

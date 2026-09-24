@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 import pytest
 
 from app.main import app
+from app.profiles import load_profile
 
 
 @dataclass(frozen=True)
@@ -124,6 +126,71 @@ class _ASGIClient:
 
 
 client = _ASGIClient()
+
+
+def test_custom_profile_geometry_reaches_region_planner() -> None:
+    """A session-only canonical profile controls the actual HTTP planning path."""
+    profile = load_profile().model_dump()
+    profile.update(
+        id="custom", display_name="Custom", algorithm="RECT_GRID_V1",
+        tile_width_deg=2.25, tile_height_deg=1.75, effective_overlap_arcsec=90,
+    )
+    validated = client.post("/api/profiles/validate", json_body=profile)
+    assert validated.status_code == 200, validated.text
+    assert validated.json()["tile_width_deg"] == 2.25
+    payload = {
+        "polygon": {"vertices": [
+            {"ra_deg": 10, "dec_deg": -1}, {"ra_deg": 16, "dec_deg": -1},
+            {"ra_deg": 16, "dec_deg": 4}, {"ra_deg": 10, "dec_deg": 4},
+        ]},
+        "existing_tiles": [],
+        "profile_id": "custom",
+        "profile": profile,
+    }
+    response = client.post("/api/plan/region", json_body=payload)
+    assert response.status_code == 200, response.text[:500]
+    assert response.json()["solution"] == "profile_fallback"
+    assert "RECT_GRID_V1" in response.json()["diagnostics"][0]
+    centers = response.json()["candidate_centers"]
+    assert len(centers) > 1
+    first_row = [center for center in centers if center["dec_deg"] == centers[0]["dec_deg"]]
+    assert first_row[1]["ra_deg"] - first_row[0]["ra_deg"] == pytest.approx(
+        (2.25 - 90 / 3600) / math.cos(math.radians(first_row[0]["dec_deg"]))
+    )
+    rows = sorted({center["dec_deg"] for center in centers})
+    assert rows[1] - rows[0] == pytest.approx(1.75 - 90 / 3600)
+    coverage = client.post("/api/coverage/region", json_body={
+        **payload, "proposed_tiles": response.json()["tiles"],
+    })
+    assert coverage.status_code == 200, coverage.text[:500]
+    assert coverage.json()["new_tiles"] == len(response.json()["tiles"])
+    export = client.post("/api/export", json_body={
+        "profile_id": "custom", "profile": profile,
+        "proposed_tiles": response.json()["tiles"],
+    })
+    assert export.status_code == 200, export.text[:500]
+    assert "RA,DEC,EPOCH" in export.text
+
+
+def test_inline_profile_cannot_mutate_installed_splus_preset() -> None:
+    """Inline geometry cannot replace the validated S-PLUS algorithm or ID."""
+    preset = load_profile().model_dump()
+    preset["tile_width_deg"] = 2
+    assert client.post("/api/profiles/validate", json_body=preset).status_code == 422
+    preset["algorithm"] = "RECT_GRID_V1"
+    assert client.post("/api/profiles/validate", json_body=preset).status_code == 422
+
+
+@pytest.mark.parametrize("field,value", [
+    ("tile_width_deg", 0), ("tile_height_deg", -1),
+    ("effective_overlap_arcsec", 6000),
+])
+def test_custom_profile_validation_rejects_nonphysical_geometry(field: str, value: float) -> None:
+    """The profile endpoint rejects invalid geometry before it can become active."""
+    profile = load_profile().model_dump()
+    profile.update(id="custom", display_name="Custom", algorithm="RECT_GRID_V1")
+    profile[field] = value
+    assert client.post("/api/profiles/validate", json_body=profile).status_code == 422
 
 
 def test_health_reference_upload_and_generic_export_reload() -> None:

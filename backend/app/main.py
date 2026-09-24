@@ -22,7 +22,7 @@ from app.models import (
     RegionPlanRequest,
     RegionPlanResponse,
 )
-from app.profiles import DEFAULT_PROFILE_ID, list_profiles
+from app.profiles import DEFAULT_PROFILE_ID, TilingProfile, list_profiles, resolve_profile
 from app.science.catalogue import make_center_proposals, parse_catalogue_csv, parse_center_text
 from app.science.export import build_export_csv
 from app.science.planner import measure_active_coverage, plan_region
@@ -53,6 +53,31 @@ async def profiles() -> dict:
         "default_profile_id": DEFAULT_PROFILE_ID,
         "profiles": [profile.model_dump() for profile in list_profiles()],
     }
+
+
+@app.post("/api/profiles/validate", response_model=TilingProfile)
+async def validate_custom_profile(profile: TilingProfile) -> TilingProfile:
+    """Validate session-only geometry against the canonical profile contract.
+
+    Parameters
+    ----------
+    profile : TilingProfile
+        ICRS footprint geometry in degrees and arcseconds and its algorithm.
+
+    Returns
+    -------
+    TilingProfile
+        The validated custom profile, without server persistence.
+
+    Raises
+    ------
+    HTTPException
+        HTTP 422 if the custom identifier or algorithm is invalid.
+    """
+    try:
+        return resolve_profile(profile.id, profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/health")
@@ -202,7 +227,7 @@ async def plan_selected_region(request: RegionPlanRequest) -> RegionPlanResponse
         HTTP 422 for a region too large to plan.
     """
     try:
-        return plan_region(request)
+        return plan_region(request, resolve_profile(request.profile_id, request.profile))
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -227,7 +252,9 @@ async def coverage_for_active_proposal(request: CoverageRequest) -> PlanMetrics:
         HTTP 422 for invalid proposed records or profiles.
     """
     try:
-        return measure_active_coverage(request)
+        return measure_active_coverage(
+            request, resolve_profile(request.profile_id, request.profile)
+        )
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

@@ -48,7 +48,7 @@ export interface CatalogueDataset {
   visible: boolean;
 }
 
-/** Validated observing geometry supplied by the backend profile registry. */
+/** Canonical backend-validated observing geometry, installed or session-only. */
 export interface TilingProfile {
   id: string;
   display_name: string;

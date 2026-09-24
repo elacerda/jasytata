@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { buildRegionPlanRequest, downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue, validateCustomProfile } from "./api";
 import { createDataset } from "./datasets";
 import type {
   CenterInput,
@@ -33,6 +33,12 @@ interface ColumnMapping {
   raUnit: "auto" | "degrees" | "hours";
 }
 
+interface GeometryDraft {
+  width: string;
+  height: string;
+  overlap: string;
+}
+
 const EMPTY_CENTERS: CenterInput[] = [];
 const EMPTY_IDS: string[] = [];
 
@@ -41,6 +47,9 @@ export default function App() {
   const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
+  const [defaultProfile, setDefaultProfile] = useState<TilingProfile | null>(null);
+  const [geometryDraft, setGeometryDraft] = useState<GeometryDraft | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
   const [proposalContext, setProposalContext] = useState<ProposalPreview | null>(null);
@@ -97,6 +106,7 @@ export default function App() {
 
   useEffect(() => {
     void loadDefaultProfile().then((loaded) => {
+      setDefaultProfile(loaded);
       setProfile(loaded);
       setExportEpoch(loaded.export_epoch_default);
     }).catch((caught: unknown) => {
@@ -110,7 +120,9 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    void measureCoverage(regionPolygon, originalTiles, proposals, profile.id)
+    void (profile.id === "custom"
+      ? measureCoverage(regionPolygon, originalTiles, proposals, profile.id, profile)
+      : measureCoverage(regionPolygon, originalTiles, proposals, profile.id))
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
@@ -219,14 +231,14 @@ export default function App() {
     const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
-      setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id)));
+      setDebugRequestJson(JSON.stringify(profile?.id === "custom"
+        ? buildRegionPlanRequest(regionPolygon, planningTiles, profile.id, profile)
+        : buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id)));
     }
     await runBusy(
-      () => planRegion(
-        regionPolygon,
-        planningTiles,
-        profile?.id,
-      ),
+      () => profile?.id === "custom"
+        ? planRegion(regionPolygon, planningTiles, profile.id, profile)
+        : planRegion(regionPolygon, planningTiles, profile?.id),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
@@ -280,6 +292,68 @@ export default function App() {
     setNotice("Current proposal cleared. Selected polygon and catalogues remain.");
   }
 
+  function activateProfile(nextProfile: TilingProfile) {
+    if (profile === nextProfile) {
+      setGeometryDraft(null);
+      setProfileError(null);
+      return;
+    }
+    regionRevisionRef.current += 1;
+    setProfile(nextProfile);
+    setExportEpoch(nextProfile.export_epoch_default);
+    setGeometryDraft(null);
+    setProfileError(null);
+    setProposals([]);
+    setPending(null);
+    setProposalContext(null);
+    setActiveMetrics(null);
+    setSelectedTileId(null);
+    setDebugRequestJson("");
+    setNotice(`Active tile profile: ${nextProfile.display_name}. Generate plan again for the selected polygon.`);
+    setError(null);
+  }
+
+  function createCustomDraft() {
+    if (!profile) return;
+    setGeometryDraft({
+      width: String(profile.tile_width_deg),
+      height: String(profile.tile_height_deg),
+      overlap: String(profile.effective_overlap_arcsec),
+    });
+    setProfileError(null);
+  }
+
+  async function applyCustomProfile() {
+    if (!profile || !geometryDraft) return;
+    const width = Number(geometryDraft.width);
+    const height = Number(geometryDraft.height);
+    const overlap = Number(geometryDraft.overlap);
+    if ([geometryDraft.width, geometryDraft.height, geometryDraft.overlap].some((value) => !value.trim())
+      || ![width, height, overlap].every(Number.isFinite)) {
+      setProfileError("Enter finite numbers for width, height, and overlap.");
+      return;
+    }
+    const candidate: TilingProfile = {
+      ...profile,
+      id: "custom",
+      display_name: "Custom",
+      description: "Ad hoc tile geometry for this session",
+      tile_width_deg: width,
+      tile_height_deg: height,
+      effective_overlap_arcsec: overlap,
+      algorithm: "RECT_GRID_V1",
+    };
+    setBusy(true);
+    setProfileError(null);
+    try {
+      activateProfile(await validateCustomProfile(candidate));
+    } catch (caught) {
+      setProfileError(caught instanceof Error ? caught.message : "Could not validate the custom profile.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function beginRegionSelection() {
     regionRevisionRef.current += 1;
     setMapMode("idle");
@@ -309,7 +383,9 @@ export default function App() {
   async function exportFile() {
     if (!profile || !enabledProposals.length) return;
     await runBusy(
-      () => downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat),
+      () => profile.id === "custom"
+        ? downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat, profile)
+        : downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat),
       () => setNotice("new_tiles.csv downloaded."),
     );
   }
@@ -392,6 +468,40 @@ export default function App() {
             )}
           </section>
 
+          <section className="panel-section tile-profile-section" aria-label="Tile profile">
+            <SectionHeading title="Tile profile" trailing={profile?.id === "custom" ? "CUSTOM" : "VALIDATED PRESET"} />
+            <label className="field-label" htmlFor="tile-profile-select">Profile</label>
+            <select id="tile-profile-select" className="profile-select" value={profile?.id ?? ""} disabled={!profile || busy}
+              onChange={(event) => {
+                if (event.target.value === defaultProfile?.id && defaultProfile) activateProfile(defaultProfile);
+              }}>
+              {!profile && <option value="">Loading profile…</option>}
+              {defaultProfile && <option value={defaultProfile.id}>{defaultProfile.display_name}</option>}
+              {profile?.id === "custom" && <option value="custom">Custom</option>}
+            </select>
+            {geometryDraft ? <>
+              <p className="profile-draft-label">Custom draft · active: {profile?.display_name}</p>
+              <div className="profile-geometry">
+                <label>Width <span><input aria-label="Tile width" inputMode="decimal" value={geometryDraft.width} onChange={(event) => { setGeometryDraft({ ...geometryDraft, width: event.target.value }); setProfileError(null); }} /> deg</span></label>
+                <label>Height <span><input aria-label="Tile height" inputMode="decimal" value={geometryDraft.height} onChange={(event) => { setGeometryDraft({ ...geometryDraft, height: event.target.value }); setProfileError(null); }} /> deg</span></label>
+                <label>Overlap <span><input aria-label="Tile overlap" inputMode="decimal" value={geometryDraft.overlap} onChange={(event) => { setGeometryDraft({ ...geometryDraft, overlap: event.target.value }); setProfileError(null); }} /> arcsec</span></label>
+              </div>
+              {profileError && <p className="profile-validation-error" role="alert">{profileError}</p>}
+              <div className="profile-actions">
+                <button className="button button-primary" onClick={() => void applyCustomProfile()} disabled={busy}>Apply</button>
+                <button className="button button-outline" onClick={() => defaultProfile && activateProfile(defaultProfile)} disabled={!defaultProfile || busy}>Reset to S-PLUS</button>
+              </div>
+            </> : <>
+              <div className="profile-readout">
+                <span>Width <strong>{profile?.tile_width_deg.toFixed(3) ?? "…"} deg</strong></span>
+                <span>Height <strong>{profile?.tile_height_deg.toFixed(3) ?? "…"} deg</strong></span>
+                <span>Overlap <strong>{profile?.effective_overlap_arcsec ?? "…"} arcsec</strong></span>
+              </div>
+              <button className="button button-outline button-full" onClick={createCustomDraft} disabled={!profile || busy}>{profile?.id === "custom" ? "Edit custom profile" : "Create custom profile"}</button>
+              {profile?.id === "custom" && <button className="text-button profile-reset" onClick={() => defaultProfile && activateProfile(defaultProfile)} disabled={!defaultProfile || busy}>Reset to S-PLUS</button>}
+            </>}
+          </section>
+
           <section className="panel-section">
             <SectionHeading title="Add tiles" />
             <div className="mode-stack">
@@ -453,9 +563,10 @@ export default function App() {
             ) : (
               <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
             )}
-            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || busy}>
+            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || !profile || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
+            <p className="fine-print">Active profile: {profile?.display_name ?? "loading…"}</p>
             <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>
           </section>
 

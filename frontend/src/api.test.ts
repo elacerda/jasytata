@@ -103,4 +103,23 @@ describe("region plan request", () => {
       body: JSON.stringify(buildRegionPlanRequest(polygon, proposals, "splus-t80-south")),
     }));
   });
+
+  it("sends chosen custom geometry in the canonical planning profile", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const polygon = { vertices: [
+      { ra_deg: 10, dec_deg: -1 }, { ra_deg: 16, dec_deg: -1 },
+      { ra_deg: 16, dec_deg: 4 }, { ra_deg: 10, dec_deg: 4 },
+    ] };
+    const profile = {
+      id: "custom", display_name: "Custom", tile_width_deg: 2.25,
+      tile_height_deg: 1.75, effective_overlap_arcsec: 90, coordinate_frame: "icrs",
+      export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "RECT_GRID_V1",
+    };
+    await planRegion(polygon, proposals, "custom", profile);
+    const body = JSON.parse(fetchMock.mock.lastCall?.[1].body as string);
+    expect(body).toEqual({ polygon, existing_tiles: proposals, profile_id: "custom", profile });
+  });
 });

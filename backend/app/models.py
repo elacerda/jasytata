@@ -7,7 +7,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.profiles import DEFAULT_PROFILE_ID
+from app.profiles import DEFAULT_PROFILE_ID, TilingProfile
 
 
 class GenerationMethod(StrEnum):
@@ -211,12 +211,17 @@ class SkyPolygon(BaseModel):
 
 
 class RegionPlanRequest(BaseModel):
-    """Input for covering an ICRS sky polygon with new profile tile centers."""
+    """ICRS polygon and pointings with installed or inline tile geometry.
+
+    ``profile`` is the canonical session-only custom profile when supplied;
+    its width and height are degrees and edge overlap is arcseconds.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     polygon: SkyPolygon
     profile_id: str = DEFAULT_PROFILE_ID
+    profile: TilingProfile | None = None
     existing_tiles: list[TileRecord] = Field(max_length=20_000)
 
 
@@ -265,20 +270,22 @@ class RegionPlanResponse(BaseModel):
 
 
 class CoverageRequest(BaseModel):
-    """Recompute sampled polygon coverage for the user's active tile choices."""
+    """Recompute sampled ICRS polygon coverage using active profile geometry."""
 
     polygon: SkyPolygon
     profile_id: str = DEFAULT_PROFILE_ID
+    profile: TilingProfile | None = None
     existing_tiles: list[TileRecord] = Field(max_length=20_000)
     proposed_tiles: list[TileRecord] = Field(max_length=500)
 
 
 class ExportRequest(BaseModel):
-    """Active proposal positions and profile-driven generic CSV settings."""
+    """Active ICRS proposal positions and profile-driven generic CSV settings."""
 
     model_config = ConfigDict(extra="forbid")
 
     proposed_tiles: list[TileRecord] = Field(max_length=500)
     profile_id: str = DEFAULT_PROFILE_ID
+    profile: TilingProfile | None = None
     epoch: str | None = None
     coordinate_format: str = Field(default="decimal", pattern="^(decimal|sexagesimal)$")

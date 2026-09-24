@@ -6,7 +6,7 @@ import csv
 import io
 
 from app.models import ExportRequest, TileSource
-from app.profiles import load_profile
+from app.profiles import resolve_profile
 from app.science.coordinates import format_dec_degrees, format_ra_degrees
 
 
@@ -36,7 +36,7 @@ def build_export_csv(request: ExportRequest) -> str:
     The EPOCH value is catalogue metadata. This function does not precess
     coordinates, change frame/equinox, or apply proper motion.
     """
-    profile = load_profile(request.profile_id)
+    profile = resolve_profile(request.profile_id, request.profile)
     epoch = request.epoch if request.epoch is not None else profile.export_epoch_default
     if epoch not in profile.export_epoch_options:
         raise ValueError(f"Epoch {epoch!r} is not allowed by profile {profile.id}")

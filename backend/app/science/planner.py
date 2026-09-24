@@ -239,7 +239,9 @@ def plan_region(
     )
 
 
-def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
+def measure_active_coverage(
+    request: CoverageRequest, profile: TilingProfile | None = None
+) -> PlanMetrics:
     """Measure enabled proposal coverage without generating replacement tiles.
 
     Parameters
@@ -247,6 +249,9 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
     request : CoverageRequest
         ICRS polygon, all loaded immutable pointings, and proposed centers in
         decimal degrees. Disabled proposal centers are ignored.
+    profile : TilingProfile, optional
+        Validated tile geometry; defaults to the installed profile in the
+        request. Width and height are degrees, overlap is arcseconds.
 
     Returns
     -------
@@ -261,7 +266,7 @@ def measure_active_coverage(request: CoverageRequest) -> PlanMetrics:
     """
     if any(tile.source != TileSource.PROPOSED for tile in request.proposed_tiles):
         raise ValueError("Coverage edits may contain only proposed tiles")
-    profile = load_profile(request.profile_id)
+    profile = profile or load_profile(request.profile_id)
     grid = SamplingCoverageEngine().sample(request.polygon)
     existing_tiles = [tile for tile in request.existing_tiles if tile.enabled]
     existing_mask = _covered_mask(grid, existing_tiles, profile)

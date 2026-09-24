@@ -64,6 +64,9 @@ def test_synthetic_profile_changes_generated_spacing() -> None:
         {"coordinate_frame": "galactic"},
         {"export_epoch_default": "2050"},
         {"tile_width_deg": -1},
+        {"tile_width_deg": float("inf")},
+        {"tile_height_deg": float("nan")},
+        {"effective_overlap_arcsec": float("inf")},
     ],
 )
 def test_invalid_profile_fails_clearly(changes: dict) -> None:
