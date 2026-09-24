@@ -68,7 +68,7 @@ Candidate centers within 0.12° **great-circle angular separation** of an actual
 
 ## 4. Coverage representation and scoring
 
-The polygon's bounding rectangle is sampled as uniform RA/DEC cell centers; samples outside the polygon receive zero weight. Each interior sample is weighted by `cos(DEC)`, the spherical area element for a small RA/DEC cell. The minimum nominal sample pitch is 0.12°; very large regions increase the pitch as needed to keep the grid below 90,000 samples. A tile covers a selected sample when:
+The polygon's bounding rectangle is sampled as uniform RA/DEC cell centers; samples outside the polygon receive zero weight. Each interior sample is weighted by `cos(DEC)`, the spherical area element for a small RA/DEC cell. The nominal sample pitch is 0.01°; very large regions increase the pitch as needed to keep the grid below 90,000 samples. A tile covers a selected sample when:
 
 ```text
 |sample_DEC − tile_DEC| ≤ 0.7 deg
@@ -79,9 +79,9 @@ All actual existing original and already accepted enabled tile footprints are un
 
 The scientific stages are: actual input footprints → existing coverage; actual input centers → lattice inference; inferred or profile lattice → candidates; actual input centers → spherical candidate occupancy; unoccupied candidates plus uncovered samples → proposals; existing footprints plus enabled proposal footprints → final coverage. The selected-area coverage fraction remains a numerical sample estimate, while contributor membership is a geometric intersection count.
 
-Selection is deterministic greedy maximum incremental gain. Ties prefer, in order, less overlap with already covered selected-region samples, less estimated tile area outside the selected polygon, then stable coordinate order. Candidate coordinates are never perturbed. Outside area is estimated from sampled polygon cells covered by each tile; overlapping outside tile areas are summed, so this is an estimate of exported new footprint area rather than a spherical union.
+Selection is deterministic greedy maximum incremental gain and targets complete coverage of the sampled polygon, including gains below 0.05% of its area. Ties prefer, in order, less overlap with already covered selected-region samples, less estimated tile area outside the selected polygon, then stable coordinate order. Candidate coordinates are never perturbed. If the inferred or profile lattice leaves uncovered samples, a supplemental lattice is phased halfway between centers around the uncovered-sample bounds. It is anchored to the nearest stable inferred-grid tile when one exists, and its center spacing is capped at 90% of tile width and height, allowing additional overlap with existing or proposed footprints to close gaps. The same sampled-coverage selection then chooses only tiles that add coverage. Outside area is estimated from sampled polygon cells covered by each tile; overlapping outside tile areas are summed, so this is an estimate of exported new footprint area rather than a spherical union.
 
-Planning stops at 99.5% total sampled polygon coverage or when the best remaining gain is below 0.05% of the selected area. Every chosen center must add at least that much selected-area coverage. The stop threshold is a sampling tolerance, not a completeness guarantee.
+The reported 100% target means every selected sample is covered. It is an estimate based on the sample grid, not an exact continuous-polygon coverage proof; regions exceeding the 90,000-cell cap use a coarser grid and have correspondingly lower spatial resolution.
 
 Returned coverage metrics include selected polygon area, existing tiles contributing sample coverage, new tile count, already-covered and final coverage fractions, incremental proposal coverage, remaining uncovered fraction and area, redundant proposed footprint fraction, outside-polygon tile area, and sample pitch. Manual enable/disable changes call the coverage endpoint to recompute these figures without replanning. The displayed candidate lattice count comes from the planning response's candidate center list.
 

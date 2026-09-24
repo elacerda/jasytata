@@ -4,10 +4,10 @@ import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 import { resolveProfile } from "../profiles";
 
-const SAMPLE_STEP_DEG = 0.12;
+const SAMPLE_STEP_DEG = 0.01;
 const MAX_REGION_SAMPLES = 90_000;
 const MIN_POLYGON_SAMPLES_PER_AXIS = 8;
-const MIN_INCREMENTAL_GAIN = 0.0005;
+const MIN_INCREMENTAL_GAIN = 1e-10;
 
 /** Row-major, declination-weighted polygon samples in ICRS decimal degrees. */
 export interface CoverageGrid {
@@ -32,7 +32,9 @@ export interface MaskedCenter {
 
 /** Sample the selected ICRS polygon using the Python row-major cell convention.
  * @param polygon - Validated ordered vertices in decimal-degree RA/DEC.
- * @returns Weighted samples with RA/DEC cell area and cosine declination weights.
+ * @returns Weighted samples at a nominal 0.01° pitch, with RA/DEC cell area
+ *   and cosine declination weights. Large regions use a coarser pitch to stay
+ *   below 90,000 bounding-box samples.
  * @throws If the polygon contains no selected sample cells.
  */
 export function sampleRegion(polygon: SkyPolygon): CoverageGrid {

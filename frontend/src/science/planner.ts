@@ -1,6 +1,6 @@
 import type { CenterInput, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { resolveProfile } from "../profiles";
-import { coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type MaskedCenter } from "./coverage";
+import { coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, contributingTileCount, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
@@ -8,7 +8,7 @@ import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta }
 const INFERENCE_TOLERANCE_DEG = 0.05;
 const OCCUPIED_CENTER_TOLERANCE_DEG = 0.12;
 const MAX_CANDIDATES = 1200;
-const AUTOMATIC_COVERAGE_TARGET = 0.995;
+const AUTOMATIC_COVERAGE_TARGET = 1;
 
 interface Lattice {
   decSpacingDeg: number;
@@ -288,6 +288,144 @@ function uniqueSortedCenters(centers: readonly Center[]): Center[] {
   return unique.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
 }
 
+interface CoverageGap {
+  minRaOffsetDeg: number;
+  maxRaOffsetDeg: number;
+  minDecDeg: number;
+  maxDecDeg: number;
+  centerRaDeg: number;
+  centerDecDeg: number;
+}
+
+/** Return selected-region sample bounds that remain uncovered, unwrapping RA around the grid center.
+ * @param grid - Weighted ICRS sample grid with RA/DEC positions in degrees.
+ * @param coverage - Binary mask aligned with the grid; 1 means an existing or planned tile covers the sample.
+ * @returns Bounding box of uncovered samples in degrees, or null when every selected sample is covered.
+ */
+function uncoveredSampleBounds(grid: CoverageGrid, coverage: Uint8Array): CoverageGap | null {
+  let minRaOffsetDeg = Infinity;
+  let maxRaOffsetDeg = -Infinity;
+  let minDecDeg = Infinity;
+  let maxDecDeg = -Infinity;
+  let raTotal = 0;
+  let decTotal = 0;
+  let count = 0;
+  for (let index = 0; index < coverage.length; index += 1) {
+    if (!grid.weights[index] || coverage[index]) continue;
+    const raOffsetDeg = wrappedRaDelta(grid.ra[index], grid.centerRaDeg);
+    minRaOffsetDeg = Math.min(minRaOffsetDeg, raOffsetDeg);
+    maxRaOffsetDeg = Math.max(maxRaOffsetDeg, raOffsetDeg);
+    minDecDeg = Math.min(minDecDeg, grid.dec[index]);
+    maxDecDeg = Math.max(maxDecDeg, grid.dec[index]);
+    raTotal += raOffsetDeg;
+    decTotal += grid.dec[index];
+    count += 1;
+  }
+  if (!count) return null;
+  return {
+    minRaOffsetDeg,
+    maxRaOffsetDeg,
+    minDecDeg,
+    maxDecDeg,
+    centerRaDeg: modulo(grid.centerRaDeg + raTotal / count, 360),
+    centerDecDeg: decTotal / count,
+  };
+}
+
+/** Combine selected proposal masks with the actual existing-field mask.
+ * @param existingMask - Binary mask for actual existing pointings.
+ * @param selected - Greedily selected tile centers and their sampled footprints.
+ * @returns Binary union mask matching the selected-region sample grid.
+ */
+function combinedCoverageMask(existingMask: Uint8Array, selected: readonly MaskedCenter[]): Uint8Array {
+  const coverage = existingMask.slice();
+  for (const { mask } of selected) {
+    for (let index = 0; index < coverage.length; index += 1) {
+      if (mask[index]) coverage[index] = 1;
+    }
+  }
+  return coverage;
+}
+
+/** Generate a half-phase-shifted supplemental grid around uncovered samples, anchored to a nearby actual tile.
+ * This second pass preserves the inferred local cadence where possible and introduces extra overlap only where the primary grid leaves a gap.
+ * @param grid - Fine weighted ICRS sample grid.
+ * @param gap - Bounds of currently uncovered selected samples in degrees.
+ * @param anchor - Nearby existing tile or primary candidate center in ICRS degrees.
+ * @param profile - Physical tile dimensions and effective overlap.
+ * @param lattice - Optional local spacings inferred from actual catalogue centers.
+ * @returns Unique tile centers in ICRS decimal degrees that can cover the remaining bounds.
+ */
+function gapFillCandidates(grid: CoverageGrid, gap: CoverageGap, anchor: Center, profile: TilingProfile, lattice: Lattice | null): Center[] {
+  const profileRaStep = raSpacing(profile);
+  const profileDecStep = decSpacing(profile);
+  const stepRaPhysical = Math.min(profile.tile_width_deg * 0.9, lattice?.raSpacingDeg ?? profileRaStep);
+  const stepDec = Math.min(profile.tile_height_deg * 0.9, lattice?.decSpacingDeg ?? profileDecStep);
+  const anchorRa = grid.centerRaDeg + wrappedRaDelta(anchor[0], grid.centerRaDeg);
+  const phaseDec = anchor[1] + stepDec / 2;
+  const firstRow = Math.ceil((gap.minDecDeg - profile.tile_height_deg / 2 - phaseDec) / stepDec);
+  const lastRow = Math.floor((gap.maxDecDeg + profile.tile_height_deg / 2 - phaseDec) / stepDec);
+  const minRa = grid.centerRaDeg + gap.minRaOffsetDeg;
+  const maxRa = grid.centerRaDeg + gap.maxRaOffsetDeg;
+  const centers: Center[] = [];
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    const dec = phaseDec + row * stepDec;
+    if (dec <= -90 || dec >= 90) continue;
+    const cosDec = Math.max(Math.cos(radians(dec)), 0.01);
+    const stepRa = stepRaPhysical / cosDec;
+    const halfRa = profile.tile_width_deg / (2 * cosDec);
+    const phaseRa = anchorRa + stepRa / 2;
+    const firstCol = Math.ceil((minRa - halfRa - phaseRa) / stepRa);
+    const lastCol = Math.floor((maxRa + halfRa - phaseRa) / stepRa);
+    for (let col = firstCol; col <= lastCol; col += 1) {
+      centers.push([modulo(phaseRa + col * stepRa, 360), dec]);
+      if (centers.length > MAX_CANDIDATES) throw new Error(`Filling the uncovered area needs more than ${MAX_CANDIDATES} additional tile centers; reduce the selected area.`);
+    }
+  }
+  return uniqueSortedCenters(centers);
+}
+
+/** Choose the nearest reliable actual anchor for a remaining gap, falling back to the primary candidate lattice.
+ * @param gap - Uncovered-sample bounds in ICRS degrees.
+ * @param localTiles - Actual nearby pointings considered for local-grid inference.
+ * @param lattice - Optional fitted lattice with stable anchor IDs.
+ * @param primaryCandidates - Base lattice centers available to the plan.
+ * @returns An ICRS [RA, DEC] center used to phase the overlap-fill grid.
+ */
+function nearestGapAnchor(gap: CoverageGap, localTiles: readonly TileRecord[], lattice: Lattice | null, primaryCandidates: readonly Center[]): Center {
+  const anchorIds = new Set(lattice?.anchorIds ?? []);
+  const trustedTiles = anchorIds.size ? localTiles.filter((tile) => anchorIds.has(tile.id)) : [];
+  const nearestTile = trustedTiles.reduce<TileRecord | null>((nearest, tile) => {
+    if (!nearest || angularSeparationDeg(tile.ra_deg, tile.dec_deg, gap.centerRaDeg, gap.centerDecDeg) <
+      angularSeparationDeg(nearest.ra_deg, nearest.dec_deg, gap.centerRaDeg, gap.centerDecDeg)) return tile;
+    return nearest;
+  }, null);
+  if (nearestTile) return [nearestTile.ra_deg, nearestTile.dec_deg];
+  const nearestCandidate = primaryCandidates.reduce<Center | null>((nearest, center) => {
+    if (!nearest || angularSeparationDeg(center[0], center[1], gap.centerRaDeg, gap.centerDecDeg) <
+      angularSeparationDeg(nearest[0], nearest[1], gap.centerRaDeg, gap.centerDecDeg)) return center;
+    return nearest;
+  }, null);
+  if (nearestCandidate) return nearestCandidate;
+  return [gap.centerRaDeg, gap.centerDecDeg];
+}
+
+/** Build useful masks only for centers that cover at least one still-uncovered selected sample.
+ * @param centers - Candidate ICRS centers in decimal degrees.
+ * @param coverage - Current actual and planned coverage mask.
+ * @param grid - Fine weighted ICRS sample grid.
+ * @param profile - Physical tile dimensions in degrees.
+ * @returns Candidate centers paired with masks that provide positive incremental coverage.
+ */
+function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array, grid: CoverageGrid, profile: TilingProfile): MaskedCenter[] {
+  const useful: MaskedCenter[] = [];
+  for (const center of centers) {
+    const mask = tileMask(grid, center[0], center[1], profile);
+    if (mask.some((covered, index) => Boolean(covered) && !coverage[index])) useful.push({ center, mask });
+  }
+  return useful;
+}
+
 /** Remove centers within 0.12° great-circle distance of actual input pointings.
  * @param centers - Candidate ICRS [RA, DEC] positions in decimal degrees.
  * @param tiles - All enabled actual catalogue and accepted proposal centers.
@@ -298,7 +436,7 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
     !tiles.some((tile) => angularSeparationDeg(ra, dec, tile.ra_deg, tile.dec_deg) < OCCUPIED_CENTER_TOLERANCE_DEG));
 }
 
-/** Infer or fall back to a lattice and select useful ICRS tile centers.
+/** Infer or fall back to a lattice, then add overlap-fill tiles if sampled gaps remain.
  * @param polygon - Ordered selected sky polygon in ICRS decimal degrees.
  * @param existingTiles - Original catalogue and accepted proposals, including disabled records.
  * @param profileId - Bundled profile ID or custom.
@@ -341,12 +479,21 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
   const grid = sampleRegion(polygon);
   const existingMask = coveredMask(grid, activeTiles, profile);
   const contributing = contributingTileCount(polygon, activeTiles, profile);
-  const useful: MaskedCenter[] = [];
-  for (const center of uniqueCandidates) {
-    const mask = tileMask(grid, center[0], center[1], profile);
-    if (mask.some((covered, index) => Boolean(covered) && !existingMask[index])) useful.push({ center, mask });
+  const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, profile);
+  const primary = greedyChoose(primaryCandidates, existingMask, grid, profile, AUTOMATIC_COVERAGE_TARGET);
+  const primaryCoverage = combinedCoverageMask(existingMask, primary);
+  const remainingGap = uncoveredSampleBounds(grid, primaryCoverage);
+  let gapFill: MaskedCenter[] = [];
+  if (remainingGap) {
+    const anchor = nearestGapAnchor(remainingGap, localTiles, lattice, uniqueCandidates);
+    const supplementalCenters = gapFillCandidates(grid, remainingGap, anchor, profile, lattice);
+    const supplementalCandidates = usefulUncoveredCenters(supplementalCenters, primaryCoverage, grid, profile);
+    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, profile, AUTOMATIC_COVERAGE_TARGET);
+    if (gapFill.length) diagnostics.push(`Added ${gapFill.length} overlap-fill tile${gapFill.length === 1 ? "" : "s"} around the remaining sampled gaps, phased from ${lattice ? "the inferred existing grid" : "the active tile profile"}.`);
   }
-  const chosen = greedyChoose(useful, existingMask, grid, profile, AUTOMATIC_COVERAGE_TARGET);
+  const chosen = [...primary, ...gapFill];
+  const finalCoverage = combinedCoverageMask(existingMask, chosen);
+  const finalGap = uncoveredSampleBounds(grid, finalCoverage);
   const tiles: TileRecord[] = chosen.map(({ center: [ra, dec] }, index) => ({
     id: `proposal-region-${String(index + 1).padStart(4, "0")}`, name: "",
     ra_deg: ra, dec_deg: dec, source: "proposed", enabled: true,
@@ -355,8 +502,12 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
   }));
   const candidateCenters: CenterInput[] = uniqueCandidates.map(([ra, dec]) => ({ ra_deg: ra, dec_deg: dec, label: null }));
   const metrics = measureMetrics(chosen, existingMask, grid, contributing, profile);
-  if (!tiles.length && metrics.selected_region_coverage >= AUTOMATIC_COVERAGE_TARGET) diagnostics.push("Existing tiles already meet the 99.5% sampled coverage target.");
-  else if (!tiles.length) diagnostics.push("No unoccupied lattice centers add sampled coverage to this region.");
+  if (finalGap) diagnostics.push(`The proposal leaves sampled gaps covering ${(metrics.remaining_uncovered_fraction * 100).toFixed(3)}% of the selected area.`);
+  if (!tiles.length) {
+    diagnostics.push(finalGap
+      ? "No candidate tile centers add coverage to the remaining sampled gaps."
+      : "Existing tiles already cover all sampled area in the selected region.");
+  }
   return {
     solution, generation_method: method, tiles, candidate_centers: candidateCenters,
     inference: {
