@@ -1,0 +1,725 @@
+{
+  "source": "backend Python reference at fixture-generation time",
+  "coordinates": [
+    {
+      "input": [
+        "10:03:05",
+        "-23:54:31",
+        "auto"
+      ],
+      "ra_deg": 150.77083333333331,
+      "dec_deg": -23.90861111111111
+    },
+    {
+      "input": [
+        "10 03 05",
+        "-24.25",
+        "auto"
+      ],
+      "ra_deg": 150.77083333333331,
+      "dec_deg": -24.25
+    },
+    {
+      "input": [
+        "150.5",
+        "+00:00:00",
+        "auto"
+      ],
+      "ra_deg": 150.5,
+      "dec_deg": 0.0
+    },
+    {
+      "input": [
+        "360",
+        "-90",
+        "degrees"
+      ],
+      "ra_deg": 0.0,
+      "dec_deg": -90.0
+    },
+    {
+      "input": [
+        "10.5",
+        "89:59:59",
+        "hours"
+      ],
+      "ra_deg": 157.49999999999997,
+      "dec_deg": 89.99972222222222
+    },
+    {
+      "input": [
+        "23:59:59.999",
+        "-00:00:01",
+        "auto"
+      ],
+      "ra_deg": 359.99999583333334,
+      "dec_deg": -0.0002777777777777778
+    },
+    {
+      "input": [
+        "-01:00:00",
+        "12 30",
+        "auto"
+      ],
+      "ra_deg": 345.0,
+      "dec_deg": 12.5
+    },
+    {
+      "input": [
+        "10h03m05s",
+        "10d03m05s",
+        "auto"
+      ],
+      "ra_deg": 150.77083333333331,
+      "dec_deg": 10.051388888888889
+    },
+    {
+      "input": [
+        "10d03m05s",
+        "10°03′05″",
+        "hours"
+      ],
+      "ra_deg": 10.051388888888889,
+      "dec_deg": 10.051388888888889
+    },
+    {
+      "input": [
+        "10m",
+        "10s",
+        "auto"
+      ],
+      "ra_deg": 0.16666666666666666,
+      "dec_deg": 0.002777777777777778
+    }
+  ],
+  "formatting": [
+    {
+      "input": [
+        150.7708333333,
+        -23.9086111111,
+        0
+      ],
+      "ra": "10:03:05",
+      "dec": "-23:54:31"
+    },
+    {
+      "input": [
+        359.999999,
+        -0.0001,
+        3
+      ],
+      "ra": "24:00:00.000",
+      "dec": "-00:00:00.360"
+    },
+    {
+      "input": [
+        0.0,
+        0.0,
+        3
+      ],
+      "ra": "00:00:00.000",
+      "dec": "00:00:00.000"
+    },
+    {
+      "input": [
+        150.5,
+        -24.25,
+        3
+      ],
+      "ra": "10:02:00.000",
+      "dec": "-24:15:00.000"
+    }
+  ],
+  "catalogues": [
+    {
+      "csv": "ra,dec\n150.5,-24.25\n",
+      "mapping": {},
+      "result": {
+        "filename": "fixture.csv",
+        "row_count": 1,
+        "tiles": [
+          {
+            "id": "original-1",
+            "name": "Row 1",
+            "ra_deg": 150.5,
+            "dec_deg": -24.25,
+            "source": "original",
+            "enabled": true,
+            "dataset_id": "fixture.csv",
+            "group_id": "fixture.csv:",
+            "ra_column": "ra",
+            "dec_column": "dec",
+            "generation_method": null,
+            "original_values": {
+              "ra": "150.5",
+              "dec": "-24.25"
+            },
+            "metadata": {}
+          }
+        ],
+        "warnings": [],
+        "columns": [
+          "ra",
+          "dec"
+        ],
+        "ra_column": "ra",
+        "dec_column": "dec",
+        "needs_mapping": false
+      }
+    },
+    {
+      "csv": "ra_deg,dec_deg,field_id,quality\n150.5,-24.25,DR6_1,good\n",
+      "mapping": {},
+      "result": {
+        "filename": "fixture.csv",
+        "row_count": 1,
+        "tiles": [
+          {
+            "id": "original-1",
+            "name": "Row 1",
+            "ra_deg": 150.5,
+            "dec_deg": -24.25,
+            "source": "original",
+            "enabled": true,
+            "dataset_id": "fixture.csv",
+            "group_id": "fixture.csv:",
+            "ra_column": "ra_deg",
+            "dec_column": "dec_deg",
+            "generation_method": null,
+            "original_values": {
+              "ra_deg": "150.5",
+              "dec_deg": "-24.25",
+              "field_id": "DR6_1",
+              "quality": "good"
+            },
+            "metadata": {
+              "field_id": "DR6_1",
+              "quality": "good"
+            }
+          }
+        ],
+        "warnings": [],
+        "columns": [
+          "ra_deg",
+          "dec_deg",
+          "field_id",
+          "quality"
+        ],
+        "ra_column": "ra_deg",
+        "dec_column": "dec_deg",
+        "needs_mapping": false
+      }
+    },
+    {
+      "csv": "RA,ra_deg,DEC,label\n10:03:05,150.77,-23:54:31,A\n",
+      "mapping": {
+        "ra_column": "RA",
+        "dec_column": "DEC"
+      },
+      "result": {
+        "filename": "fixture.csv",
+        "row_count": 1,
+        "tiles": [
+          {
+            "id": "original-1",
+            "name": "Row 1",
+            "ra_deg": 150.77083333333331,
+            "dec_deg": -23.90861111111111,
+            "source": "original",
+            "enabled": true,
+            "dataset_id": "fixture.csv",
+            "group_id": "fixture.csv:",
+            "ra_column": "RA",
+            "dec_column": "DEC",
+            "generation_method": null,
+            "original_values": {
+              "RA": "10:03:05",
+              "ra_deg": "150.77",
+              "DEC": "-23:54:31",
+              "label": "A"
+            },
+            "metadata": {
+              "ra_deg": "150.77",
+              "label": "A"
+            }
+          }
+        ],
+        "warnings": [],
+        "columns": [
+          "RA",
+          "ra_deg",
+          "DEC",
+          "label"
+        ],
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "needs_mapping": false
+      }
+    },
+    {
+      "csv": "RA,DEC,NAME,comment\n10:03:05,-23:54:31,\"Quoted, name\",\"two \"\"quotes\"\"\"\n",
+      "mapping": {},
+      "result": {
+        "filename": "fixture.csv",
+        "row_count": 1,
+        "tiles": [
+          {
+            "id": "original-1",
+            "name": "Quoted, name",
+            "ra_deg": 150.77083333333331,
+            "dec_deg": -23.90861111111111,
+            "source": "original",
+            "enabled": true,
+            "dataset_id": "fixture.csv",
+            "group_id": "fixture.csv:",
+            "ra_column": "RA",
+            "dec_column": "DEC",
+            "generation_method": null,
+            "original_values": {
+              "RA": "10:03:05",
+              "DEC": "-23:54:31",
+              "NAME": "Quoted, name",
+              "comment": "two \"quotes\""
+            },
+            "metadata": {
+              "NAME": "Quoted, name",
+              "comment": "two \"quotes\""
+            }
+          }
+        ],
+        "warnings": [],
+        "columns": [
+          "RA",
+          "DEC",
+          "NAME",
+          "comment"
+        ],
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "needs_mapping": false
+      }
+    },
+    {
+      "csv": "ra_hours,dec\n10.5,-24\n",
+      "mapping": {},
+      "result": {
+        "filename": "fixture.csv",
+        "row_count": 1,
+        "tiles": [
+          {
+            "id": "original-1",
+            "name": "Row 1",
+            "ra_deg": 157.49999999999997,
+            "dec_deg": -24.0,
+            "source": "original",
+            "enabled": true,
+            "dataset_id": "fixture.csv",
+            "group_id": "fixture.csv:",
+            "ra_column": "ra_hours",
+            "dec_column": "dec",
+            "generation_method": null,
+            "original_values": {
+              "ra_hours": "10.5",
+              "dec": "-24"
+            },
+            "metadata": {}
+          }
+        ],
+        "warnings": [],
+        "columns": [
+          "ra_hours",
+          "dec"
+        ],
+        "ra_column": "ra_hours",
+        "dec_column": "dec",
+        "needs_mapping": false
+      }
+    }
+  ],
+  "centers": {
+    "text": "RA, DEC\n10:03:05, -23:54:31\n150.5 -24.25\n10 03 05 -23 54 31",
+    "result": [
+      {
+        "ra_deg": 150.77083333333331,
+        "dec_deg": -23.90861111111111,
+        "label": "Line 2"
+      },
+      {
+        "ra_deg": 150.5,
+        "dec_deg": -24.25,
+        "label": "Line 3"
+      },
+      {
+        "ra_deg": 150.77083333333331,
+        "dec_deg": -23.90861111111111,
+        "label": "Line 4"
+      }
+    ]
+  },
+  "profile": {
+    "id": "splus-t80-south",
+    "display_name": "S-PLUS / T80-South",
+    "description": "T80-South survey camera",
+    "tile_width_deg": 1.4,
+    "tile_height_deg": 1.4,
+    "effective_overlap_arcsec": 120.0,
+    "coordinate_frame": "icrs",
+    "export_epoch_default": "2000",
+    "export_epoch_options": [
+      "2000"
+    ],
+    "algorithm": "SPLUS_LEGACY_GRID_V1"
+  },
+  "exports": {
+    "decimal": "RA,DEC,EPOCH\r\n150.50000000,-24.25000000,2000\r\n",
+    "sexagesimal": "RA,DEC,EPOCH\r\n10:02:00.000,-24:15:00.000,2000\r\n"
+  },
+  "geometry": {
+    "wrapped_bounds": {
+      "ra_start_deg": 359.19999999999993,
+      "ra_end_deg": 0.7999999999999545,
+      "dec_min_deg": -30.0,
+      "dec_max_deg": -28.0,
+      "ra_span_deg": 1.6000000000000227
+    },
+    "legacy_wrap_centers": [
+      [
+        359.70010662963074,
+        -0.30000000000000004
+      ],
+      [
+        1.066792030482702,
+        -0.30000000000000004
+      ]
+    ]
+  },
+  "historical_holdout": {
+    "hidden_names": [
+      "SPLUS-b076",
+      "SPLUS-b060",
+      "SPLUS-b077",
+      "SPLUS-b061"
+    ],
+    "polygon": {
+      "vertices": [
+        {
+          "ra_deg": 263.93277173712767,
+          "dec_deg": -30.183055555555555,
+          "label": null
+        },
+        {
+          "ra_deg": 268.4338949295389,
+          "dec_deg": -30.183055555555555,
+          "label": null
+        },
+        {
+          "ra_deg": 268.4338949295389,
+          "dec_deg": -27.357222222222223,
+          "label": null
+        },
+        {
+          "ra_deg": 263.93277173712767,
+          "dec_deg": -27.357222222222223,
+          "label": null
+        }
+      ]
+    },
+    "surrounding_names": [
+      "SPLUS-b018",
+      "SPLUS-b019",
+      "SPLUS-b020",
+      "SPLUS-b021",
+      "SPLUS-b022",
+      "SPLUS-b023",
+      "SPLUS-b024",
+      "SPLUS-b028",
+      "SPLUS-b029",
+      "SPLUS-b030",
+      "SPLUS-b031",
+      "SPLUS-b032",
+      "SPLUS-b033",
+      "SPLUS-b034",
+      "SPLUS-b035",
+      "SPLUS-b041",
+      "SPLUS-b042",
+      "SPLUS-b043",
+      "SPLUS-b044",
+      "SPLUS-b045",
+      "SPLUS-b046",
+      "SPLUS-b047",
+      "SPLUS-b048",
+      "SPLUS-b049",
+      "SPLUS-b057",
+      "SPLUS-b058",
+      "SPLUS-b059",
+      "SPLUS-b062",
+      "SPLUS-b063",
+      "SPLUS-b064",
+      "SPLUS-b065",
+      "SPLUS-b073",
+      "SPLUS-b074",
+      "SPLUS-b075",
+      "SPLUS-b078",
+      "SPLUS-b079",
+      "SPLUS-b081",
+      "SPLUS-b089",
+      "SPLUS-b090",
+      "SPLUS-b091",
+      "SPLUS-b092",
+      "SPLUS-b093",
+      "SPLUS-b094",
+      "SPLUS-b095",
+      "SPLUS-b096",
+      "SPLUS-b098",
+      "SPLUS-b107",
+      "SPLUS-b108",
+      "SPLUS-b109",
+      "SPLUS-b110",
+      "SPLUS-b111",
+      "SPLUS-b112",
+      "SPLUS-b113",
+      "SPLUS-b114",
+      "SPLUS-b115",
+      "SPLUS-b116",
+      "SPLUS-b124",
+      "SPLUS-b125",
+      "SPLUS-b126",
+      "SPLUS-b127",
+      "SPLUS-b128",
+      "SPLUS-b129",
+      "SPLUS-b130",
+      "SPLUS-b131",
+      "SPLUS-b132",
+      "SPLUS-b133"
+    ],
+    "solution": "extended_existing_grid",
+    "proposal_centers": [
+      [
+        267.6097222709327,
+        -28.077222222222222
+      ],
+      [
+        264.7541666666666,
+        -29.463055555555556
+      ],
+      [
+        266.01805560426607,
+        -28.077222222222222
+      ],
+      [
+        266.3666666666666,
+        -29.463055555555556
+      ]
+    ],
+    "metrics": {
+      "existing_tiles_contributing": 12,
+      "new_tiles": 4,
+      "selected_region_area_deg2": 11.1482,
+      "already_covered_fraction": 0.28947,
+      "selected_region_coverage": 1.0,
+      "incremental_coverage": 0.71053,
+      "remaining_uncovered_fraction": 0.0,
+      "remaining_uncovered_area_deg2": 0.0,
+      "redundant_coverage": 0.0,
+      "outside_region_coverage_deg2": 0.1061,
+      "sample_step_deg": 0.1185
+    }
+  },
+  "historical_fallback": {
+    "hidden_name": "SPLUS-b076",
+    "anchor_name": "SPLUS-b075",
+    "polygon": {
+      "vertices": [
+        {
+          "ra_deg": 263.92722018440617,
+          "dec_deg": -30.183055555555555,
+          "label": null
+        },
+        {
+          "ra_deg": 265.58111314892705,
+          "dec_deg": -30.183055555555555,
+          "label": null
+        },
+        {
+          "ra_deg": 265.58111314892705,
+          "dec_deg": -28.743055555555557,
+          "label": null
+        },
+        {
+          "ra_deg": 263.92722018440617,
+          "dec_deg": -28.743055555555557,
+          "label": null
+        }
+      ]
+    },
+    "solution": "profile_fallback",
+    "proposal_centers": [
+      [
+        263.9388892120376,
+        -28.816388888888888
+      ],
+      [
+        265.4987103321945,
+        -28.816388888888888
+      ],
+      [
+        263.9388892120376,
+        -30.183055555555555
+      ],
+      [
+        265.5199043353534,
+        -30.183055555555555
+      ]
+    ],
+    "metrics": {
+      "existing_tiles_contributing": 1,
+      "new_tiles": 4,
+      "selected_region_area_deg2": 2.0735,
+      "already_covered_fraction": 0.0,
+      "selected_region_coverage": 1.0,
+      "incremental_coverage": 1.0,
+      "remaining_uncovered_fraction": 0.0,
+      "remaining_uncovered_area_deg2": 0.0,
+      "redundant_coverage": 0.0,
+      "outside_region_coverage_deg2": 5.7665,
+      "sample_step_deg": 0.12
+    }
+  },
+  "large_overlap": {
+    "polygon": {
+      "vertices": [
+        {
+          "ra_deg": 262.0,
+          "dec_deg": -40.0,
+          "label": null
+        },
+        {
+          "ra_deg": 277.0,
+          "dec_deg": -40.0,
+          "label": null
+        },
+        {
+          "ra_deg": 277.0,
+          "dec_deg": -27.0,
+          "label": null
+        },
+        {
+          "ra_deg": 262.0,
+          "dec_deg": -27.0,
+          "label": null
+        }
+      ]
+    },
+    "catalogue": "tiles_nc.csv",
+    "solution": "extended_existing_grid",
+    "proposal_centers": [
+      [
+        264.2386574093287,
+        -37.736111111111114
+      ],
+      [
+        267.78449074266206,
+        -37.736111111111114
+      ],
+      [
+        276.0011904793767,
+        -34.986666666666665
+      ],
+      [
+        276.05435606132625,
+        -29.463055555555556
+      ],
+      [
+        271.2106060613262,
+        -29.463055555555556
+      ],
+      [
+        264.35458363419747,
+        -36.362500000000004
+      ],
+      [
+        267.8295836341975,
+        -36.362500000000004
+      ],
+      [
+        274.77958363419754,
+        -36.362500000000004
+      ],
+      [
+        274.43977272799293,
+        -29.463055555555556
+      ],
+      [
+        275.4990385364935,
+        -33.60916666666667
+      ],
+      [
+        265.9322916803123,
+        -39.10722222222223
+      ],
+      [
+        271.6378205714859,
+        -30.84722222222222
+      ],
+      [
+        274.9128205714859,
+        -30.84722222222222
+      ],
+      [
+        262.61708363419746,
+        -36.362500000000004
+      ],
+      [
+        262.46574074266204,
+        -37.736111111111114
+      ],
+      [
+        262.3156250136456,
+        -39.10722222222223
+      ],
+      [
+        265.8472222118739,
+        -40.476111111111116
+      ],
+      [
+        264.0013888785405,
+        -40.476111111111116
+      ],
+      [
+        267.69305554520724,
+        -40.476111111111116
+      ],
+      [
+        262.15555554520716,
+        -40.476111111111116
+      ]
+    ],
+    "anchor_count": 152,
+    "metrics": {
+      "existing_tiles_contributing": 88,
+      "new_tiles": 20,
+      "selected_region_area_deg2": 162.2592,
+      "already_covered_fraction": 0.8097,
+      "selected_region_coverage": 0.99555,
+      "incremental_coverage": 0.18585,
+      "remaining_uncovered_fraction": 0.00445,
+      "remaining_uncovered_area_deg2": 0.7221,
+      "redundant_coverage": 0.01694,
+      "outside_region_coverage_deg2": 8.8215,
+      "sample_step_deg": 0.12
+    },
+    "existing_only_metrics": {
+      "existing_tiles_contributing": 88,
+      "new_tiles": 0,
+      "selected_region_area_deg2": 162.2592,
+      "already_covered_fraction": 0.8097,
+      "selected_region_coverage": 0.8097,
+      "incremental_coverage": 0.0,
+      "remaining_uncovered_fraction": 0.1903,
+      "remaining_uncovered_area_deg2": 30.8778,
+      "redundant_coverage": 0.0,
+      "outside_region_coverage_deg2": 0.0,
+      "sample_step_deg": 0.12
+    }
+  }
+}

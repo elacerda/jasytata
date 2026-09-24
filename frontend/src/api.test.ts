@@ -1,10 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRegionPlanRequest, downloadCatalogue, planRegion, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue } from "./api";
 import type { TileRecord } from "./types";
 
-const proposals: TileRecord[] = [];
+const proposal: TileRecord = {
+  id: "proposal-1", name: "", ra_deg: 150.5, dec_deg: -24.25,
+  source: "proposed", enabled: true, generation_method: "manual", original_values: null, metadata: {},
+};
 
-describe("CSV browser download", () => {
+/** Supply browser file bytes in jsdom, which omits File.arrayBuffer. */
+function csvFile(csv: string, name = "fixture.csv"): File {
+  const file = new File([csv], name, { type: "text/csv" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(csv).buffer });
+  return file;
+}
+
+describe("local facade and download", () => {
   let createDescriptor: PropertyDescriptor | undefined;
   let revokeDescriptor: PropertyDescriptor | undefined;
 
@@ -23,103 +33,66 @@ describe("CSV browser download", () => {
     document.body.replaceChildren();
   });
 
-  it("posts export metadata and triggers a named download from the CSV response", async () => {
-    const csv = "RA,DEC,EPOCH\r\n";
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(csv, {
-        status: 200,
-        headers: { "Content-Type": "text/csv" },
-      }),
-    );
+  it("loads a local profile without HTTP", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: vi.fn(() => "blob:t80-test"),
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: vi.fn(),
-    });
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        expect(this.isConnected).toBe(true);
-        expect(this.download).toBe("new_tiles.csv");
-        expect(this.href).toBe("blob:t80-test");
-      });
+    expect((await loadDefaultProfile()).id).toBe("splus-t80-south");
+    expect((await getProfiles()).profiles).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
-    await downloadCatalogue(proposals, "splus-t80-south", "2000", "decimal");
+  it("parses mapped upload bytes without HTTP", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await uploadCatalogue(csvFile("RA,ra_deg,DEC\n10:03:05,150.77,-23:54:31\n"), {
+      raColumn: "ra_deg", decColumn: "DEC", raUnit: "degrees",
+    });
+    expect(result.tiles[0].ra_deg).toBe(150.77);
+    expect(result.tiles[0].metadata.RA).toBe("10:03:05");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/export",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          proposed_tiles: proposals,
-          profile_id: "splus-t80-south",
-          epoch: "2000",
-          coordinate_format: "decimal",
-        }),
-      }),
-    );
+  it("loads the bundled CSV from a static asset URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("RA,DEC\n150,-24\n"));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await loadReferenceCatalogue();
+    expect(result.row_count).toBe(1);
+    expect(fetchMock.mock.calls[0][0]).toMatch(/data\/tiles_nc\.csv$/);
+  });
+
+  it("creates and revokes a named Blob download locally", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const create = vi.fn(() => "blob:jasytata-test");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.isConnected).toBe(true);
+      expect(this.download).toBe("new_tiles.csv");
+      expect(this.href).toBe("blob:jasytata-test");
+    });
+    await downloadCatalogue([proposal], "splus-t80-south", "2000", "decimal");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledOnce();
     expect(click).toHaveBeenCalledOnce();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:t80-test");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:jasytata-test");
   });
 });
 
-describe("catalogue upload", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("sends an explicit coordinate mapping and RA unit with the CSV", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      filename: "ambiguous.csv", row_count: 1, tiles: [], warnings: [],
-    }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    vi.stubGlobal("fetch", fetchMock);
-    const file = new File(["RA,ra_deg,DEC\n"], "ambiguous.csv", { type: "text/csv" });
-    await uploadCatalogue(file, { raColumn: "ra_deg", decColumn: "DEC", raUnit: "degrees" });
-    const [, options] = fetchMock.mock.lastCall as [string, { body: FormData }];
-    expect(options.body.get("file")).toBe(file);
-    expect(options.body.get("ra_column")).toBe("ra_deg");
-    expect(options.body.get("dec_column")).toBe("DEC");
-    expect(options.body.get("ra_unit")).toBe("degrees");
-  });
-});
-
-describe("region plan request", () => {
+describe("temporary numerical backend bridge", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("sends the same payload exposed to development diagnostics", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", {
-      status: 200, headers: { "Content-Type": "application/json" },
-    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const polygon = { vertices: [
       { ra_deg: 262, dec_deg: -40 }, { ra_deg: 277, dec_deg: -40 },
       { ra_deg: 277, dec_deg: -27 }, { ra_deg: 262, dec_deg: -27 },
     ] };
-    await planRegion(polygon, proposals, "splus-t80-south");
+    await planRegion(polygon, [], "splus-t80-south");
     expect(fetchMock).toHaveBeenCalledWith("/api/plan/region", expect.objectContaining({
-      body: JSON.stringify(buildRegionPlanRequest(polygon, proposals, "splus-t80-south")),
+      body: JSON.stringify(buildRegionPlanRequest(polygon, [], "splus-t80-south")),
     }));
-  });
-
-  it("sends chosen custom geometry in the canonical planning profile", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", {
-      status: 200, headers: { "Content-Type": "application/json" },
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-    const polygon = { vertices: [
-      { ra_deg: 10, dec_deg: -1 }, { ra_deg: 16, dec_deg: -1 },
-      { ra_deg: 16, dec_deg: 4 }, { ra_deg: 10, dec_deg: 4 },
-    ] };
-    const profile = {
-      id: "custom", display_name: "Custom", tile_width_deg: 2.25,
-      tile_height_deg: 1.75, effective_overlap_arcsec: 90, coordinate_frame: "icrs",
-      export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "RECT_GRID_V1",
-    };
-    await planRegion(polygon, proposals, "custom", profile);
-    const body = JSON.parse(fetchMock.mock.lastCall?.[1].body as string);
-    expect(body).toEqual({ polygon, existing_tiles: proposals, profile_id: "custom", profile });
   });
 });

@@ -16,7 +16,7 @@ export function datasetColor(index: number): string {
 
 /** Attach a stable layer identity to every imported pointing.
  *
- * @param result - Parsed catalogue returned by the backend.
+ * @param result - Catalogue parsed in the browser.
  * @param index - Zero-based insertion order for deterministic color selection.
  * @param id - Stable session identifier for this upload.
  * @returns Independent dataset with source origins and collision-free row IDs.

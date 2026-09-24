@@ -2,49 +2,35 @@ import type {
   CenterInput,
   CatalogueResponse,
   CoordinateFormat,
-  PlanMetrics,
-  SkyPolygon,
-  RegionPlanResponse,
   TileRecord,
   TilingProfile,
 } from "./types";
+import { loadProfile, listProfiles, validateProfile } from "./profiles";
+import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
+import { buildExportCsv } from "./science/export";
 
 /** Load the installed default observing profile and its physical tile geometry.
  *
- * @returns The backend-selected default profile.
+ * @returns The bundled default profile.
  */
 export async function loadDefaultProfile(): Promise<TilingProfile> {
-  const response = await checked<{ default_profile_id: string; profiles: TilingProfile[] }>(
-    await fetch("/api/profiles"),
-  );
-  const profile = response.profiles.find((item) => item.id === response.default_profile_id);
-  if (!profile) throw new Error("The default observing profile is not installed.");
-  return profile;
+  return loadProfile();
 }
 
-/** Validate an ad hoc profile with the backend's canonical profile model.
+/** Validate an ad hoc profile with the locally ported canonical profile model.
  *
  * @param profile - Complete canonical profile with custom rectangular geometry.
- * @returns Server-validated profile for the current browser session.
+ * @returns Validated profile for the current browser session.
  */
 export async function validateCustomProfile(profile: TilingProfile): Promise<TilingProfile> {
-  return checked(await fetch("/api/profiles/validate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(profile),
-  }));
+  return validateProfile(profile);
 }
 
-async function checked<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
-    const detail = body?.detail;
-    const message = typeof detail === "string" ? detail
-      : Array.isArray(detail) ? detail.map((item: { loc?: string[]; msg?: string }) => `${item.loc?.at(-1) ?? "Profile"}: ${item.msg ?? "invalid value"}`).join("; ")
-        : `Request failed (${response.status})`;
-    throw new Error(message);
-  }
-  return response.json() as Promise<T>;
+/** List local observing profiles with the historical API response shape.
+ * @returns Default profile identifier and installed validated definitions.
+ */
+export async function getProfiles(): Promise<{ default_profile_id: string; profiles: TilingProfile[] }> {
+  return { default_profile_id: loadProfile().id, profiles: listProfiles() };
 }
 
 /** Upload a catalogue and preserve original CSV field values.
@@ -57,14 +43,8 @@ export async function uploadCatalogue(
   file: File,
   mapping?: { raColumn: string; decColumn: string; raUnit: "auto" | "degrees" | "hours" },
 ): Promise<CatalogueResponse> {
-  const form = new FormData();
-  form.append("file", file);
-  if (mapping) {
-    form.append("ra_column", mapping.raColumn);
-    form.append("dec_column", mapping.decColumn);
-    form.append("ra_unit", mapping.raUnit);
-  }
-  return checked(await fetch("/api/catalogue/parse", { method: "POST", body: form }));
+  if (file.name && !file.name.toLowerCase().endsWith(".csv")) throw new Error("Upload a CSV file");
+  return parseCatalogueCsv(new Uint8Array(await file.arrayBuffer()), file.name || "catalogue.csv", mapping?.raColumn, mapping?.decColumn, mapping?.raUnit);
 }
 
 /** Load the representative catalogue shipped with the repository.
@@ -72,7 +52,9 @@ export async function uploadCatalogue(
  * @returns Parsed bundled S-PLUS reference catalogue rows.
  */
 export async function loadReferenceCatalogue(): Promise<CatalogueResponse> {
-  return checked(await fetch("/api/catalogue/reference"));
+  const response = await fetch(`${import.meta.env.BASE_URL}data/tiles_nc.csv`);
+  if (!response.ok) throw new Error("The supplied reference catalogue is not installed");
+  return parseCatalogueCsv(new Uint8Array(await response.arrayBuffer()), "tiles_nc.csv");
 }
 
 /** Parse pasted RA/DEC rows for review before proposal creation.
@@ -81,14 +63,8 @@ export async function loadReferenceCatalogue(): Promise<CatalogueResponse> {
  * @returns Valid centers in decimal degrees.
  */
 export async function parseCenters(text: string): Promise<CenterInput[]> {
-  const response = await checked<{ centers: CenterInput[] }>(
-    await fetch("/api/centers/parse", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    }),
-  );
-  return response.centers;
+  if (!text.length || text.length > 500_000) throw new Error("Invalid center text length");
+  return parseCenterText(text);
 }
 
 /** Convert parsed centers into provisional proposal records.
@@ -101,80 +77,10 @@ export async function proposeCenters(
   centers: CenterInput[],
   generationMethod: "manual" | "imported_centers",
 ): Promise<TileRecord[]> {
-  const response = await checked<{ tiles: TileRecord[] }>(
-    await fetch("/api/proposals/centers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ centers, generation_method: generationMethod }),
-    }),
-  );
-  return response.tiles;
+  return makeCenterProposals(centers, generationMethod);
 }
 
-/** Plan a selected region against original and already accepted proposed tiles.
- *
- * @param polygon - Ordered ICRS vertices in decimal degrees.
- * @param existingTiles - Original catalogue plus accepted proposals.
- * @param profileId - Active observing profile identifier.
- * @param profile - Inline canonical profile for session-only custom geometry.
- * @returns Auditable solution with selected centers, anchors, diagnostics, and metrics.
- */
-export async function planRegion(
-  polygon: SkyPolygon,
-  existingTiles: TileRecord[],
-  profileId?: string,
-  profile?: TilingProfile,
-): Promise<RegionPlanResponse> {
-  return checked(
-    await fetch("/api/plan/region", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRegionPlanRequest(polygon, existingTiles, profileId, profile)),
-    }),
-  );
-}
-
-/** Build the exact JSON-serializable scientific input sent to region planning.
- *
- * @param polygon - Ordered ICRS vertices in decimal degrees.
- * @param existingTiles - Actual loaded centers plus enabled accepted proposals.
- * @param profileId - Active footprint profile identifier.
- * @param profile - Inline canonical profile for custom geometry.
- * @returns Request payload shared by the API call and development diagnostics.
- */
-export function buildRegionPlanRequest(
-  polygon: SkyPolygon,
-  existingTiles: TileRecord[],
-  profileId?: string,
-  profile?: TilingProfile,
-) {
-  return { polygon, existing_tiles: existingTiles, profile_id: profileId, ...(profile ? { profile } : {}) };
-}
-
-/** Recompute polygon coverage after manual proposal toggles.
- *
- * @param polygon - Ordered selected ICRS sky vertices.
- * @param existingTiles - Every loaded immutable catalogue pointing, regardless of visibility.
- * @param proposedTiles - Full proposal; only enabled centers contribute.
- * @param profileId - Active profile identifier.
- * @param profile - Inline canonical profile for custom geometry.
- * @returns Updated sampled coverage metrics without replacement proposals.
- */
-export async function measureCoverage(
-  polygon: SkyPolygon,
-  existingTiles: TileRecord[],
-  proposedTiles: TileRecord[],
-  profileId?: string,
-  profile?: TilingProfile,
-): Promise<PlanMetrics> {
-  return checked(await fetch("/api/coverage/region", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ polygon, existing_tiles: existingTiles, proposed_tiles: proposedTiles, profile_id: profileId, ...(profile ? { profile } : {}) }),
-  }));
-}
-
-/** Request a server-validated CSV and trigger a browser download.
+/** Serialize an ICRS CSV locally and trigger a browser download.
  *
  * @param proposedTiles - Accepted enabled proposal positions.
  * @param profileId - Active observing profile.
@@ -190,16 +96,7 @@ export async function downloadCatalogue(
   coordinateFormat: CoordinateFormat,
   profile?: TilingProfile,
 ): Promise<void> {
-  const response = await fetch("/api/export", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ proposed_tiles: proposedTiles, profile_id: profileId, epoch, coordinate_format: coordinateFormat, ...(profile ? { profile } : {}) }),
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
-    throw new Error(typeof body?.detail === "string" ? body.detail : `Export failed (${response.status})`);
-  }
-  const blob = await response.blob();
+  const blob = new Blob([buildExportCsv(proposedTiles, profileId, epoch, coordinateFormat, profile)], { type: "text/csv; charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -209,3 +106,5 @@ export async function downloadCatalogue(
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+
+export { buildRegionPlanRequest, planRegion, measureCoverage } from "./legacyBackend";

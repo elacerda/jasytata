@@ -351,7 +351,9 @@ def test_built_frontend_and_client_route_are_served_when_available() -> None:
     assert "Jasytata" in home.text
     match = re.search(r'(?:src|href)="([^"]+\.(?:js|css))"', home.text)
     assert match, "Built HTML should reference a JS or CSS asset"
-    asset = client.get(match.group(1))
+    # A relative Vite base is resolved by browsers against the page URL.
+    asset_path = "/" + match.group(1).lstrip("./")
+    asset = client.get(asset_path)
     assert asset.status_code == 200
     assert asset.content
 
