@@ -12,6 +12,8 @@ Jasytata takes its name from a Kaiowá word recorded for “star”.
 
 Repository: [github.com/elacerda/jasytata](https://github.com/elacerda/jasytata)
 
+User guide: [T80-South User Guide](docs/T80_SOUTH_USER_GUIDE.md)
+
 The supplied `reference/tiles_nc.csv` is bundled as a quick-start catalogue. Use **Load reference** to exercise the interface without locating the file yourself. Other CSV files need only RA and DEC columns.
 
 ## Features
