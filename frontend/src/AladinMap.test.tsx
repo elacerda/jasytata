@@ -1,4 +1,5 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
 import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
@@ -6,13 +7,13 @@ import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
 const aladinMocks = vi.hoisted(() => {
   const handlers = new Map<string, (value: unknown) => void>();
   const catalogues: Array<{ show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; addSources: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn> }> = [];
-  const overlays: Array<{ add: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn> }> = [];
+  const overlays: Array<{ add: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn>; reportChange: ReturnType<typeof vi.fn>; shapes: unknown[]; painted: unknown[] }> = [];
   const instance = {
     on: vi.fn((event: string, handler: (value: unknown) => void) => handlers.set(event, handler)),
     off: vi.fn(), addCatalog: vi.fn(), addOverlay: vi.fn(), remove: vi.fn(),
     getRaDec: vi.fn(() => [150, -30]), getFoV: vi.fn(() => [100, 80]),
     gotoRaDec: vi.fn(), setFoV: vi.fn(), select: vi.fn(), pix2world: vi.fn((x: number, y: number) => [x, y]),
-    fire: vi.fn(),
+    fire: vi.fn(), view: { selector: { dispatch: vi.fn() } },
   };
   return { handlers, catalogues, overlays, instance };
 });
@@ -27,11 +28,20 @@ vi.mock("aladin-lite", () => ({ default: {
   },
   source: (ra: number, dec: number, data: Record<string, unknown>) => ({ ra, dec, data }),
   graphicOverlay: () => {
-    const overlay = { add: vi.fn(), removeAll: vi.fn() };
+    const overlay = {
+      shapes: [] as unknown[], painted: [] as unknown[],
+      add: vi.fn(), removeAll: vi.fn(), reportChange: vi.fn(),
+    };
+    overlay.add.mockImplementation((shape: unknown) => {
+      overlay.shapes.push(shape);
+      overlay.painted = [...overlay.shapes];
+    });
+    overlay.removeAll.mockImplementation(() => { overlay.shapes = []; });
+    overlay.reportChange.mockImplementation(() => { overlay.painted = [...overlay.shapes]; });
     aladinMocks.overlays.push(overlay);
     return overlay;
   },
-  polyline: vi.fn(), circle: vi.fn(),
+  polyline: vi.fn((vertices: unknown) => vertices), circle: vi.fn(),
 } }));
 
 const profile: TilingProfile = {
@@ -72,7 +82,7 @@ describe("native Aladin catalogue layers", () => {
       selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
       anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
-      onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onError: vi.fn(),
+      onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
     };
     const view = render(<AladinMap {...base} datasets={[first, second]} />);
     await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(2));
@@ -99,7 +109,7 @@ describe("native Aladin catalogue layers", () => {
       focusRequest: 0, selectedTileId: null, selectedPolygon: null,
       anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
-      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect, onError: vi.fn(),
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect, onCancelRegion: vi.fn(), onError: vi.fn(),
     };
     const view = render(<AladinMap {...base} selectionRequest={0} />);
     await waitFor(() => expect(aladinMocks.instance.addCatalog).toHaveBeenCalled());
@@ -114,8 +124,11 @@ describe("native Aladin catalogue layers", () => {
     expect(polygon.vertices.map((vertex: { ra_deg: number }) => vertex.ra_deg)).toEqual([359, 1, 1]);
     view.rerender(<AladinMap {...base} selectingRegion selectionRequest={1} selectedPolygon={polygon} />);
     expect(aladinMocks.overlays[5].add).toHaveBeenCalled();
+    expect(aladinMocks.overlays[5].painted).toHaveLength(1);
     view.rerender(<AladinMap {...base} selectingRegion selectionRequest={1} selectedPolygon={null} />);
     expect(aladinMocks.overlays[5].removeAll).toHaveBeenCalled();
+    expect(aladinMocks.overlays[5].painted).toEqual([]);
+    expect(aladinMocks.overlays[5].reportChange).toHaveBeenCalled();
     expect(aladinMocks.catalogues[0].removeAll).not.toHaveBeenCalled();
 
     aladinMocks.instance.select.mockResolvedValueOnce(undefined);
@@ -123,6 +136,38 @@ describe("native Aladin catalogue layers", () => {
     await waitFor(() => expect(aladinMocks.instance.select).toHaveBeenCalledTimes(2));
     view.rerender(<AladinMap {...base} selectingRegion={false} selectionRequest={2} />);
     await waitFor(() => expect(aladinMocks.instance.fire).toHaveBeenCalledWith("default"));
+  });
+
+  it("replaces polygon A with B and lets the drawing controls finish or cancel", async () => {
+    const user = userEvent.setup();
+    const first = dataset("a", "first.csv");
+    const polygonA = { vertices: [
+      { ra_deg: 120, dec_deg: -30 }, { ra_deg: 122, dec_deg: -30 }, { ra_deg: 122, dec_deg: -28 },
+    ] };
+    const polygonB = { vertices: [
+      { ra_deg: 150, dec_deg: -30 }, { ra_deg: 152, dec_deg: -30 }, { ra_deg: 152, dec_deg: -28 },
+    ] };
+    const base = {
+      tiles: first.tiles, datasets: [first], profile, mode: "idle" as const,
+      focusRequest: 0, selectedTileId: null, anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    const view = render(<AladinMap {...base} selectingRegion={false} selectionRequest={0} selectedPolygon={polygonA} />);
+    await waitFor(() => expect(aladinMocks.overlays[5].painted).toHaveLength(1));
+    expect(aladinMocks.overlays[5].painted[0]).toEqual(expect.arrayContaining([[120, -30]]));
+    aladinMocks.instance.select.mockResolvedValue(undefined);
+    view.rerender(<AladinMap {...base} selectingRegion selectionRequest={1} selectedPolygon={null} />);
+    expect(aladinMocks.overlays[5].painted).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Finish polygon" }));
+    expect(aladinMocks.instance.view.selector.dispatch).toHaveBeenCalledWith("finish");
+    view.rerender(<AladinMap {...base} selectingRegion={false} selectionRequest={1} selectedPolygon={polygonB} />);
+    expect(aladinMocks.overlays[5].painted).toHaveLength(1);
+    expect(aladinMocks.overlays[5].painted[0]).toEqual(expect.arrayContaining([[150, -30]]));
+    expect(aladinMocks.overlays[5].painted[0]).not.toEqual(expect.arrayContaining([[120, -30]]));
+    view.rerender(<AladinMap {...base} selectingRegion selectionRequest={2} selectedPolygon={null} />);
+    await user.click(screen.getByRole("button", { name: "Cancel drawing" }));
+    expect(base.onCancelRegion).toHaveBeenCalledOnce();
   });
 
   it("applies planning visibility to native markers and overlays", async () => {
@@ -138,7 +183,7 @@ describe("native Aladin catalogue layers", () => {
       selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null,
       selectedPolygon: polygon, anchorTileIds: [first.tiles[0].id],
       candidateCenters: [{ ra_deg: 150, dec_deg: -30 }],
-      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onError: vi.fn(),
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
     };
     const visible = { proposals: true, region: true, anchors: true, lattice: true };
     const view = render(<AladinMap {...base} planningLayers={visible} />);

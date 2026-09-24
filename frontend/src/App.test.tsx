@@ -45,6 +45,8 @@ vi.mock("./AladinMap", async () => {
         ),
         React.createElement("output", { "data-testid": "map-layer-state" },
           `${props.tiles.filter((tile) => tile.source === "proposed").length}:${Boolean(props.selectedPolygon)}:${props.planningLayers.region}:${props.planningLayers.anchors}:${props.planningLayers.lattice}`),
+        React.createElement("output", { "data-testid": "map-selection" },
+          JSON.stringify(props.selectedPolygon?.vertices ?? [])),
         React.createElement(
           "button",
           {
@@ -219,6 +221,50 @@ describe("Tile Planner proposal workflow", () => {
     await user.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(screen.queryByText(/4 vertices · finalized/)).toBeNull();
     expect(screen.getByText("1", { selector: ".summary-number" })).toBeTruthy();
+  });
+
+  it("clears finalized selection without clearing catalogue or accepted proposal", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    const polygonA = screen.getByTestId("map-selection").textContent;
+    expect(polygonA).toContain('"ra_deg":120');
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByTestId("map-selection").textContent).toBe("[]");
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    expect(screen.getByText("2", { selector: ".section-heading span" })).toBeTruthy();
+    expect(screen.getByText("1", { selector: ".summary-number" })).toBeTruthy();
+  });
+
+  it("discards polygon A before redrawing polygon B", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    expect(screen.getByTestId("map-selection").textContent).toContain('"ra_deg":120');
+    await user.click(screen.getByRole("button", { name: "Redraw polygon" }));
+    expect(screen.getByTestId("map-selection").textContent).toBe("[]");
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Mock select different region" }));
+    expect(screen.getByTestId("map-selection").textContent).toContain('"ra_deg":262');
+    expect(screen.getByTestId("map-selection").textContent).not.toContain('"ra_deg":120');
+  });
+
+  it("keeps selection A after Clear proposal until Clear selection", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await user.click(screen.getByRole("button", { name: "Clear proposal" }));
+    expect(screen.getByTestId("map-selection").textContent).toContain('"ra_deg":120');
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByTestId("map-selection").textContent).toBe("[]");
   });
 
   it("previews single-tile placement and lets the user cancel it", async () => {

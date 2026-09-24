@@ -21,10 +21,14 @@ declare module "aladin-lite" {
   export interface AladinLiteOverlay {
     add(shape: unknown): void;
     removeAll(): void;
+    /** Schedule canvas repaint after removing shapes without adding replacements. */
+    reportChange(): void;
   }
 
   /** Subset of the Aladin Lite v3 view API used by this application. */
   export interface AladinLiteInstance {
+    /** Aladin Lite 3.8.2 native selector used by the polygon finish control. */
+    view: { selector: { dispatch(event: "finish"): void } };
     on(event: string, callback: (value: unknown) => void): void;
     /** Remove all listeners registered for the named event. */
     off?(event: string): void;

@@ -28,6 +28,7 @@ interface AladinMapProps {
   onSkyClick: (ra: number, dec: number) => void;
   onTileSelect: (tile: TileRecord) => void;
   onRegionSelect: (polygon: SkyPolygon) => void;
+  onCancelRegion: () => void;
   onError: (message: string) => void;
 }
 
@@ -171,6 +172,7 @@ export default function AladinMap(props: AladinMapProps) {
     setIsSelecting(true);
     void instance
       .select("poly", (selection) => {
+        if (request !== selectionTokenRef.current || !propsRef.current.selectingRegion) return;
         try {
           const coordinates = selection.vertices.map(({ x, y }) => instance.pix2world(x, y));
           const vertices = coordinates.filter(
@@ -286,6 +288,9 @@ export default function AladinMap(props: AladinMapProps) {
     if (current.selectedPolygon && current.planningLayers.region) {
       const points = current.selectedPolygon.vertices.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg] as [number, number]);
       regionLayer.add(A.polyline([...points, points[0]]));
+    } else {
+      // Aladin's removeAll() drops shapes but does not request a canvas repaint.
+      regionLayer.reportChange();
     }
   };
 
@@ -293,9 +298,11 @@ export default function AladinMap(props: AladinMapProps) {
     <div className={`aladin-frame ${props.mode === "add-tile" ? "is-adding" : ""}`}>
       <div ref={containerRef} className="aladin-view" aria-label="Interactive sky map" />
       {props.mode === "add-tile" && <div className="map-instruction">Click the sky to place a tile center · Esc to cancel</div>}
-      {isSelecting && (
-        <div className="map-instruction">Click successive sky points, then double-click to finish the polygon</div>
-      )}
+      {isSelecting && <div className="map-instruction map-drawing-controls">
+        <span>Click at least 3 sky points, then finish the polygon</span>
+        <button type="button" onClick={() => aladinRef.current?.view.selector.dispatch("finish")}>Finish polygon</button>
+        <button type="button" onClick={props.onCancelRegion}>Cancel drawing</button>
+      </div>}
     </div>
   );
 }

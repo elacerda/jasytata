@@ -279,6 +279,10 @@ export default function App() {
 
   function beginRegionSelection() {
     setMapMode("idle");
+    setRegionPolygon(null);
+    setPending(null);
+    setProposalContext(null);
+    setActiveMetrics(null);
     setSelectingRegion(true);
     setSelectionRequest((previous) => previous + 1);
     setNotice("Click successive sky points, then double-click to close the polygon.");
@@ -419,7 +423,10 @@ export default function App() {
             {regionPolygon ? (
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
-                <button className="text-button" onClick={beginRegionSelection}>Redraw polygon</button>
+                <div className="region-actions">
+                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy}>Redraw polygon</button>
+                  <button className="button button-quiet" onClick={() => { setRegionPolygon(null); setProposalContext(null); setActiveMetrics(null); setNotice("Selected polygon cleared; catalogues and proposals remain."); }}>Clear selection</button>
+                </div>
                 {import.meta.env.DEV && <details className="development-plan-input">
                   <summary>Development: plan input</summary>
                   <pre>{JSON.stringify(regionPolygon.vertices, null, 2)}</pre>
@@ -433,7 +440,6 @@ export default function App() {
             ) : (
               <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
             )}
-            <button className="text-button" onClick={() => { setRegionPolygon(null); setSelectingRegion(false); setProposalContext(null); setActiveMetrics(null); setNotice("Selected polygon cleared; catalogues and proposals remain."); }} disabled={!regionPolygon}>Clear selection</button>
             <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
@@ -541,6 +547,7 @@ export default function App() {
               setActiveMetrics(null);
               setNotice("Sky polygon finalized. Generate a plan when ready.");
             }}
+            onCancelRegion={() => { setSelectingRegion(false); setNotice("Polygon drawing cancelled."); }}
             onError={setError}
           />
           <div className="map-footer">
