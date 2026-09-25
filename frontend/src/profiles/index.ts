@@ -58,3 +58,6 @@ export function resolveProfile(id: string, inline?: TilingProfile): TilingProfil
   if (inline && id !== "custom") throw new Error("Inline profiles must use the custom identifier");
   return inline ? validateProfile(inline) : loadProfile(id);
 }
+
+export * from "./schema-v2";
+export * from "./v2";

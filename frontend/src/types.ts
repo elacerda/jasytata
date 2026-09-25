@@ -64,6 +64,120 @@ export interface TilingProfile {
   algorithm: string;
 }
 
+/** Two-dimensional local tangent-plane offset in degrees: east, then north. */
+export type TangentPlaneOffset = [east_deg: number, north_deg: number];
+
+/** Axis-aligned or rotated rectangular footprint dimensions in degrees. */
+export interface RectangleFootprint {
+  type: "rectangle";
+  width_deg: number;
+  height_deg: number;
+  position_angle_deg?: number;
+}
+
+/** Circular footprint radius in degrees. */
+export interface CircleFootprint {
+  type: "circle";
+  radius_deg: number;
+}
+
+/** Simple polygon vertices as east/north offsets from the pointing center. */
+export interface PolygonFootprint {
+  type: "polygon";
+  vertices_deg: TangentPlaneOffset[];
+  position_angle_deg?: number;
+}
+
+/** Footprint component placed at an east/north offset from the pointing center. */
+export interface CompoundFootprintComponent {
+  offset_deg: TangentPlaneOffset;
+  rotation_deg?: number;
+  footprint: NonCompoundFootprint;
+}
+
+/** Mosaic union of non-compound child footprints. */
+export interface CompoundFootprint {
+  type: "compound";
+  components: CompoundFootprintComponent[];
+}
+
+/** A footprint that cannot contain another compound footprint. */
+export type NonCompoundFootprint = RectangleFootprint | CircleFootprint | PolygonFootprint;
+
+/** Supported instrument footprint geometry. */
+export type Footprint = NonCompoundFootprint | CompoundFootprint;
+
+/** Versioned geometry and canonical coordinate frame for an instrument. */
+export interface InstrumentProfileV2 {
+  schema_version: 2;
+  id: string;
+  display_name: string;
+  description?: string | null;
+  coordinate_frame: "icrs";
+  footprint: Footprint;
+}
+
+/** Explicit compatibility or generic local-plane tiling strategy. */
+export type TilingModel =
+  | { type: "legacy_splus" }
+  | {
+      type: "lattice";
+      basis_deg: [TangentPlaneOffset, TangentPlaneOffset];
+      origin_policy: "region_center" | "region_corner" | "fixed_phase";
+      position_angle_deg?: number;
+    }
+  | { type: "manual" };
+
+/** Scale-independent thresholds and minimum evidence for lattice inference. */
+export interface InferencePolicy {
+  enabled: boolean;
+  spacing_tolerance_fraction: number;
+  phase_tolerance_fraction: number;
+  occupancy_tolerance_fraction: number;
+  min_anchor_tiles: number;
+  min_neighbor_pairs: number;
+  allow_rotation: boolean;
+}
+
+/** Numerical sampling and optional efficient-stopping policy. */
+export interface CoveragePolicy {
+  sampling: {
+    target_samples_per_footprint_axis: number;
+    max_samples: number;
+  };
+  efficient?: {
+    min_coverage: number;
+    min_marginal_efficiency: number;
+  };
+}
+
+/** Output column layout and optional per-row export values. */
+export interface ExportPolicy {
+  ra_column: string;
+  dec_column: string;
+  coordinate_format: CoordinateFormat;
+  epoch?: {
+    column: string;
+    default: string;
+    allowed: string[];
+  };
+  position_angle_column?: string;
+  constant_fields?: Record<string, string | number | boolean>;
+}
+
+/** Versioned survey tiling, inference, coverage, and export decisions. */
+export interface SurveyProfileV2 {
+  schema_version: 2;
+  id: string;
+  display_name: string;
+  description?: string | null;
+  instrument_id: string;
+  tiling: TilingModel;
+  inference: InferencePolicy;
+  coverage: CoveragePolicy;
+  export: ExportPolicy;
+}
+
 /** Celestial position used by import and region-planning endpoints. */
 export interface CenterInput {
   /** ICRS right ascension in decimal degrees. */
