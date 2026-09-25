@@ -195,7 +195,7 @@ function compareScore(left: readonly number[], right: readonly number[]): number
  * @param grid - Weighted ICRS polygon samples.
  * @param contributing - Number of actual footprints with positive geometric intersection.
  * @param profile - Tile dimensions in physical degrees.
- * @returns Python-compatible sampled fractions, areas in square degrees, and counts.
+ * @returns Current declination-weighted sampled fractions, areas in square degrees, and counts.
  */
 export function measureMetrics(selected: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, contributing: number, profile: TilingProfile): PlanMetrics {
   const covered = existingMask.slice();
@@ -237,7 +237,7 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
  * @param proposedTiles - Editable proposal preview; only enabled records contribute.
  * @param profileId - Installed profile ID or custom.
  * @param inlineProfile - Session-only custom profile, if any.
- * @returns Coverage metrics matching the Python reference endpoint.
+ * @returns Current sampled-coverage metrics for enabled existing and proposed footprints.
  * @throws On invalid polygon, profile, or non-proposal editable record.
  */
 export function measureActiveCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId = "splus-t80-south", inlineProfile?: TilingProfile): PlanMetrics {

@@ -26,6 +26,8 @@ Jasytata is a static React and TypeScript application hosted at <https://elacerd
 
 `frontend/src/data/golden.json` was generated from the former Python scientific reference and the bundled S-PLUS catalogue before the Python implementation was removed. During migration, the Python fixture generator produced compact expected inputs and outputs, and the TypeScript planner, coverage, coordinate, catalogue, profile, and export tests were compared directly against those outputs. The Python generator was intentionally removed with its implementation dependency; golden values are committed and are never regenerated from TypeScript.
 
+The planning contract subsequently changed: nominal coverage pitch is 0.01°, every sampled polygon cell is targeted, small gains remain eligible, and a supplemental lattice closes gaps. `golden.json` therefore remains immutable historical input and compatibility evidence. The current planner and direct-coverage expectations live in `frontend/src/data/planner-contract.json`; they were reviewed against polygon geometry and independent invariants. Planner tests retain the old lattice candidates, inference data, and recovered historical centers where those are still compatible, but do not assert obsolete Python proposal ordering or sampled metrics.
+
 The TypeScript suite retains the scientific regression authority and covers:
 
 - Seven historical planner cases, including the one-anchor profile fallback.
@@ -35,7 +37,7 @@ The TypeScript suite retains the scientific regression authority and covers:
 - Six direct coverage cases: zero, partial, disabled, overlap, full existing coverage, and wrapped partial coverage.
 - Deterministic ordering, IDs, proposal decisions, profile behavior, polygon boundaries, spherical occupancy, real footprint slivers, coordinate formats, decimal rounding ties, catalogue columns, and exact CSV output.
 
-Discrete decisions, identifiers, ordering, diagnostics, and exposed metrics are compared exactly. Coordinates, inferred spacings, and grid centers use an absolute tolerance of **1e-10 degree** (approximately 0.36 microarcseconds) for floating-point operation differences. Python-compatible decimal tie cases are stored in the fixture. No widening tolerance is used to hide a semantic mismatch.
+Compatible solution modes, identifiers, lattice evidence, and historical center positions remain checked. Current proposal counts, sampled areas, coverage fractions, and pitch use explicit committed contract values; independent checks cover metric identities and coverage recomputation. Coordinates, inferred spacings, and grid centers use an absolute tolerance of **1e-10 degree** (approximately 0.36 microarcseconds) for floating-point operation differences. Python-compatible decimal tie cases remain in the historical fixture.
 
 ## Removal and validation status
 

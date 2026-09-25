@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import golden from "../data/golden.json";
+import currentContract from "../data/planner-contract.json";
 import referenceCsv from "../../public/data/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
 import { measureActiveCoverage, sampleRegion, type CoverageGrid } from "./coverage";
@@ -33,25 +34,58 @@ function nearestWeight(grid: CoverageGrid, ra: number, dec: number): number {
   return grid.weights[nearest];
 }
 
-function centersMatch(actual: TileRecord[], expected: number[][]): void {
-  expect(actual).toHaveLength(expected.length);
-  for (const [index, tile] of actual.entries()) {
-    expect(Math.abs(tile.ra_deg - expected[index][0])).toBeLessThanOrEqual(1e-10);
-    expect(Math.abs(tile.dec_deg - expected[index][1])).toBeLessThanOrEqual(1e-10);
-    expect(tile.id).toBe(`proposal-region-${String(index + 1).padStart(4, "0")}`);
+/** Integrate the spherical area of straight edges in a continuous local RA/DEC frame.
+ * @param polygon - Ordered ICRS vertices in degrees, with RA span below 180 degrees.
+ * @returns Absolute spherical area in square degrees; edges interpolate DEC linearly with RA.
+ */
+function analyticPolygonAreaDeg2(polygon: SkyPolygon): number {
+  const radiansPerDegree = Math.PI / 180;
+  const firstRa = polygon.vertices[0].ra_deg;
+  const vertices = polygon.vertices.map(({ ra_deg, dec_deg }) => [
+    (((ra_deg - firstRa + 540) % 360) - 180) * radiansPerDegree,
+    dec_deg * radiansPerDegree,
+  ]);
+  let areaSteradians = 0;
+  for (let index = 0; index < vertices.length; index += 1) {
+    const [ra0, dec0] = vertices[index];
+    const [ra1, dec1] = vertices[(index + 1) % vertices.length];
+    const meanSinDec = Math.abs(dec1 - dec0) < 1e-12
+      ? Math.sin(dec0)
+      : (Math.cos(dec0) - Math.cos(dec1)) / (dec1 - dec0);
+    areaSteradians -= (ra1 - ra0) * meanSinDec;
+  }
+  return Math.abs(areaSteradians) / radiansPerDegree ** 2;
+}
+
+/** Require every historical ICRS center to remain in a current proposal.
+ * @param actual - Current proposed pointings in decimal degrees.
+ * @param expected - Former Python proposal centers in decimal degrees.
+ */
+function includesHistoricalCenters(actual: TileRecord[], expected: number[][]): void {
+  for (const [ra, dec] of expected) {
+    expect(actual.some((tile) => Math.abs(tile.ra_deg - ra) <= 1e-10 && Math.abs(tile.dec_deg - dec) <= 1e-10)).toBe(true);
   }
 }
 
-function compactPlanMatches(actual: RegionPlanResponse, expected: {
+/** Check immutable Python lattice evidence and reviewed current coverage outcomes.
+ * @param actual - Current deterministic TypeScript plan.
+ * @param expected - Former Python fixture supplying compatible lattice evidence.
+ * @param id - Current scientific-contract case identifier.
+ * @param existing - Input pointings for an independent coverage endpoint check.
+ * @param polygon - Selected ICRS polygon in decimal degrees.
+ * @param profile - Optional custom tile dimensions and overlap.
+ */
+function planMatchesContract(actual: RegionPlanResponse, expected: {
   solution: string; generation_method: string; proposal_centers: number[][];
   candidate_centers: number[][]; inference: {
     nearby_tile_count: number; anchor_tile_ids: string[]; compatible_neighbor_pairs: number;
     dec_spacing_deg: number | null; ra_spacing_deg: number | null;
   }; diagnostics: string[]; metrics: RegionPlanResponse["metrics"];
-}): void {
+}, id: keyof typeof currentContract.plans, existing: TileRecord[], polygon: SkyPolygon, profile?: TilingProfile): void {
   expect(actual.solution).toBe(expected.solution);
   expect(actual.generation_method).toBe(expected.generation_method);
-  centersMatch(actual.tiles, expected.proposal_centers);
+  includesHistoricalCenters(actual.tiles, expected.proposal_centers);
+  actual.tiles.forEach((tile, index) => expect(tile.id).toBe(`proposal-region-${String(index + 1).padStart(4, "0")}`));
   expect(actual.candidate_centers).toHaveLength(expected.candidate_centers.length);
   actual.candidate_centers.forEach((center, index) => {
     expect(Math.abs(center.ra_deg - expected.candidate_centers[index][0])).toBeLessThanOrEqual(1e-10);
@@ -65,38 +99,58 @@ function compactPlanMatches(actual: RegionPlanResponse, expected: {
     if (reference === null) expect(actual.inference[key]).toBeNull();
     else expect(Math.abs(actual.inference[key]! - reference)).toBeLessThanOrEqual(1e-10);
   }
-  expect(actual.diagnostics).toEqual(expected.diagnostics);
-  expect(actual.metrics).toEqual(expected.metrics);
+  expect(actual.diagnostics.slice(0, expected.diagnostics.length)).toEqual(expected.diagnostics);
+  const contract = currentContract.plans[id];
+  expect(actual.metrics.new_tiles).toBe(contract.new_tiles);
+  expect(actual.tiles).toHaveLength(contract.new_tiles);
+  expect(actual.metrics.selected_region_area_deg2).toBe(contract.selected_region_area_deg2);
+  expect(Math.abs(actual.metrics.selected_region_area_deg2 - analyticPolygonAreaDeg2(polygon)))
+    .toBeLessThan(Math.max(0.005, actual.metrics.selected_region_area_deg2 * 0.0001));
+  expect(actual.metrics.sample_step_deg).toBe(contract.sample_step_deg);
+  expect(actual.metrics.already_covered_fraction).toBe(contract.already_covered_fraction);
+  expect(actual.metrics.selected_region_coverage).toBe(1);
+  expect(actual.metrics.remaining_uncovered_fraction).toBe(0);
+  expect(actual.metrics.remaining_uncovered_area_deg2).toBe(0);
+  expect(actual.metrics.incremental_coverage).toBeCloseTo(1 - contract.already_covered_fraction, 4);
+  expect(actual.metrics.redundant_coverage).toBeGreaterThanOrEqual(0);
+  expect(actual.metrics.redundant_coverage).toBeLessThanOrEqual(1);
+  expect(actual.metrics.outside_region_coverage_deg2).toBeGreaterThanOrEqual(0);
+  expect(measureActiveCoverage(polygon, existing, actual.tiles, profile ? "custom" : undefined, profile)).toEqual(actual.metrics);
 }
 
-describe("Python planner golden parity", () => {
+describe("current planner contract with former Python lattice references", () => {
   it.each(golden.historical_cases)("matches historical case $id", (fixture) => {
     const existing = fixture.existing_names.map((name) => byName.get(name)!);
-    compactPlanMatches(planRegion(fixture.polygon, existing), fixture);
+    planMatchesContract(planRegion(fixture.polygon, existing), fixture, fixture.id as keyof typeof currentContract.plans, existing, fixture.polygon);
   });
 
   it.each(golden.planner_cases)("matches planner case $id", (fixture) => {
     const existing = fixture.existing_tiles as unknown as TileRecord[];
     const profile = fixture.profile as TilingProfile | null;
-    compactPlanMatches(planRegion(fixture.polygon, existing, profile ? "custom" : undefined, profile ?? undefined), fixture);
+    planMatchesContract(planRegion(fixture.polygon, existing, profile ? "custom" : undefined, profile ?? undefined), fixture,
+      fixture.id as keyof typeof currentContract.plans, existing, fixture.polygon, profile ?? undefined);
   });
 
-  it("reconstructs the ordered historical holdout centers and metrics", () => {
+  it("recovers historical holdout centers within a complete current proposal", () => {
     const fixture = golden.historical_holdout;
     const surrounding = fixture.surrounding_names.map((name) => byName.get(name)!);
     const plan = planRegion(fixture.polygon, surrounding);
     expect(plan.solution).toBe(fixture.solution);
-    centersMatch(plan.tiles, fixture.proposal_centers);
-    expect(plan.metrics).toEqual(fixture.metrics);
+    includesHistoricalCenters(plan.tiles, fixture.proposal_centers);
+    expect(plan.metrics.new_tiles).toBe(currentContract.plans.historical_holdout.new_tiles);
+    expect(plan.metrics.sample_step_deg).toBe(currentContract.plans.historical_holdout.sample_step_deg);
+    expect(plan.metrics.selected_region_coverage).toBe(1);
     expect(plan.inference.anchor_tile_ids.length).toBeGreaterThan(2);
   });
 
-  it("uses the exact one-anchor fallback ordering and metrics", () => {
+  it("retains one-anchor fallback centers with current sampling", () => {
     const fixture = golden.historical_fallback;
     const plan = planRegion(fixture.polygon, [byName.get(fixture.anchor_name)!]);
     expect(plan.solution).toBe(fixture.solution);
-    centersMatch(plan.tiles, fixture.proposal_centers);
-    expect(plan.metrics).toEqual(fixture.metrics);
+    includesHistoricalCenters(plan.tiles, fixture.proposal_centers);
+    expect(plan.metrics.new_tiles).toBe(currentContract.plans.historical_fallback.new_tiles);
+    expect(plan.metrics.sample_step_deg).toBe(currentContract.plans.historical_fallback.sample_step_deg);
+    expect(plan.metrics.selected_region_coverage).toBe(1);
     expect(plan.inference.anchor_tile_ids).toEqual([]);
   });
 
@@ -105,10 +159,15 @@ describe("Python planner golden parity", () => {
     const plan = planRegion(fixture.polygon, catalogue);
     expect(plan.solution).toBe(fixture.solution);
     expect(plan.inference.anchor_tile_ids).toHaveLength(fixture.anchor_count);
-    centersMatch(plan.tiles, fixture.proposal_centers);
-    expect(plan.metrics).toEqual(fixture.metrics);
+    includesHistoricalCenters(plan.tiles, fixture.proposal_centers);
+    expect(plan.metrics.new_tiles).toBe(currentContract.plans.large_overlap.new_tiles);
+    expect(plan.metrics.selected_region_area_deg2).toBe(currentContract.plans.large_overlap.selected_region_area_deg2);
+    expect(plan.metrics.sample_step_deg).toBe(currentContract.plans.large_overlap.sample_step_deg);
+    expect(plan.metrics.selected_region_coverage).toBe(1);
     const existingOnly = measureActiveCoverage(fixture.polygon, catalogue, []);
-    expect(existingOnly).toEqual(fixture.existing_only_metrics);
+    expect(existingOnly.existing_tiles_contributing).toBe(88);
+    expect(existingOnly.already_covered_fraction).toBe(currentContract.plans.large_overlap.already_covered_fraction);
+    expect(existingOnly.sample_step_deg).toBe(currentContract.plans.large_overlap.sample_step_deg);
   });
 
   it("repeats a solution with identical order and discrete audit data", () => {
@@ -118,11 +177,21 @@ describe("Python planner golden parity", () => {
   });
 });
 
-describe("Python direct coverage golden parity", () => {
+describe("current direct coverage contract", () => {
   it.each(golden.coverage_cases)("matches coverage case $id", (fixture) => {
     const existing = fixture.existing_tiles as unknown as TileRecord[];
     const proposed = fixture.proposed_tiles as unknown as TileRecord[];
-    expect(measureActiveCoverage(fixture.polygon, existing, proposed)).toEqual(fixture.metrics);
+    const metrics = measureActiveCoverage(fixture.polygon, existing, proposed);
+    const contract = currentContract.coverage[fixture.id as keyof typeof currentContract.coverage];
+    expect(metrics.selected_region_area_deg2).toBe(contract.selected_region_area_deg2);
+    expect(Math.abs(metrics.selected_region_area_deg2 - analyticPolygonAreaDeg2(fixture.polygon))).toBeLessThan(0.005);
+    expect(metrics.sample_step_deg).toBe(contract.sample_step_deg);
+    expect(metrics.already_covered_fraction).toBe(contract.already_covered_fraction);
+    expect(metrics.selected_region_coverage).toBe(contract.selected_region_coverage);
+    expect(metrics.incremental_coverage).toBeCloseTo(metrics.selected_region_coverage - metrics.already_covered_fraction, 4);
+    expect(metrics.remaining_uncovered_fraction).toBeCloseTo(1 - metrics.selected_region_coverage, 4);
+    expect(metrics.new_tiles).toBe(proposed.filter((tile) => tile.enabled !== false).length);
+    expect(metrics.existing_tiles_contributing).toBe(fixture.metrics.existing_tiles_contributing);
   });
 });
 
@@ -138,8 +207,9 @@ describe("scientific geometry and coverage contracts", () => {
     const plan = planRegion(widePolygon, []);
     expect(plan.metrics.selected_region_area_deg2).toBeCloseTo(area, 3);
     expect(plan.metrics.selected_region_area_deg2).toBe(77.7009);
-    expect(plan.metrics.selected_region_coverage).toBeGreaterThan(0.95);
-    expect(plan.metrics.remaining_uncovered_area_deg2).toBeLessThan(4);
+    expect(Math.abs(plan.metrics.selected_region_area_deg2 - analyticPolygonAreaDeg2(widePolygon))).toBeLessThan(0.005);
+    expect(plan.metrics.selected_region_coverage).toBe(1);
+    expect(plan.metrics.remaining_uncovered_area_deg2).toBe(0);
     expect(plan.tiles.length).toBeGreaterThan(5);
   });
 

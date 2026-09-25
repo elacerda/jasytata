@@ -1,6 +1,6 @@
 # Scientific and planning algorithms
 
-This document distinguishes the compatibility geometry in `SPLUS_LEGACY_GRID_V1` from local-grid inference and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `planner.ts`, and `coverage.ts`. Golden expected results were generated from the former Python implementation before its removal; the current TypeScript tests compare directly against those committed values.
+This document distinguishes the compatibility geometry in `SPLUS_LEGACY_GRID_V1` from local-grid inference and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `planner.ts`, and `coverage.ts`. `frontend/src/data/golden.json` preserves former Python reference data for coordinates, catalogue semantics, exports, legacy grid geometry, and compatible lattice evidence. `frontend/src/data/planner-contract.json` records reviewed outcomes under the current sampling and coverage contract.
 
 ## 1. Coordinate conventions
 

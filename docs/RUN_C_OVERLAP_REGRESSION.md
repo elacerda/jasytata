@@ -14,7 +14,7 @@ The browser's 153.47 deg² polygon vertices and request body were unavailable. T
 | Redundant proposal coverage | 1.694% |
 | Final sampled coverage | 99.555% |
 
-The former Python reference regression independently counted center containment and footprint intersection, and checked existing coverage with a finer declination-weighted grid. It asserted that every one of the 64 actual centers inside the polygon contributes, checked candidates against the 0.12° spherical occupancy threshold, and verified every proposal came from an unoccupied returned lattice site. The current TypeScript golden tests retain the selected centers, inference result, proposal ordering, metrics, and direct coverage output. Frontend tests also confirm that hiding a catalogue leaves plan input and scientific metrics unchanged.
+The former Python reference regression independently counted center containment and footprint intersection, and checked existing coverage with a finer declination-weighted grid. It asserted that every one of the 64 actual centers inside the polygon contributes, checked candidates against the 0.12° spherical occupancy threshold, and verified every proposal came from an unoccupied returned lattice site. Current TypeScript tests retain those historical centers and compatible inference evidence. At the current 0.0467° capped sample pitch, this region needs 40 proposals for full sampled coverage, with 88 existing footprint contributors and 80.985% existing coverage. Current planner outcomes are stored separately in `frontend/src/data/planner-contract.json`. Frontend tests also confirm that hiding a catalogue leaves plan input and scientific metrics unchanged.
 
 ## Why anchor and contributor counts diverged
 

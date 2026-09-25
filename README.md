@@ -37,7 +37,7 @@ The supplied reference catalogue is bundled at `frontend/public/data/tiles_nc.cs
 
 The default profile is **S-PLUS / T80-South**: 1.4° × 1.4° tile footprints with 120 arcseconds effective overlap and the `SPLUS_LEGACY_GRID_V1` fallback geometry. Planning first checks actual input pointings for a compatible local lattice. Candidate selection and coverage sampling run entirely in TypeScript. Coverage is a declination-weighted sample estimate, not a formal completeness certification.
 
-The compatibility decisions and limitations are described in [Scientific and planning algorithms](docs/ALGORITHM.md). The committed golden fixture at `frontend/src/data/golden.json` and TypeScript tests preserve the former Python-reference outputs, including planner holdouts and large-catalogue overlap behavior.
+The compatibility decisions and limitations are described in [Scientific and planning algorithms](docs/ALGORITHM.md). The committed `frontend/src/data/golden.json` preserves former Python reference inputs and compatible behavior such as coordinate parsing, catalogue semantics, legacy grid geometry, and historical recovery centers. Reviewed expectations for the current sampled-coverage planner live in `frontend/src/data/planner-contract.json`.
 
 ## Development
 

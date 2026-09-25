@@ -1,0 +1,29 @@
+{
+  "source": "Reviewed current sampled-coverage contract; former Python inputs remain in golden.json",
+  "plans": {
+    "splus_b_single": { "new_tiles": 3, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.06559 },
+    "splus_b_three_holes": { "new_tiles": 10, "selected_region_area_deg2": 6.1221, "sample_step_deg": 0.01, "already_covered_fraction": 0.05419 },
+    "splus_b_adjacent_rows": { "new_tiles": 14, "selected_region_area_deg2": 11.1482, "sample_step_deg": 0.0119, "already_covered_fraction": 0.30594 },
+    "splus_n_north": { "new_tiles": 2, "selected_region_area_deg2": 4.0208, "sample_step_deg": 0.01, "already_covered_fraction": 0.15387 },
+    "splus_b_row_edge": { "new_tiles": 11, "selected_region_area_deg2": 4.1052, "sample_step_deg": 0.01, "already_covered_fraction": 0.03595 },
+    "splus_d_south": { "new_tiles": 4, "selected_region_area_deg2": 4.0794, "sample_step_deg": 0.01, "already_covered_fraction": 0.09526 },
+    "splus_b_one_anchor": { "new_tiles": 4, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.00586 },
+    "empty_rectangle": { "new_tiles": 15, "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0 },
+    "wrapped_rectangle": { "new_tiles": 4, "selected_region_area_deg2": 2.7986, "sample_step_deg": 0.01, "already_covered_fraction": 0 },
+    "triangle": { "new_tiles": 9, "selected_region_area_deg2": 6.9486, "sample_step_deg": 0.0133, "already_covered_fraction": 0 },
+    "concave": { "new_tiles": 16, "selected_region_area_deg2": 17.5184, "sample_step_deg": 0.02, "already_covered_fraction": 0 },
+    "tiny_triangle": { "new_tiles": 1, "selected_region_area_deg2": 0.0004, "sample_step_deg": 0.0038, "already_covered_fraction": 0 },
+    "custom_rectangle": { "new_tiles": 16, "selected_region_area_deg2": 29.9802, "sample_step_deg": 0.0183, "already_covered_fraction": 0 },
+    "historical_holdout": { "new_tiles": 14, "selected_region_area_deg2": 11.1482, "sample_step_deg": 0.0119, "already_covered_fraction": 0.30594 },
+    "historical_fallback": { "new_tiles": 4, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.00586 },
+    "large_overlap": { "new_tiles": 40, "selected_region_area_deg2": 162.2592, "sample_step_deg": 0.0467, "already_covered_fraction": 0.80985 }
+  },
+  "coverage": {
+    "zero": { "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0, "selected_region_coverage": 0 },
+    "partial": { "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0, "selected_region_coverage": 0.14114 },
+    "disabled": { "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0, "selected_region_coverage": 0 },
+    "overlap": { "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0.1423, "selected_region_coverage": 0.20296 },
+    "full_existing": { "selected_region_area_deg2": 0.1386, "sample_step_deg": 0.01, "already_covered_fraction": 1, "selected_region_coverage": 1 },
+    "wrapped_partial": { "selected_region_area_deg2": 2.7986, "sample_step_deg": 0.01, "already_covered_fraction": 0, "selected_region_coverage": 0.48262 }
+  }
+}
