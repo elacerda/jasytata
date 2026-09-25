@@ -1,7 +1,9 @@
 import type { CenterInput, CoverageStrategy, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { resolveProfile } from "../profiles";
-import { coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
-import { angularSeparationDeg, contributingTileCount, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
+import { resolveGate2Rectangle } from "../profiles/footprints";
+import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
+import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
+import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 
@@ -18,6 +20,12 @@ interface Lattice {
   rowRaPhaseFraction: Map<number, number>;
   anchorIds: string[];
   pairCount: number;
+}
+
+interface InferenceTileGroup {
+  key: string;
+  profile: TilingProfile;
+  tiles: TileRecord[];
 }
 
 function raSpacing(profile: TilingProfile): number {
@@ -170,6 +178,52 @@ function compareLattices(left: Lattice, right: Lattice, profile: TilingProfile):
     if (left.anchorIds[index] !== right.anchorIds[index]) return left.anchorIds[index] < right.anchorIds[index] ? -1 : 1;
   }
   return left.anchorIds.length - right.anchorIds.length;
+}
+
+function inferenceTileGroups(tiles: readonly TileRecord[], profile: TilingProfile, registry: ProfileRegistry): InferenceTileGroup[] {
+  const activeInstrumentId = registry.findSurveyProfile(profile.id)?.instrument_id;
+  const sourceProfileCache = new Map<string, TilingProfile>();
+  const sourceProfileFor = (instrumentProfileId: string): TilingProfile => {
+    const cached = sourceProfileCache.get(instrumentProfileId);
+    if (cached) return cached;
+    const sourceProfile = resolveGate2Rectangle(instrumentProfileId, profile, registry);
+    sourceProfileCache.set(instrumentProfileId, sourceProfile);
+    return sourceProfile;
+  };
+  const compatibleInstrumentIds = [...new Set(tiles.flatMap((tile) => {
+    if (tile.source !== "original" || !tile.instrument_profile_id || (tile.inference_role ?? "auto") !== "auto") return [];
+    const geometry = sourceProfileFor(tile.instrument_profile_id);
+    return geometry.tile_width_deg === profile.tile_width_deg && geometry.tile_height_deg === profile.tile_height_deg
+      ? [tile.instrument_profile_id]
+      : [];
+  }))].sort((left, right) => left.localeCompare(right));
+  const unassociatedInstrumentId = activeInstrumentId ?? (compatibleInstrumentIds.length === 1 ? compatibleInstrumentIds[0] : undefined);
+  const unassociatedKey = unassociatedInstrumentId ? `instrument:${unassociatedInstrumentId}` : `output:${profile.id}`;
+  const groups = new Map<string, InferenceTileGroup>();
+
+  for (const tile of tiles) {
+    const role = tile.inference_role ?? "auto";
+    if (tile.source === "original" && role === "exclude") continue;
+
+    let key = unassociatedKey;
+    let tileProfile = profile;
+    if (tile.source === "original" && tile.instrument_profile_id) {
+      tileProfile = sourceProfileFor(tile.instrument_profile_id);
+      if (role === "auto") {
+        const compatible = activeInstrumentId
+          ? tile.instrument_profile_id === activeInstrumentId
+          : tileProfile.tile_width_deg === profile.tile_width_deg && tileProfile.tile_height_deg === profile.tile_height_deg;
+        if (!compatible) continue;
+      }
+      key = `instrument:${tile.instrument_profile_id}`;
+    }
+
+    const group = groups.get(key) ?? { key, profile: tileProfile, tiles: [] };
+    group.tiles.push(tile);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
 }
 
 function inferLattice(tiles: readonly TileRecord[], centerRa: number, centerDec: number, profile: TilingProfile): Lattice | null {
@@ -442,10 +496,19 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param profileId - Bundled profile ID or custom.
  * @param inlineProfile - Optional session-only custom geometry in degrees and arcseconds.
  * @param strategy - Sampled-coverage stopping policy; complete by default.
+ * @param registry - Session-local registry used to resolve each source instrument.
  * @returns Deterministic proposal, candidate centers, inference audit, and coverage metrics.
- * @throws On invalid geometry, too many input/candidate records, or sample limits.
+ * @throws On invalid geometry, unknown instrument IDs, unsupported Gate 2 footprints,
+ *   too many input/candidate records, or sample limits.
  */
-export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId = "splus-t80-south", inlineProfile?: TilingProfile, strategy: CoverageStrategy = "complete"): RegionPlanResponse {
+export function planRegion(
+  polygon: SkyPolygon,
+  existingTiles: TileRecord[],
+  profileId = "splus-t80-south",
+  inlineProfile?: TilingProfile,
+  strategy: CoverageStrategy = "complete",
+  registry: ProfileRegistry = profileRegistry,
+): RegionPlanResponse {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
   const profile = resolveProfile(profileId, inlineProfile);
@@ -453,8 +516,18 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
   const bounds = polygonBounds(polygon);
   const centerRa = modulo(bounds.ra_start_deg + bounds.ra_span_deg / 2, 360);
   const centerDec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2;
-  const localTiles = tilesNearRegion(activeTiles, bounds, centerRa, centerDec, profile);
-  const lattice = inferLattice(localTiles, centerRa, centerDec, profile);
+  const localTiles: TileRecord[] = [];
+  let lattice: Lattice | null = null;
+  let latticeTiles: TileRecord[] = [];
+  for (const group of inferenceTileGroups(activeTiles, profile, registry)) {
+    const nearby = tilesNearRegion(group.tiles, bounds, centerRa, centerDec, group.profile);
+    localTiles.push(...nearby);
+    const candidate = inferLattice(nearby, centerRa, centerDec, group.profile);
+    if (candidate && (!lattice || compareLattices(candidate, lattice, profile) > 0)) {
+      lattice = candidate;
+      latticeTiles = nearby;
+    }
+  }
   let solution: RegionPlanResponse["solution"];
   let method: RegionPlanResponse["generation_method"];
   let rawCandidates: Center[];
@@ -478,15 +551,15 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
   if (rawCandidates.length > MAX_CANDIDATES) throw new Error(`This region produces ${rawCandidates.length} lattice candidates; reduce the selected area to at most ${MAX_CANDIDATES}.`);
   const uniqueCandidates = excludeOccupied(rawCandidates, activeTiles);
   const grid = sampleRegion(polygon);
-  const existingMask = coveredMask(grid, activeTiles, profile);
-  const contributing = contributingTileCount(polygon, activeTiles, profile);
+  const existingMask = coveredMask(grid, activeTiles, profile, registry);
+  const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry);
   const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, profile);
   const primary = greedyChoose(primaryCandidates, existingMask, grid, profile, AUTOMATIC_COVERAGE_TARGET, strategy);
   const primaryCoverage = combinedCoverageMask(existingMask, primary);
   const remainingGap = uncoveredSampleBounds(grid, primaryCoverage);
   let gapFill: MaskedCenter[] = [];
   if (remainingGap) {
-    const anchor = nearestGapAnchor(remainingGap, localTiles, lattice, uniqueCandidates);
+    const anchor = nearestGapAnchor(remainingGap, latticeTiles.length ? latticeTiles : localTiles, lattice, uniqueCandidates);
     const supplementalCenters = gapFillCandidates(grid, remainingGap, anchor, profile, lattice);
     const supplementalCandidates = usefulUncoveredCenters(supplementalCenters, primaryCoverage, grid, profile);
     gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, profile, AUTOMATIC_COVERAGE_TARGET, strategy);

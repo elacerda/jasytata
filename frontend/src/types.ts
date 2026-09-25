@@ -4,6 +4,8 @@ export type GenerationMethod = "manual" | "imported_centers" | "region_legacy" |
 export type TileSource = "original" | "proposed";
 /** Planning policy applied to sampled-region tile selection. */
 export type CoverageStrategy = "complete" | "efficient";
+/** Whether a catalogue dataset may provide local-grid inference evidence. */
+export type InferenceRole = "auto" | "include" | "exclude";
 
 /** Catalogue tile in client state, with original string values retained for inspection. */
 export interface TileRecord {
@@ -19,6 +21,10 @@ export interface TileRecord {
   generation_method: GenerationMethod | null;
   dataset_id?: string | null;
   dataset_name?: string | null;
+  /** Source instrument profile, copied from its dataset for scientific planning. */
+  instrument_profile_id?: string | null;
+  /** Dataset inference role, copied onto source tiles for scientific planning. */
+  inference_role?: InferenceRole;
   group_id?: string | null;
   ra_column?: string | null;
   dec_column?: string | null;
@@ -37,6 +43,8 @@ export interface CatalogueResponse {
   ra_column?: string | null;
   dec_column?: string | null;
   needs_mapping?: boolean;
+  /** Instrument profile known for a bundled/reference catalogue, when available. */
+  instrument_profile_id?: string;
 }
 
 /** One independent uploaded CSV layer retained in the browser session. */
@@ -46,6 +54,10 @@ export interface CatalogueDataset {
   color: string;
   ra_column: string;
   dec_column: string;
+  /** Instrument geometry for this dataset; no survey profile is required. */
+  instrument_profile_id: string;
+  /** Coverage always participates; this role only controls lattice inference. */
+  inference_role: InferenceRole;
   tiles: TileRecord[];
   visible: boolean;
 }

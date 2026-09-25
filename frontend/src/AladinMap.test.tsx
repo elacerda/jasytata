@@ -58,7 +58,7 @@ function dataset(id: string, filename: string, visible = true): CatalogueDataset
     metadata: { quality: "good" },
   };
   return { id, filename, color: id === "a" ? "cyan" : "violet", ra_column: "ra",
-    dec_column: "dec", tiles: [tile], visible };
+    dec_column: "dec", instrument_profile_id: "t80-south", inference_role: "auto", tiles: [tile], visible };
 }
 
 describe("native Aladin catalogue layers", () => {

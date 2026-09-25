@@ -231,6 +231,20 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     );
   });
 
+  it("shows each catalogue's instrument association and inference role", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    const instrument = await screen.findByRole("combobox", { name: "Instrument profile for tiles_nc.csv" });
+    const inferenceRole = screen.getByRole("combobox", { name: "Inference role for tiles_nc.csv" });
+
+    expect(instrument).toHaveValue("t80-south");
+    expect(inferenceRole).toHaveValue("auto");
+    await user.selectOptions(inferenceRole, "exclude");
+    expect(inferenceRole).toHaveValue("exclude");
+  });
+
   it("selects an area and plans from the active profile when no catalogue is loaded", async () => {
     const user = userEvent.setup();
     const fallback = makePlan(2);

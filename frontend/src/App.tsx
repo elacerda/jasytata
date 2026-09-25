@@ -4,6 +4,7 @@ import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
 import { buildRegionPlanRequest, downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue, validateCustomProfile } from "./api";
 import { createDataset } from "./datasets";
+import { profileRegistry } from "./profiles";
 import type {
   CenterInput,
   CatalogueDataset,
@@ -58,6 +59,7 @@ export default function App() {
     }
   });
   const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
+  const instrumentProfiles = useMemo(() => profileRegistry.listInstrumentProfiles(), []);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [defaultProfile, setDefaultProfile] = useState<TilingProfile | null>(null);
@@ -91,8 +93,16 @@ export default function App() {
   const regionRevisionRef = useRef(0);
 
   const hasCatalogue = datasets.length > 0;
-  const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles), [datasets]);
-  const visibleOriginalTiles = useMemo(() => datasets.filter((dataset) => dataset.visible).flatMap((dataset) => dataset.tiles), [datasets]);
+  const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
+    ...tile,
+    instrument_profile_id: dataset.instrument_profile_id,
+    inference_role: dataset.inference_role,
+  }))), [datasets]);
+  const visibleOriginalTiles = useMemo(() => datasets.filter((dataset) => dataset.visible).flatMap((dataset) => dataset.tiles.map((tile) => ({
+    ...tile,
+    instrument_profile_id: dataset.instrument_profile_id,
+    inference_role: dataset.inference_role,
+  }))), [datasets]);
   const enabledProposals = useMemo(() => proposals.filter((tile) => tile.enabled !== false), [proposals]);
   const visibleTiles = useMemo(() => [
     ...visibleOriginalTiles,
@@ -189,6 +199,16 @@ export default function App() {
     setSelectedTileId(null);
     setNotice(`${result.row_count.toLocaleString()} catalogue rows added from ${result.filename}.`);
     setError(null);
+  }
+
+  function updateDatasetSettings(datasetId: string, patch: Partial<Pick<CatalogueDataset, "instrument_profile_id" | "inference_role">>) {
+    regionRevisionRef.current += 1;
+    setDatasets((previous) => previous.map((dataset) => dataset.id === datasetId ? { ...dataset, ...patch } : dataset));
+    setPending(null);
+    setProposalContext(null);
+    setSelectedTileId(null);
+    setDebugRequestJson("");
+    setNotice("Catalogue planning settings updated. Generate a new plan for the selected polygon.");
   }
 
   async function handleUpload(file?: File) {
@@ -642,16 +662,53 @@ export default function App() {
             <SectionHeading title="Map layers" />
             <div className="layer-group-heading">Data</div>
             {datasets.map((dataset) => (
-              <label className="dataset-layer" key={dataset.id}>
-                <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
-                  setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
-                  setSelectedTileId(null);
-                }} />
-                <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />
-                <span title={dataset.filename}>{dataset.filename}</span>
-                <strong>{dataset.tiles.length.toLocaleString()}</strong>
-              </label>
+              <div key={dataset.id}>
+                <label className="dataset-layer">
+                  <input type="checkbox" aria-label={`Show ${dataset.filename}`} checked={dataset.visible} onChange={(event) => {
+                    setDatasets((previous) => previous.map((item) => item.id === dataset.id ? { ...item, visible: event.target.checked } : item));
+                    setSelectedTileId(null);
+                  }} />
+                  <span className="layer-swatch" style={{ "--swatch": dataset.color } as CSSProperties} />
+                  <span title={dataset.filename}>{dataset.filename}</span>
+                  <strong>{dataset.tiles.length.toLocaleString()}</strong>
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "4px 0 12px 30px" }}>
+                  <label style={{ display: "grid", gap: 4 }}>
+                    <span className="fine-print">Instrument profile</span>
+                    <select
+                      aria-label={`Instrument profile for ${dataset.filename}`}
+                      value={dataset.instrument_profile_id}
+                      disabled={busy}
+                      onChange={(event) => updateDatasetSettings(dataset.id, { instrument_profile_id: event.target.value })}
+                    >
+                      {!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id) &&
+                        <option value={dataset.instrument_profile_id}>{dataset.instrument_profile_id} (unknown)</option>}
+                      {instrumentProfiles.map((instrument) => (
+                        <option key={instrument.id} value={instrument.id}>{instrument.display_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: 4 }}>
+                    <span className="fine-print">Inference role</span>
+                    <select
+                      aria-label={`Inference role for ${dataset.filename}`}
+                      value={dataset.inference_role}
+                      disabled={busy}
+                      onChange={(event) => updateDatasetSettings(dataset.id, { inference_role: event.target.value as CatalogueDataset["inference_role"] })}
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="include">Include</option>
+                      <option value="exclude">Exclude</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
             ))}
+            {datasets.length > 0 && (
+              <p className="fine-print">
+                Auto uses the active survey instrument or geometry matching a custom output. Include admits a separate instrument lattice; Exclude removes that dataset from lattice inference. All enabled catalogues still contribute coverage.
+              </p>
+            )}
             <div className="layer-group-heading">Planning</div>
             <PlanningLayer label="Proposed tiles" color="var(--orange)" checked={planningLayers.proposals}
               count={proposals.length + (pending?.tiles.length ?? 0)} onChange={(checked) => {

@@ -10,6 +10,7 @@ import type {
   TilingProfile,
 } from "./types";
 import { loadProfile, listProfiles, validateProfile } from "./profiles";
+import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
 import { buildExportCsv } from "./science/export";
 import { planRegion as planRegionLocal } from "./science/planner";
@@ -55,12 +56,15 @@ export async function uploadCatalogue(
 
 /** Load the representative catalogue shipped with the repository.
  *
- * @returns Parsed bundled S-PLUS reference catalogue rows.
+ * @returns Parsed S-PLUS reference rows explicitly associated with the T80-South instrument.
  */
 export async function loadReferenceCatalogue(): Promise<CatalogueResponse> {
   const response = await fetch(`${import.meta.env.BASE_URL}data/tiles_nc.csv`);
   if (!response.ok) throw new Error("The supplied reference catalogue is not installed");
-  return parseCatalogueCsv(new Uint8Array(await response.arrayBuffer()), "tiles_nc.csv");
+  return {
+    ...parseCatalogueCsv(new Uint8Array(await response.arrayBuffer()), "tiles_nc.csv"),
+    instrument_profile_id: T80_SOUTH_INSTRUMENT_V2.id,
+  };
 }
 
 /** Parse pasted RA/DEC rows for review before proposal creation.

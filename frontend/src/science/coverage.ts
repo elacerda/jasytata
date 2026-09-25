@@ -3,6 +3,8 @@ import { contributingTileCount, polygonLocalGeometry, validatePolygon, type Poly
 import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 import { resolveProfile } from "../profiles";
+import { resolveGate2Rectangle } from "../profiles/footprints";
+import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
 
 const SAMPLE_STEP_DEG = 0.01;
 const MAX_REGION_SAMPLES = 90_000;
@@ -117,23 +119,74 @@ export function tileMask(grid: CoverageGrid, raDeg: number, decDeg: number, prof
   return mask;
 }
 
+function profileForExistingTile(
+  tile: TileRecord,
+  outputProfile: TilingProfile,
+  registry: ProfileRegistry,
+  cache: Map<string, TilingProfile>,
+): TilingProfile {
+  if (tile.source !== "original" || !tile.instrument_profile_id) return outputProfile;
+  const cached = cache.get(tile.instrument_profile_id);
+  if (cached) return cached;
+  const sourceProfile = resolveGate2Rectangle(tile.instrument_profile_id, outputProfile, registry);
+  cache.set(tile.instrument_profile_id, sourceProfile);
+  return sourceProfile;
+}
+
 /** Union enabled existing pointings over weighted selected-region samples.
  * @param grid - Selected polygon sample grid.
  * @param tiles - Enabled original and accepted proposal records.
- * @param profile - Physical tile geometry in degrees.
+ * @param profile - Active output geometry used for unassociated records and proposals.
+ * @param registry - Session-local registry used to resolve source dataset geometry.
  * @returns Binary union mask aligned with the grid.
+ * @throws If an associated source instrument is unknown or unsupported in Gate 2.
  */
-export function coveredMask(grid: CoverageGrid, tiles: readonly TileRecord[], profile: TilingProfile): Uint8Array {
+export function coveredMask(
+  grid: CoverageGrid,
+  tiles: readonly TileRecord[],
+  profile: TilingProfile,
+  registry: ProfileRegistry = profileRegistry,
+): Uint8Array {
   const covered = new Uint8Array(grid.ra.length);
+  const sourceProfileCache = new Map<string, TilingProfile>();
+  const tileProfiles = tiles.map((tile) => profileForExistingTile(tile, profile, registry, sourceProfileCache));
   let coveredCount = 0;
-  for (const tile of tiles) {
-    const mask = tileMask(grid, tile.ra_deg, tile.dec_deg, profile);
+  for (const [index, tile] of tiles.entries()) {
+    const mask = tileMask(grid, tile.ra_deg, tile.dec_deg, tileProfiles[index]);
     for (let index = 0; index < mask.length; index += 1) {
       if (mask[index] && !covered[index]) { covered[index] = 1; coveredCount += 1; }
     }
     if (coveredCount === covered.length) break;
   }
   return covered;
+}
+
+/** Count contributing existing footprints using each associated source rectangle.
+ * @param polygon - Selected ICRS region in decimal degrees.
+ * @param tiles - Enabled source tiles and accepted proposals.
+ * @param profile - Active output profile for unassociated tiles and proposals.
+ * @param registry - Session-local registry used to resolve source instruments.
+ * @returns Number of source or proposal rectangles intersecting positive polygon area.
+ * @throws If an associated instrument is unknown or unsupported in Gate 2.
+ */
+export function contributingTileCountForTiles(
+  polygon: SkyPolygon,
+  tiles: readonly TileRecord[],
+  profile: TilingProfile,
+  registry: ProfileRegistry = profileRegistry,
+): number {
+  const groups = new Map<string, { profile: TilingProfile; tiles: TileRecord[] }>();
+  const sourceProfileCache = new Map<string, TilingProfile>();
+  for (const tile of tiles) {
+    const tileProfile = profileForExistingTile(tile, profile, registry, sourceProfileCache);
+    const key = `${tileProfile.tile_width_deg}:${tileProfile.tile_height_deg}`;
+    const group = groups.get(key) ?? { profile: tileProfile, tiles: [] };
+    group.tiles.push(tile);
+    groups.set(key, group);
+  }
+  let total = 0;
+  for (const group of groups.values()) total += contributingTileCount(polygon, group.tiles, group.profile);
+  return total;
 }
 
 function weightSum(grid: CoverageGrid, mask: Uint8Array, other?: Uint8Array, includeOther = true): number {
@@ -244,20 +297,29 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
  * @param proposedTiles - Editable proposal preview; only enabled records contribute.
  * @param profileId - Installed profile ID or custom.
  * @param inlineProfile - Session-only custom profile, if any.
+ * @param registry - Session-local registry used to resolve source instrument profiles.
  * @returns Current sampled-coverage metrics for enabled existing and proposed footprints.
- * @throws On invalid polygon, profile, or non-proposal editable record.
+ * @throws On invalid polygon/profile, unknown instrument ID, unsupported source footprint,
+ *   or non-proposal editable record.
  */
-export function measureActiveCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId = "splus-t80-south", inlineProfile?: TilingProfile): PlanMetrics {
+export function measureActiveCoverage(
+  polygon: SkyPolygon,
+  existingTiles: TileRecord[],
+  proposedTiles: TileRecord[],
+  profileId = "splus-t80-south",
+  inlineProfile?: TilingProfile,
+  registry: ProfileRegistry = profileRegistry,
+): PlanMetrics {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000 || proposedTiles.length > 500) throw new Error("Too many tile records");
   if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Coverage edits may contain only proposed tiles");
   const profile = resolveProfile(profileId, inlineProfile);
   const grid = sampleRegion(polygon);
   const activeExisting = existingTiles.filter((tile) => tile.enabled !== false);
-  const existing = coveredMask(grid, activeExisting, profile);
+  const existing = coveredMask(grid, activeExisting, profile, registry);
   const selected = proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => ({
     center: [tile.ra_deg, tile.dec_deg] as Center,
     mask: tileMask(grid, tile.ra_deg, tile.dec_deg, profile),
   }));
-  return measureMetrics(selected, existing, grid, contributingTileCount(polygon, activeExisting, profile), profile);
+  return measureMetrics(selected, existing, grid, contributingTileCountForTiles(polygon, activeExisting, profile, registry), profile);
 }
