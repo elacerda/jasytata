@@ -429,7 +429,7 @@ export default function App() {
         </div>
         <div className="topbar-state">
           <span className={`status-dot ${profile ? "is-ready" : ""}`} />
-          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : profile ? "Profile only · no original tiles" : "Loading tile profile"}</span>
+          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : profile ? "Profile active · no catalogue loaded" : "Loading tile profile"}</span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
@@ -598,9 +598,10 @@ export default function App() {
             <fieldset className="coverage-strategy">
               <legend>Coverage strategy</legend>
               <label><input type="radio" name="coverage-strategy" value="complete" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} />
-                <span><strong>Complete coverage</strong><small>Continue adding tiles until all sampled area is covered.</small></span></label>
+                <span><strong>Complete coverage (default)</strong><small>Attempts to cover every sampled point in the selected region.</small></span></label>
               <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
-                <span><strong>Efficient coverage</strong><small>Stop when additional tiles provide only marginal coverage gains.</small></span></label>
+                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop once sampled coverage reaches at least 99.5% if the next tile adds less than 3% of its physical footprint as new area inside the region.</small></span></label>
+            <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
             </fieldset>
             <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!regionPolygon || !profile || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
@@ -747,6 +748,9 @@ export default function App() {
                 <span className={pending.solution === "extended_existing_grid" ? "stamp-dot is-extended" : "stamp-dot"} />
                 <strong>{solutionLabel(pending.solution)}</strong>
               </div>
+              {pending.solution === "profile_fallback" && <p className="diagnostic-line">{hasCatalogue
+                ? "No local grid could be inferred from the loaded tiles, so the active tile profile supplies the grid."
+                : "No catalogue is loaded; using the active tile profile grid is expected for a new project."}</p>}
               {pending.coverageStrategy && <p className="strategy-result">{pending.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
               {pending.metrics ? <MetricsPanel metrics={pending.metrics} inference={pending.inference} candidateCount={pending.candidateCenters.length} /> : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
               {pending.diagnostics.map((line) => <p className="diagnostic-line" key={line}>{line}</p>)}

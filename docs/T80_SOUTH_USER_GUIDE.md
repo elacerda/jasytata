@@ -1,11 +1,12 @@
 # Manual rápido do Jasytata
 ## Planejamento de novos campos para o T80-South
 
-O **Jasytata** é uma ferramenta para visualizar os campos já existentes de um catálogo do S-PLUS/T80-South e planejar novos apontamentos no céu.
+O **Jasytata** permite continuar um projeto usando um catálogo de apontamentos existente ou iniciar um novo plano de cobertura a partir do perfil ativo do instrumento. O catálogo é opcional.
 
-O uso normal é simples:
+Dois fluxos comuns:
 
-**carregar catálogo → selecionar uma região → gerar o plano → revisar os novos campos → exportar o CSV.**
+- **A. Continuar um projeto ou levantamento:** carregue o catálogo existente, confirme o perfil do instrumento e planeje uma região para acrescentar novos tiles.
+- **B. Iniciar um projeto:** mantenha o perfil desejado ativo e planeje a região sem carregar um catálogo. O perfil fornece a geometria e a grade inicial dos tiles.
 
 ---
 
@@ -25,15 +26,17 @@ Ao abrir a página, o perfil padrão deve aparecer como:
 
 Para o uso normal do T80-South, **não é necessário alterar esse perfil**.
 
+Sem catálogo carregado, o perfil ativo é suficiente para planejar novos campos.
+
 ---
 
-# 2. Carregando o catálogo
+# 2. Usando um catálogo existente (opcional)
 
-Clique em:
+Para continuar um projeto, clique em:
 
 **Load catalogue**
 
-e escolha o arquivo CSV com os campos que já existem.
+e escolha o arquivo CSV com os apontamentos já existentes. Para começar um projeto novo pelo perfil, não carregue um catálogo nem use **Load reference**.
 
 O Jasytata procura automaticamente as colunas de **RA** e **DEC**.
 
@@ -47,13 +50,11 @@ Depois clique em:
 
 **Load mapped catalogue**
 
-O catálogo aparecerá sobre o mapa do céu.
+O catálogo aparecerá sobre o mapa do céu e será considerado no planejamento. Os tiles originais não são alterados.
 
 ### Para testes
 
-O botão **Load reference** carrega o catálogo de exemplo que acompanha o Jasytata.
-
-Ele é útil para conhecer a ferramenta, mas não substitui o catálogo que será usado no planejamento real.
+O botão **Load reference** carrega o catálogo de exemplo para explorar a ferramenta. Ele não é necessário para iniciar um projeto sem catálogo.
 
 ---
 
@@ -108,11 +109,15 @@ Para apagar a seleção:
 
 # 5. Gerando os novos campos
 
-Depois de selecionar a região, clique em:
+Depois de selecionar a região, escolha a estratégia em **Region plan** e clique em:
 
 **Generate plan**
 
-O Jasytata compara a região escolhida com os campos já existentes e calcula quais novos tiles são necessários.
+O Jasytata usa a região e o perfil ativo e, se houver, considera também os tiles dos catálogos carregados para calcular os novos tiles.
+
+**Complete coverage** é a opção padrão e tenta cobrir todos os pontos amostrados da região selecionada. Use-a quando precisar de cobertura amostrada exaustiva.
+
+**Efficient coverage** usa o mesmo planejador e a mesma ordem de candidatos, mas pode parar depois de atingir pelo menos 99,5% de cobertura amostrada se o próximo tile cobrir, como área nova dentro da região, menos de 3% de sua área física. Ela troca pequenas áreas residuais sem cobertura por menos exposições e não avalia a topologia nem a importância científica dessas lacunas.
 
 Após alguns instantes será exibida uma **Proposal preview**.
 
@@ -144,11 +149,7 @@ Esse é o comportamento esperado quando há informação suficiente do grid ao r
 
 ### Profile fallback
 
-O programa não encontrou informação suficiente no catálogo próximo para reconstruir com segurança a grade local.
-
-Nesse caso ele usou diretamente a geometria padrão do perfil S-PLUS/T80-South.
-
-**Não significa necessariamente que o plano esteja errado**, mas vale revisar a distribuição dos campos com mais atenção.
+Sem catálogo carregado, esse é o comportamento esperado: o perfil ativo fornece a grade para novos projetos. Com catálogo, o perfil é usado quando os tiles próximos não fornecem informação suficiente para reconstruir a grade local. Em ambos os casos, revise a distribuição dos campos antes de aceitar o plano.
 
 ---
 
@@ -253,11 +254,10 @@ Nem sempre é necessário gerar uma região inteira.
 
 Para adicionar manualmente um único apontamento:
 
-1. carregue o catálogo;
-2. clique em **Single tile**;
-3. clique no ponto desejado no mapa;
-4. revise a posição;
-5. clique em **Accept proposal**.
+1. clique em **Single tile** — não é necessário carregar um catálogo;
+2. clique no ponto desejado no mapa;
+3. revise a posição;
+4. clique em **Accept proposal**.
 
 O campo entrará na proposta da mesma forma que os campos gerados automaticamente.
 
@@ -268,6 +268,8 @@ O campo entrará na proposta da mesma forma que os campos gerados automaticament
 Se você já possui uma lista de coordenadas, use:
 
 **Import centers**
+
+Não é necessário carregar um catálogo para importar centros.
 
 Cole as coordenadas no campo **Paste centers**.
 
@@ -312,7 +314,7 @@ Não dependa da página aberta como forma de salvar o trabalho.
 Antes de usar o arquivo para observação, confira:
 
 - [ ] O perfil mostrado é **S-PLUS / T80-South**.
-- [ ] O catálogo correto foi carregado.
+- [ ] Se estiver continuando um projeto existente, o catálogo correto foi carregado.
 - [ ] A região selecionada é a região que deseja observar.
 - [ ] Os novos tiles foram revisados visualmente.
 - [ ] A cobertura final indicada é adequada ao objetivo.
@@ -325,27 +327,17 @@ Antes de usar o arquivo para observação, confira:
 
 # Resumo em 30 segundos
 
-Para o uso normal:
+Confirme o perfil ativo. Se estiver continuando um projeto existente, carregue também o catálogo correspondente; para iniciar um projeto novo, deixe o catálogo vazio.
 
-**1. Load catalogue**  
-Carregue o catálogo atual.
+**1. Select area:** desenhe no céu a região que quer cobrir.
 
-**2. Select area**  
-Desenhe no céu a região que quer completar.
+**2. Coverage strategy:** escolha **Complete coverage** para cobertura amostrada exaustiva ou **Efficient coverage** para reduzir exposições.
 
-**3. Generate plan**  
-Deixe o Jasytata calcular os novos campos.
+**3. Generate plan:** revise a proposta e a cobertura estimada.
 
-**4. Revise o mapa**  
-Confira os novos tiles.
+**4. Accept proposal:** desabilite os tiles indesejados, se necessário.
 
-**5. Accept proposal**  
-Aceite a proposta.
+**5. Download new_tiles.csv:** salve a lista final de centros habilitados.
 
-**6. Disable tile**, se necessário  
-Retire campos que não deseja observar.
-
-**7. Download new_tiles.csv**  
-Salve a lista final.
 
 Pronto.

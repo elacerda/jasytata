@@ -8,7 +8,7 @@
 
 **Browser-based telescope pointing and coverage planner**
 
-Jasytata plans telescope pointings and sky coverage from catalogue CSV files. Its scientific computations run in the browser using React and TypeScript. The application needs no backend, server, Python, database, secrets, or server-side filesystem.
+Jasytata plans telescope pointings and sky coverage. Use it to extend an existing pointing catalogue or create a new tiling plan from an instrument profile. Scientific computations run in the browser with React and TypeScript; Jasytata is a static application with no backend, server, Python, database, secrets, or server-side filesystem.
 
 **Public application:** <https://elacerda.github.io/jasytata/>
 
@@ -22,20 +22,23 @@ User guide: [T80-South User Guide](docs/T80_SOUTH_USER_GUIDE.md)
 
 ## Features
 
+- Optionally load one or more CSV catalogues, each with independent visibility and metadata, to extend a project; new projects can use the active tile profile alone.
+- Extend a compatible local grid from catalogue pointings, or use the active profile grid for new projects and when a local grid cannot be inferred.
 - Display catalogue footprints on an Aladin Lite sky map, inspect ICRS positions, and select a polygon.
-- Load multiple CSV catalogues with independent visibility and metadata.
-- Parse common decimal and sexagesimal RA/DEC formats in the browser.
-- Infer a local S-PLUS/T80-South grid or use the profile fallback, then review proposed centers and sampled coverage.
-- Accept and reversibly edit a proposal without changing original catalogue rows.
-- Export enabled proposed centers as decimal-degree or sexagesimal CSV.
+- Choose **Complete** or **Efficient** sampled-coverage planning.
+- Add single pointings manually or import center lists; accept, review, and reversibly adjust proposals without changing original catalogue rows.
+- Parse common decimal and sexagesimal RA/DEC formats and export enabled centers as CSV.
+- Run as a browser-only static application, including deployment on GitHub Pages; Jasytata needs no server.
 
-Typical workflow: load a catalogue, select a region, generate and review a plan, accept it, adjust proposed fields if needed, and export the enabled centers. Session state is held in the browser and is cleared when the page reloads.
+Typical workflow: choose the active profile → optionally load an existing catalogue → select a region → choose a coverage strategy → generate and review the plan → adjust proposals → export enabled centers. Session state is held in the browser and is cleared when the page reloads.
 
 The supplied reference catalogue is bundled at `frontend/public/data/tiles_nc.csv`. Choose **Load reference** to try the application without preparing a CSV file.
 
 ## Scientific behavior
 
 The default profile is **S-PLUS / T80-South**: 1.4° × 1.4° tile footprints with 120 arcseconds effective overlap and the `SPLUS_LEGACY_GRID_V1` fallback geometry. Planning first checks actual input pointings for a compatible local lattice. Candidate selection and coverage sampling run entirely in TypeScript. Coverage is a declination-weighted sample estimate, not a formal completeness certification.
+
+**Complete coverage** is the default and attempts to cover every sampled point in the selected region. **Efficient coverage** uses the same planner and candidate ordering, but may stop once sampled coverage reaches at least 99.5% if the next tile would cover less than 3% of its physical footprint as new area inside the selected region. Efficient trades small residual uncovered regions for fewer exposures and does not assess their topology or scientific importance. Choose Complete when exhaustive sampled coverage is needed.
 
 The compatibility decisions and limitations are described in [Scientific and planning algorithms](docs/ALGORITHM.md). The committed `frontend/src/data/golden.json` preserves former Python reference inputs and compatible behavior such as coordinate parsing, catalogue semantics, legacy grid geometry, and historical recovery centers. Reviewed expectations for the current sampled-coverage planner live in `frontend/src/data/planner-contract.json`.
 

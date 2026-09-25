@@ -49,7 +49,7 @@ describe("backend-off application workflow", () => {
   it("switches real zero-catalogue plans from Complete to Efficient", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByText("Profile only · no original tiles");
+    await screen.findByText("Profile active · no catalogue loaded");
     await user.click(screen.getByRole("button", { name: "Draw empty rectangle" }));
     expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeChecked();
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -79,7 +79,7 @@ describe("backend-off application workflow", () => {
     render(<App />);
 
     expect(await screen.findByText("OPTIONAL")).toBeTruthy();
-    expect(await screen.findByText("Profile only · no original tiles")).toBeTruthy();
+    expect(await screen.findByText("Profile active · no catalogue loaded")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /select area/i }));
     await user.click(screen.getByRole("button", { name: "Draw profile fallback region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
