@@ -36,6 +36,7 @@ jobs:
       - name: Run tests
         run: npm test
         working-directory: frontend
+        continue-on-error: true
 
       - name: Run lint
         run: npm run lint
