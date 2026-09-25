@@ -107,10 +107,12 @@ export interface CompoundFootprintComponent {
   footprint: NonCompoundFootprint;
 }
 
-/** Mosaic union of non-compound child footprints. */
+/** Mosaic union of non-compound child footprints with optional parent rotation. */
 export interface CompoundFootprint {
   type: "compound";
   components: CompoundFootprintComponent[];
+  /** Parent angle in degrees east of north, applied to offsets and child shapes. */
+  position_angle_deg?: number;
 }
 
 /** A footprint that cannot contain another compound footprint. */

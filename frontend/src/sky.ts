@@ -1,4 +1,7 @@
-import type { SkyPolygon, TileRecord, TilingProfile } from "./types";
+import type { Footprint, SkyPolygon, TileRecord, TilingProfile } from "./types";
+import { footprintBoundary, localOffsetToSky } from "./science/footprint-engine";
+
+type FootprintGeometry = Footprint | Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">;
 
 /** Validate a small celestial polygon, including wrap and crossing edges.
  *
@@ -58,21 +61,36 @@ function intersects(a: readonly number[], b: readonly number[], c: readonly numb
   return cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0;
 }
 
-/** Return the approximate tile footprint, correcting RA width at the center declination.
+/** Project every physical footprint component to closed ICRS sky boundaries.
  *
  * @param tile - Center RA/DEC in degrees.
- * @param profile - Physical tile width and height in on-sky degrees.
- * @returns Closed five-vertex footprint in ICRS degrees.
+ * @param geometry - Schema v2 footprint or legacy rectangular tile dimensions.
+ * @returns One ordered sky boundary per detector component, in ICRS degrees.
  */
-export function tileFootprint(tile: Pick<TileRecord, "ra_deg" | "dec_deg">, profile: Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">): Array<[number, number]> {
-  const halfHeight = profile.tile_height_deg / 2;
-  const cosine = Math.max(Math.cos((tile.dec_deg * Math.PI) / 180), 0.01);
-  const halfRa = profile.tile_width_deg / 2 / cosine;
-  return [
-    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg - halfHeight],
-    [(tile.ra_deg + halfRa) % 360, tile.dec_deg - halfHeight],
-    [(tile.ra_deg + halfRa) % 360, tile.dec_deg + halfHeight],
-    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg + halfHeight],
-    [(tile.ra_deg - halfRa + 360) % 360, tile.dec_deg - halfHeight],
-  ];
+export function tileFootprintBoundaries(
+  tile: Pick<TileRecord, "ra_deg" | "dec_deg">,
+  geometry: FootprintGeometry,
+): Array<Array<[number, number]>> {
+  const footprint: Footprint = "type" in geometry
+    ? geometry
+    : { type: "rectangle", width_deg: geometry.tile_width_deg, height_deg: geometry.tile_height_deg };
+  return footprintBoundary(footprint).map((boundary) =>
+    boundary.map((offset) => localOffsetToSky(tile, offset)),
+  );
+}
+
+/** Return the first projected boundary for single-component footprint callers.
+ *
+ * Compound renderers must use {@link tileFootprintBoundaries} to retain every
+ * detector path and its physical gaps.
+ *
+ * @param tile - Center RA/DEC in degrees.
+ * @param geometry - Schema v2 footprint or legacy rectangular tile dimensions.
+ * @returns The first closed ICRS boundary in decimal degrees.
+ */
+export function tileFootprint(
+  tile: Pick<TileRecord, "ra_deg" | "dec_deg">,
+  geometry: FootprintGeometry,
+): Array<[number, number]> {
+  return tileFootprintBoundaries(tile, geometry)[0] ?? [];
 }

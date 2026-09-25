@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
+import { profileRegistry, T80_SOUTH_INSTRUMENT_V2 } from "./profiles";
 import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
 
 const aladinMocks = vi.hoisted(() => {
@@ -50,7 +51,7 @@ const profile: TilingProfile = {
   export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "SPLUS_LEGACY_GRID_V1",
 };
 
-function dataset(id: string, filename: string, visible = true): CatalogueDataset {
+function dataset(id: string, filename: string, visible = true, instrumentProfileId = "t80-south"): CatalogueDataset {
   const tile: TileRecord = {
     id: `${id}:1`, name: filename, ra_deg: 150, dec_deg: -30,
     source: "original", generation_method: null,
@@ -58,7 +59,7 @@ function dataset(id: string, filename: string, visible = true): CatalogueDataset
     metadata: { quality: "good" },
   };
   return { id, filename, color: id === "a" ? "cyan" : "violet", ra_column: "ra",
-    dec_column: "dec", instrument_profile_id: "t80-south", inference_role: "auto", tiles: [tile], visible };
+    dec_column: "dec", instrument_profile_id: instrumentProfileId, inference_role: "auto", tiles: [tile], visible };
 }
 
 describe("native Aladin catalogue layers", () => {
@@ -99,6 +100,30 @@ describe("native Aladin catalogue layers", () => {
     expect(aladinMocks.catalogues[0].hide).not.toHaveBeenCalled();
     view.rerender(<AladinMap {...base} datasets={[first, second]} />);
     expect(aladinMocks.catalogues[1].show).toHaveBeenCalled();
+  });
+
+  it("renders each dataset with its associated instrument footprint", async () => {
+    aladinMocks.instance.getFoV.mockReturnValue([30, 20]);
+    const instrumentProfileId = "aladin-circle-test-camera";
+    profileRegistry.registerInstrumentProfile({
+      ...T80_SOUTH_INSTRUMENT_V2,
+      id: instrumentProfileId,
+      display_name: "Aladin circle test camera",
+      footprint: { type: "circle", radius_deg: 0.2 },
+    });
+    const circular = dataset("circle", "circle.csv", true, instrumentProfileId);
+    const base = {
+      tiles: circular.tiles, datasets: [circular], profile, mode: "idle" as const,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0,
+      selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    render(<AladinMap {...base} />);
+    await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(1));
+    expect(aladinMocks.overlays[7].shapes).toHaveLength(1);
+    expect(aladinMocks.overlays[7].shapes[0]).toHaveLength(97);
+    aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
 
   it("uses Aladin's native polygon selector and clears only the region overlay", async () => {

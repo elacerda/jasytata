@@ -7,7 +7,9 @@ import type {
   AladinLiteSource,
 } from "aladin-lite";
 import type { CatalogueDataset, CenterInput, SkyPolygon, TileRecord, TilingProfile } from "./types";
-import { skyPolygonFromVertices, tileFootprint } from "./sky";
+import { skyPolygonFromVertices, tileFootprintBoundaries } from "./sky";
+import { footprintForTile } from "./profiles/footprints";
+import { profileRegistry } from "./profiles/registry";
 
 /** Map click behavior: normal inspection/pan or single-center placement. */
 export type MapMode = "idle" | "add-tile";
@@ -267,17 +269,32 @@ export default function AladinMap(props: AladinMapProps) {
       for (const dataset of current.datasets) {
         if (!dataset.visible) continue;
         const layer = datasetFootprintsRef.current.get(dataset.id);
-        dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => layer?.add(A.polyline(tileFootprint(tile, profile))));
+        const footprint = profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id).footprint;
+        dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => {
+          for (const boundary of tileFootprintBoundaries(tile, footprint)) layer?.add(A.polyline(boundary));
+        });
       }
       if (current.planningLayers.proposals) {
-        proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => proposedLayer.add(A.polyline(tileFootprint(tile, profile))));
-        proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => disabledLayer.add(A.polyline(tileFootprint(tile, profile))));
+        proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => {
+          const footprint = footprintForTile(tile, profile, profileRegistry);
+          for (const boundary of tileFootprintBoundaries(tile, footprint)) proposedLayer.add(A.polyline(boundary));
+        });
+        proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => {
+          const footprint = footprintForTile(tile, profile, profileRegistry);
+          for (const boundary of tileFootprintBoundaries(tile, footprint)) disabledLayer.add(A.polyline(boundary));
+        });
       }
       if (current.planningLayers.anchors) current.tiles
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
         .slice(0, 100)
-        .forEach((tile) => anchorLayer.add(A.polyline(tileFootprint(tile, profile))));
-      if (selected && visible(selected)) selectedLayer.add(A.polyline(tileFootprint(selected, profile)));
+        .forEach((tile) => {
+          const footprint = footprintForTile(tile, profile, profileRegistry);
+          for (const boundary of tileFootprintBoundaries(tile, footprint)) anchorLayer.add(A.polyline(boundary));
+        });
+      if (selected && visible(selected)) {
+        const footprint = footprintForTile(selected, profile, profileRegistry);
+        for (const boundary of tileFootprintBoundaries(selected, footprint)) selectedLayer.add(A.polyline(boundary));
+      }
       current.candidateCenters
         .filter((center) => current.planningLayers.lattice && visible(center))
         .slice(0, 1200)

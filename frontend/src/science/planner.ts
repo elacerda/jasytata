@@ -1,6 +1,6 @@
-import type { CenterInput, CoverageStrategy, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CenterInput, CoverageStrategy, Footprint, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { resolveProfile } from "../profiles";
-import { resolveGate2Rectangle } from "../profiles/footprints";
+import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
 import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
@@ -182,18 +182,27 @@ function compareLattices(left: Lattice, right: Lattice, profile: TilingProfile):
 
 function inferenceTileGroups(tiles: readonly TileRecord[], profile: TilingProfile, registry: ProfileRegistry): InferenceTileGroup[] {
   const activeInstrumentId = registry.findSurveyProfile(profile.id)?.instrument_id;
-  const sourceProfileCache = new Map<string, TilingProfile>();
-  const sourceProfileFor = (instrumentProfileId: string): TilingProfile => {
-    const cached = sourceProfileCache.get(instrumentProfileId);
-    if (cached) return cached;
-    const sourceProfile = resolveGate2Rectangle(instrumentProfileId, profile, registry);
+  const sourceProfileCache = new Map<string, TilingProfile | null>();
+  const sourceProfileFor = (instrumentProfileId: string): TilingProfile | null => {
+    if (sourceProfileCache.has(instrumentProfileId)) return sourceProfileCache.get(instrumentProfileId)!;
+    const footprint = registry.resolveInstrumentProfile(instrumentProfileId).footprint;
+    if (footprint.type !== "rectangle") {
+      sourceProfileCache.set(instrumentProfileId, null);
+      return null;
+    }
+    const normalizedAngle = ((footprint.position_angle_deg ?? 0) % 360 + 360) % 360;
+    if (Math.min(normalizedAngle, 360 - normalizedAngle) > 1e-12) {
+      sourceProfileCache.set(instrumentProfileId, null);
+      return null;
+    }
+    const sourceProfile = { ...profile, tile_width_deg: footprint.width_deg, tile_height_deg: footprint.height_deg };
     sourceProfileCache.set(instrumentProfileId, sourceProfile);
     return sourceProfile;
   };
   const compatibleInstrumentIds = [...new Set(tiles.flatMap((tile) => {
     if (tile.source !== "original" || !tile.instrument_profile_id || (tile.inference_role ?? "auto") !== "auto") return [];
     const geometry = sourceProfileFor(tile.instrument_profile_id);
-    return geometry.tile_width_deg === profile.tile_width_deg && geometry.tile_height_deg === profile.tile_height_deg
+    return geometry && geometry.tile_width_deg === profile.tile_width_deg && geometry.tile_height_deg === profile.tile_height_deg
       ? [tile.instrument_profile_id]
       : [];
   }))].sort((left, right) => left.localeCompare(right));
@@ -208,11 +217,12 @@ function inferenceTileGroups(tiles: readonly TileRecord[], profile: TilingProfil
     let key = unassociatedKey;
     let tileProfile = profile;
     if (tile.source === "original" && tile.instrument_profile_id) {
-      tileProfile = sourceProfileFor(tile.instrument_profile_id);
+      const sourceProfile = sourceProfileFor(tile.instrument_profile_id);
+      tileProfile = sourceProfile ?? profile;
       if (role === "auto") {
         const compatible = activeInstrumentId
           ? tile.instrument_profile_id === activeInstrumentId
-          : tileProfile.tile_width_deg === profile.tile_width_deg && tileProfile.tile_height_deg === profile.tile_height_deg;
+          : sourceProfile !== null && sourceProfile.tile_width_deg === profile.tile_width_deg && sourceProfile.tile_height_deg === profile.tile_height_deg;
         if (!compatible) continue;
       }
       key = `instrument:${tile.instrument_profile_id}`;
@@ -468,13 +478,13 @@ function nearestGapAnchor(gap: CoverageGap, localTiles: readonly TileRecord[], l
  * @param centers - Candidate ICRS centers in decimal degrees.
  * @param coverage - Current actual and planned coverage mask.
  * @param grid - Fine weighted ICRS sample grid.
- * @param profile - Physical tile dimensions in degrees.
+ * @param footprint - Active output footprint in the local tangent plane.
  * @returns Candidate centers paired with masks that provide positive incremental coverage.
  */
-function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array, grid: CoverageGrid, profile: TilingProfile): MaskedCenter[] {
+function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array, grid: CoverageGrid, footprint: Footprint): MaskedCenter[] {
   const useful: MaskedCenter[] = [];
   for (const center of centers) {
-    const mask = tileMask(grid, center[0], center[1], profile);
+    const mask = tileMask(grid, center[0], center[1], footprint);
     if (mask.some((covered, index) => Boolean(covered) && !coverage[index])) useful.push({ center, mask });
   }
   return useful;
@@ -498,7 +508,7 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param strategy - Sampled-coverage stopping policy; complete by default.
  * @param registry - Session-local registry used to resolve each source instrument.
  * @returns Deterministic proposal, candidate centers, inference audit, and coverage metrics.
- * @throws On invalid geometry, unknown instrument IDs, unsupported Gate 2 footprints,
+ * @throws On invalid geometry, unknown instrument IDs,
  *   too many input/candidate records, or sample limits.
  */
 export function planRegion(
@@ -512,6 +522,7 @@ export function planRegion(
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
   const profile = resolveProfile(profileId, inlineProfile);
+  const outputFootprint = outputFootprintForProfile(profile, registry);
   const activeTiles = existingTiles.filter((tile) => tile.enabled !== false);
   const bounds = polygonBounds(polygon);
   const centerRa = modulo(bounds.ra_start_deg + bounds.ra_span_deg / 2, 360);
@@ -553,16 +564,16 @@ export function planRegion(
   const grid = sampleRegion(polygon);
   const existingMask = coveredMask(grid, activeTiles, profile, registry);
   const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry);
-  const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, profile);
-  const primary = greedyChoose(primaryCandidates, existingMask, grid, profile, AUTOMATIC_COVERAGE_TARGET, strategy);
+  const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, outputFootprint);
+  const primary = greedyChoose(primaryCandidates, existingMask, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy);
   const primaryCoverage = combinedCoverageMask(existingMask, primary);
   const remainingGap = uncoveredSampleBounds(grid, primaryCoverage);
   let gapFill: MaskedCenter[] = [];
   if (remainingGap) {
     const anchor = nearestGapAnchor(remainingGap, latticeTiles.length ? latticeTiles : localTiles, lattice, uniqueCandidates);
     const supplementalCenters = gapFillCandidates(grid, remainingGap, anchor, profile, lattice);
-    const supplementalCandidates = usefulUncoveredCenters(supplementalCenters, primaryCoverage, grid, profile);
-    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, profile, AUTOMATIC_COVERAGE_TARGET, strategy);
+    const supplementalCandidates = usefulUncoveredCenters(supplementalCenters, primaryCoverage, grid, outputFootprint);
+    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy);
     if (gapFill.length) diagnostics.push(`Added ${gapFill.length} overlap-fill tile${gapFill.length === 1 ? "" : "s"} around the remaining sampled gaps, phased from ${lattice ? "the inferred existing grid" : "the active tile profile"}.`);
   }
   const chosen = [...primary, ...gapFill];
@@ -575,7 +586,7 @@ export function planRegion(
     generation_method: method, original_values: null, metadata: { solution, coverage_strategy: strategy },
   }));
   const candidateCenters: CenterInput[] = uniqueCandidates.map(([ra, dec]) => ({ ra_deg: ra, dec_deg: dec, label: null }));
-  const metrics = measureMetrics(chosen, existingMask, grid, contributing, profile);
+  const metrics = measureMetrics(chosen, existingMask, grid, contributing, outputFootprint);
   if (finalGap) diagnostics.push(`The proposal leaves sampled gaps covering ${(metrics.remaining_uncovered_fraction * 100).toFixed(3)}% of the selected area.`);
   if (!tiles.length) {
     diagnostics.push(finalGap

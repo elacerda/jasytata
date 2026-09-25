@@ -152,7 +152,12 @@ function validateFootprint(value: unknown): Footprint {
   const footprint = requireRecord(value, "Instrument footprint");
   if (footprint.type !== "compound") return validateNonCompoundFootprint(footprint, "Instrument footprint");
   if (!Array.isArray(footprint.components) || footprint.components.length === 0) throw new Error("Compound footprint must have at least one component");
-  const result: CompoundFootprint = { type: "compound", components: footprint.components.map(validateCompoundComponent) };
+  const positionAngle = validateOptionalAngle(footprint.position_angle_deg, "Compound position angle");
+  const result: CompoundFootprint = {
+    type: "compound",
+    components: footprint.components.map(validateCompoundComponent),
+    ...(positionAngle !== undefined ? { position_angle_deg: positionAngle } : {}),
+  };
   return result;
 }
 

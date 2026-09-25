@@ -1,4 +1,5 @@
-import type { SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { Footprint, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import { footprintIntersectsRegion } from "./footprint-engine";
 import { modulo, radians, degrees, wrappedRaDelta } from "./math";
 
 /** Eastward ICRS bounds of an ordered sky polygon, with RA crossing zero if needed. */
@@ -109,63 +110,23 @@ export function angularSeparationDeg(raA: number, decA: number, raB: number, dec
   return degrees(2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, haversine)))));
 }
 
-/** Planar positive-area intersection of an ICRS polygon and one tile footprint.
- * @param vertices - Polygon vertices in one continuous local [RA, DEC] frame, degrees.
- * @param tile - Actual ICRS tile center in decimal degrees.
- * @param profile - Axis-aligned physical footprint width/height in degrees.
- * @param centerRa - Midpoint of that unwrapped RA frame in degrees.
- * @returns Clipped planar RA/DEC area in square degrees; only positivity is used.
- */
-export function clippedFootprintArea(vertices: readonly Point[], tile: Pick<TileRecord, "ra_deg" | "dec_deg">, profile: TilingProfile, centerRa: number): number {
-  const ra = centerRa + wrappedRaDelta(tile.ra_deg, centerRa);
-  const halfRa = profile.tile_width_deg / (2 * Math.max(Math.cos(radians(tile.dec_deg)), 0.01));
-  const boundaries: Array<[0 | 1, number, boolean]> = [
-    [0, ra - halfRa, true], [0, ra + halfRa, false],
-    [1, tile.dec_deg - profile.tile_height_deg / 2, true], [1, tile.dec_deg + profile.tile_height_deg / 2, false],
-  ];
-  let clipped: Point[] = [...vertices];
-  for (const [axis, boundary, keepGreater] of boundaries) {
-    if (!clipped.length) return 0;
-    const result: Point[] = [];
-    let previous = clipped[clipped.length - 1];
-    let previousInside = keepGreater ? previous[axis] >= boundary : previous[axis] <= boundary;
-    for (const current of clipped) {
-      const currentInside = keepGreater ? current[axis] >= boundary : current[axis] <= boundary;
-      if (currentInside !== previousInside) {
-        const fraction = (boundary - previous[axis]) / (current[axis] - previous[axis]);
-        result.push([
-          previous[0] + fraction * (current[0] - previous[0]),
-          previous[1] + fraction * (current[1] - previous[1]),
-        ]);
-      }
-      if (currentInside) result.push(current);
-      previous = current; previousInside = currentInside;
-    }
-    clipped = result;
-  }
-  if (clipped.length < 3) return 0;
-  const [originX, originY] = clipped[0];
-  let doubledArea = 0;
-  for (let index = 0; index < clipped.length; index += 1) {
-    const point = clipped[index]; const next = clipped[(index + 1) % clipped.length];
-    doubledArea += (point[0] - originX) * (next[1] - originY) - (next[0] - originX) * (point[1] - originY);
-  }
-  return Math.abs(doubledArea) / 2;
-}
-
 /** Count real tile footprints intersecting positive polygon area, independent of samples.
  * @param polygon - Validated ordered ICRS polygon in degrees.
  * @param tiles - Enabled original or accepted pointings in ICRS degrees.
- * @param profile - Physical tile geometry in degrees.
+ * @param geometry - Schema v2 footprint or legacy rectangular tile dimensions.
  * @returns Number of actual footprints with positive selected-area overlap.
  */
-export function contributingTileCount(polygon: SkyPolygon, tiles: readonly TileRecord[], profile: TilingProfile): number {
-  const { bounds, originRaDeg, ra } = polygonLocalGeometry(polygon);
-  const centerRa = originRaDeg + bounds.ra_span_deg / 2;
-  const vertices: Point[] = polygon.vertices.map((vertex, index) => [originRaDeg + ra[index], vertex.dec_deg]);
+export function contributingTileCount(
+  polygon: SkyPolygon,
+  tiles: readonly TileRecord[],
+  geometry: Footprint | Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">,
+): number {
+  const footprint: Footprint = "type" in geometry
+    ? geometry
+    : { type: "rectangle", width_deg: geometry.tile_width_deg, height_deg: geometry.tile_height_deg };
   let contributing = 0;
   for (const tile of tiles) {
-    if (clippedFootprintArea(vertices, tile, profile, centerRa) > 1e-12) contributing += 1;
+    if (footprintIntersectsRegion(footprint, tile, polygon)) contributing += 1;
   }
   return contributing;
 }

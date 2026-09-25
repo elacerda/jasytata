@@ -1,34 +1,43 @@
-import type { TilingProfile } from "../types";
+import type { Footprint, TileRecord, TilingProfile } from "../types";
 import { profileRegistry, type ProfileRegistry } from "./registry";
 
-/** Resolve the axis-aligned rectangle used by Gate 2 coverage and inference.
+/** Resolve the physical footprint for the currently selected survey profile.
  *
- * @param instrumentProfileId - Registered instrument associated with a source dataset.
- * @param outputProfile - Active output profile whose non-geometric policies are retained.
- * @param registry - Browser-memory profile registry.
- * @returns Output-profile copy with source rectangle dimensions in degrees.
- * @throws If the instrument is unknown, non-rectangular, or rotated beyond Gate 2 support.
+ * Schema v2 survey profiles link to an instrument geometry by ID. Session-only
+ * v1 profiles have no such link and retain their rectangular dimensions.
+ *
+ * @param profile - Active planner profile, whose ID selects a registered survey when present.
+ * @param registry - Browser-memory registry for survey and instrument profiles.
+ * @returns The active instrument footprint, or the profile's rectangular footprint.
+ * @throws If the survey refers to an unknown instrument.
  */
-export function resolveGate2Rectangle(
-  instrumentProfileId: string,
+export function outputFootprintForProfile(
+  profile: TilingProfile,
+  registry: ProfileRegistry = profileRegistry,
+): Footprint {
+  const survey = registry.findSurveyProfile(profile.id);
+  if (survey) return registry.resolveInstrumentProfile(survey.instrument_id).footprint;
+  return { type: "rectangle", width_deg: profile.tile_width_deg, height_deg: profile.tile_height_deg };
+}
+
+/** Resolve the footprint used to cover a tile record.
+ *
+ * Associated original rows use their dataset instrument. Proposals and
+ * unassociated rows use the active output instrument.
+ *
+ * @param tile - Existing source or proposed tile record.
+ * @param outputProfile - Active planner profile for proposals and unassociated rows.
+ * @param registry - Browser-memory registry for instrument profiles.
+ * @returns The source instrument footprint or active output footprint.
+ * @throws If an associated source instrument is unknown.
+ */
+export function footprintForTile(
+  tile: TileRecord,
   outputProfile: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
-): TilingProfile {
-  const instrument = registry.resolveInstrumentProfile(instrumentProfileId);
-  if (instrument.footprint.type !== "rectangle") {
-    throw new Error(
-      `Unsupported Gate 2 footprint for instrument profile "${instrument.id}": ${instrument.footprint.type}. Only rectangular footprints are supported.`,
-    );
+): Footprint {
+  if (tile.source === "original" && tile.instrument_profile_id) {
+    return registry.resolveInstrumentProfile(tile.instrument_profile_id).footprint;
   }
-  const positionAngle = instrument.footprint.position_angle_deg;
-  if (positionAngle !== undefined && Math.abs(((positionAngle % 360) + 360) % 360) > 1e-12) {
-    throw new Error(
-      `Unsupported Gate 2 footprint rotation for instrument profile "${instrument.id}". Only axis-aligned rectangles are supported.`,
-    );
-  }
-  return {
-    ...outputProfile,
-    tile_width_deg: instrument.footprint.width_deg,
-    tile_height_deg: instrument.footprint.height_deg,
-  };
+  return outputFootprintForProfile(outputProfile, registry);
 }

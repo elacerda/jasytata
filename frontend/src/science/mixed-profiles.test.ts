@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import golden from "../data/golden.json";
 import referenceCsv from "../../public/data/tiles_nc.csv?raw";
 import { createDataset } from "../datasets";
-import { createBundledProfileRegistry, profileRegistry, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry, profileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
 import { ProfileRegistry } from "../profiles/registry";
 import { loadReferenceCatalogue } from "../api";
 import { parseCatalogueCsv } from "./catalogue";
-import { coveredMask, measureActiveCoverage, tileMask, type CoverageGrid } from "./coverage";
+import { contributingTileCountForTiles, coveredMask, measureActiveCoverage, tileMask, type CoverageGrid } from "./coverage";
 import { planRegion } from "./planner";
 import type { CatalogueResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 
@@ -203,34 +203,135 @@ describe("Gate 2 dataset and instrument separation", () => {
     expect(plan.metrics.existing_tiles_contributing).toBe(1);
   });
 
-  it("fails clearly for a non-rectangle source footprint", () => {
+  it("covers mixed source footprints and keeps source geometry independent from output geometry", () => {
     const registry = createBundledProfileRegistry();
     registry.registerInstrumentProfile({
       ...T80_SOUTH_INSTRUMENT_V2,
       id: "circle-camera",
       display_name: "Circular camera",
-      footprint: { type: "circle", radius_deg: 0.2 },
+      footprint: { type: "circle", radius_deg: 0.1 },
     });
-    const polygon: SkyPolygon = { vertices: [
-      { ra_deg: 149.98, dec_deg: -24.02 },
-      { ra_deg: 150.02, dec_deg: -24.02 },
-      { ra_deg: 150.02, dec_deg: -23.98 },
-      { ra_deg: 149.98, dec_deg: -23.98 },
+    registry.registerInstrumentProfile({
+      ...T80_SOUTH_INSTRUMENT_V2,
+      id: "polygon-camera",
+      display_name: "Polygon camera",
+      footprint: { type: "polygon", vertices_deg: [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]] },
+    });
+    registry.registerInstrumentProfile({
+      ...T80_SOUTH_INSTRUMENT_V2,
+      id: "mosaic-camera",
+      display_name: "Mosaic camera",
+      footprint: { type: "compound", components: [
+        { offset_deg: [-0.25, 0], footprint: { type: "rectangle", width_deg: 0.2, height_deg: 0.2 } },
+        { offset_deg: [0.25, 0], footprint: { type: "rectangle", width_deg: 0.2, height_deg: 0.2 } },
+      ] },
+    });
+    registry.registerInstrumentProfile({
+      ...T80_SOUTH_INSTRUMENT_V2,
+      id: "output-camera",
+      display_name: "Independent output camera",
+      footprint: { type: "circle", radius_deg: 0.04 },
+    });
+    registry.registerSurveyProfile({
+      ...SPLUS_SURVEY_V2,
+      id: "independent-output-survey",
+      display_name: "Independent output survey",
+      instrument_id: "output-camera",
+    });
+
+    const grid: CoverageGrid = {
+      ra: Float64Array.from([359.95, 0.03, 0.07, 0.3, 0.5, 0.75, 1, 1.03, 1.25]),
+      dec: Float64Array.from([0, 0, 0, 0, 0, 0, 0, 0, 0]),
+      weights: Float64Array.from([1, 1, 1, 1, 1, 1, 1, 1, 1]),
+      totalWeight: 9,
+      stepDeg: 0.01,
+      centerRaDeg: 0.4,
+      centerDecDeg: 0,
+      raSpanDeg: 1.3,
+      decMinDeg: 0,
+      decMaxDeg: 0,
+      cellAreaDeg2: 0.0001,
+    };
+    const sources = [
+      sourceTile("circle-source", 359.99, 0, "circle-camera", "exclude"),
+      sourceTile("polygon-source", 0.4, 0, "polygon-camera", "exclude"),
+      sourceTile("mosaic-source", 1, 0, "mosaic-camera", "exclude"),
+    ];
+    const activeOutput = { ...rectangularProfile(0.4, 0.4), id: "independent-output-survey" };
+    const proposal = sourceTile("output-proposal", 1.03, 0, "mosaic-camera", "exclude");
+    proposal.source = "proposed";
+    proposal.instrument_profile_id = "mosaic-camera";
+
+    expect([...coveredMask(grid, sources, activeOutput, registry)]).toEqual([1, 1, 1, 1, 1, 1, 0, 0, 1]);
+    expect([...coveredMask(grid, [proposal], activeOutput, registry)]).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 0]);
+
+    const proposalRegion: SkyPolygon = { vertices: [
+      { ra_deg: 0.98, dec_deg: -0.05 }, { ra_deg: 1.08, dec_deg: -0.05 },
+      { ra_deg: 1.08, dec_deg: 0.05 }, { ra_deg: 0.98, dec_deg: 0.05 },
     ] };
-    const rectangleCoverer = sourceTile("t80-coverer", 150, -24, "t80-south");
-    const excludedCircle = sourceTile("circle-source", 150, -24, "circle-camera", "exclude");
+    const planningRegistry = new ProfileRegistry();
+    planningRegistry.registerInstrumentProfile({
+      ...T80_SOUTH_INSTRUMENT_V2,
+      id: "small-output-camera",
+      display_name: "Small circular output camera",
+      footprint: { type: "circle", radius_deg: 0.04 },
+    });
+    planningRegistry.registerSurveyProfile({
+      ...SPLUS_SURVEY_V2,
+      display_name: "Small circular output survey",
+      instrument_id: "small-output-camera",
+    });
+    const plan = planRegion(proposalRegion, [], undefined, undefined, "complete", planningRegistry);
+    expect(plan.tiles.length).toBeGreaterThan(0);
+    expect(plan.metrics).toEqual(measureActiveCoverage(
+      proposalRegion,
+      [],
+      plan.tiles,
+      undefined,
+      undefined,
+      planningRegistry,
+    ));
+    expect(plan.metrics.selected_region_coverage).toBeLessThan(1);
 
-    expect(() => measureActiveCoverage(polygon, [rectangleCoverer, excludedCircle], [], undefined, undefined, registry))
-      .toThrow(/Unsupported Gate 2 footprint.*circle.*Only rectangular footprints are supported/);
+    const acrossRaZero: SkyPolygon = { vertices: [
+      { ra_deg: 359.8, dec_deg: -0.2 }, { ra_deg: 1.4, dec_deg: -0.2 },
+      { ra_deg: 1.4, dec_deg: 0.2 }, { ra_deg: 359.8, dec_deg: 0.2 },
+    ] };
+    expect(contributingTileCountForTiles(acrossRaZero, sources, activeOutput, registry)).toBe(3);
+  });
 
+  it("uses the active rotated output rectangle for proposed coverage", () => {
+    const registry = createBundledProfileRegistry();
     registry.registerInstrumentProfile({
       ...T80_SOUTH_INSTRUMENT_V2,
       id: "rotated-camera",
       display_name: "Rotated camera",
-      footprint: { type: "rectangle", width_deg: 0.4, height_deg: 0.3, position_angle_deg: 30 },
+      footprint: { type: "rectangle", width_deg: 0.4, height_deg: 0.1, position_angle_deg: 90 },
     });
-    const rotatedTile = sourceTile("rotated-source", 150, -24, "rotated-camera");
-    expect(() => measureActiveCoverage(polygon, [rotatedTile], [], undefined, undefined, registry))
-      .toThrow(/Unsupported Gate 2 footprint rotation/);
+    registry.registerSurveyProfile({
+      ...SPLUS_SURVEY_V2,
+      id: "rotated-output-survey",
+      display_name: "Rotated output survey",
+      instrument_id: "rotated-camera",
+    });
+    const grid: CoverageGrid = {
+      ra: Float64Array.from([149.7, 150, 150.3]),
+      dec: Float64Array.from([-24, -23.8, -24]),
+      weights: Float64Array.from([1, 1, 1]),
+      totalWeight: 3,
+      stepDeg: 0.01,
+      centerRaDeg: 150,
+      centerDecDeg: -24,
+      raSpanDeg: 0.6,
+      decMinDeg: -24,
+      decMaxDeg: -23.8,
+      cellAreaDeg2: 0.0001,
+    };
+    const output = { ...rectangularProfile(0.4, 0.1), id: "rotated-output-survey" };
+    expect([...tileMask(grid, 150, -24, registry.resolveInstrumentProfile("rotated-camera").footprint)])
+      .toEqual([0, 1, 0]);
+    const proposal = sourceTile("rotated-proposal", 150, -24, "rotated-camera", "exclude");
+    proposal.source = "proposed";
+    expect([...coveredMask(grid, [proposal], output, registry)]).toEqual([0, 1, 0]);
   });
 });

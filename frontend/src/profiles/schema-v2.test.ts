@@ -85,12 +85,14 @@ describe("Profile Schema v2", () => {
   it("validates compound children and rejects empty or nested compounds", () => {
     const mosaic = {
       type: "compound",
+      position_angle_deg: 10,
       components: [
         { offset_deg: [-0.5, 0], rotation_deg: 15, footprint: { type: "rectangle", width_deg: 1, height_deg: 1 } },
         { offset_deg: [0.5, 0], footprint: { type: "circle", radius_deg: 0.4 } },
       ],
     };
     expect(validateInstrumentProfileV2(instrumentWithFootprint(mosaic)).footprint).toEqual(mosaic);
+    expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ ...mosaic, position_angle_deg: Number.NaN }))).toThrow(/finite/);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "compound", components: [] }))).toThrow(/at least one/);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({
       type: "compound", components: [{ offset_deg: [0, 0], footprint: { type: "compound", components: [] } }],

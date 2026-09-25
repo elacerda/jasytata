@@ -11,8 +11,9 @@ policies without duplicating its geometry.
 Instrument positions use the canonical ICRS celestial frame. Footprint vertices
 and component offsets use a local tangent plane centered on the telescope
 pointing, in degrees as `[east, north]`. Position angles and component rotations
-are degrees east of north. These conventions define the data contract; Gate 1
-does not project or render these shapes on the sky.
+are astronomical degrees east of north: PA 0° leaves local north unchanged,
+and positive PA rotates local north toward east. These conventions define the
+data contract.
 
 The `Footprint` discriminated union supports rectangles, circles, polygons, and
 compound footprints. Rectangle width and height and circle radius are angular
@@ -20,9 +21,33 @@ degrees. Polygon vertices are distinct east/north offsets and describe a simple
 closed boundary whose final edge back to the first vertex is implicit.
 
 A compound footprint is a union of child footprints. Each child is translated
-by its local east/north offset and may be rotated about its own center. Child
-footprints cannot themselves be compound in v2, so detector gaps can be
-represented without recursive mosaics.
+by its local east/north offset and may be rotated about its own center. An
+optional compound PA rotates both the child offsets and child shapes; each
+child's rotation then composes with the parent PA. Child footprints cannot
+themselves be compound in v2, so detector gaps can be represented without
+recursive mosaics.
+
+## Gate 3 geometry behavior
+
+The shared footprint engine uses the local tangent-plane model above for point
+coverage, region intersection, physical area, and display boundaries. Rectangle
+containment uses width and height; circle containment uses exact local distance
+and its area is `πr²`; polygon containment uses an even-odd crossing rule and
+absolute shoelace area. Polygon vertex order is retained. A point on a polygon
+edge or vertex counts as inside.
+
+Compound coverage and display are the union of child detector shapes. Gaps
+between components stay uncovered. Compound area is a deterministic adaptive
+estimate of the union, so overlapping children are not double-counted; its
+boundary-cell resolution is 1/4096 of the compound bounding-box scale. Circle
+boundaries are sampled for display only; their containment and area do not use
+those samples.
+
+Local offsets are translated to ICRS using wrapped RA and a tangent
+approximation scaled by `max(cos(DEC), 0.01)`. This avoids a singular RA scale
+near the poles and preserves RA-zero wrapping, but it is not exact spherical
+geometry. Region intersection and rendered boundaries share this projection;
+no celestial polygon clipping is performed.
 
 ## Survey policies
 
