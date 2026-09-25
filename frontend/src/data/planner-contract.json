@@ -1,5 +1,5 @@
 {
-  "source": "Reviewed current sampled-coverage contract; former Python inputs remain in golden.json",
+  "source": "v0.2.0 T80-South sampled-coverage compatibility contract at commit 899d8ea19bc07c10c4d3530de0656c5ee10664f7; former Python inputs remain in golden.json",
   "plans": {
     "splus_b_single": { "new_tiles": 3, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.06559 },
     "splus_b_three_holes": { "new_tiles": 10, "selected_region_area_deg2": 6.1221, "sample_step_deg": 0.01, "already_covered_fraction": 0.05419 },

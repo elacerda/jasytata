@@ -45,7 +45,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-describe("backend-off application workflow", () => {
+describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
   it("switches real zero-catalogue plans from Complete to Efficient", async () => {
     const user = userEvent.setup();
     render(<App />);

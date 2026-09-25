@@ -1,5 +1,5 @@
 {
-  "source": "Reviewed Efficient v1 sampled-coverage outcomes; Complete expectations remain in planner-contract.json",
+  "source": "v0.2.0 T80-South Efficient v1 sampled-coverage compatibility outcomes at commit 899d8ea19bc07c10c4d3530de0656c5ee10664f7; Complete expectations remain in planner-contract.json",
   "plans": {
     "large_overlap": { "complete_tiles": 40, "efficient_tiles": 20, "efficient_coverage": 0.997061 },
     "empty_rectangle": { "complete_tiles": 15, "efficient_tiles": 14, "efficient_coverage": 0.997791 },

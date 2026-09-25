@@ -53,7 +53,7 @@ function nextTileEfficiency(polygon: SkyPolygon, existing: TileRecord[], selecte
   return { coverage: coveredWeight / grid.totalWeight, efficiency: gain * grid.cellAreaDeg2 / (profile.tile_width_deg * profile.tile_height_deg) };
 }
 
-describe("efficient coverage contract", () => {
+describe("v0.2.0 T80-South Efficient coverage contract", () => {
   it.each(Object.entries(contract.plans))("matches %s without changing candidates or selected prefixes", (id, expected) => {
     const { polygon, existing, profile } = fixtureInputs(id);
     const complete = planRegion(polygon, existing, profile ? "custom" : undefined, profile);

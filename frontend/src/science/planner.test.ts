@@ -118,7 +118,7 @@ function planMatchesContract(actual: RegionPlanResponse, expected: {
   expect(measureActiveCoverage(polygon, existing, actual.tiles, profile ? "custom" : undefined, profile)).toEqual(actual.metrics);
 }
 
-describe("current planner contract with former Python lattice references", () => {
+describe("v0.2.0 T80-South planner contract with former Python lattice references", () => {
   it.each(golden.historical_cases)("matches historical case $id", (fixture) => {
     const existing = fixture.existing_names.map((name) => byName.get(name)!);
     planMatchesContract(planRegion(fixture.polygon, existing), fixture, fixture.id as keyof typeof currentContract.plans, existing, fixture.polygon);
@@ -177,7 +177,7 @@ describe("current planner contract with former Python lattice references", () =>
   });
 });
 
-describe("current direct coverage contract", () => {
+describe("v0.2.0 T80-South direct coverage contract", () => {
   it.each(golden.coverage_cases)("matches coverage case $id", (fixture) => {
     const existing = fixture.existing_tiles as unknown as TileRecord[];
     const proposed = fixture.proposed_tiles as unknown as TileRecord[];
@@ -195,7 +195,7 @@ describe("current direct coverage contract", () => {
   });
 });
 
-describe("scientific geometry and coverage contracts", () => {
+describe("v0.2.0 T80-South scientific geometry and coverage contracts", () => {
   it("samples the full sexagesimal polygon and plans across its interior", () => {
     const grid = sampleRegion(widePolygon);
     const area = grid.totalWeight * grid.cellAreaDeg2;

@@ -15,7 +15,7 @@ function closeDegrees(actual: number, expected: number): void {
   expect(Math.abs(actual - expected)).toBeLessThanOrEqual(1e-10);
 }
 
-describe("Python coordinate reference fixtures", () => {
+describe("v0.2.0 T80-South compatibility: Python coordinate references", () => {
   it("matches decimal, sexagesimal, hours, and RA wrap outputs", () => {
     for (const row of golden.coordinates) {
       closeDegrees(parseRaDegrees(row.input[0], row.input[2] as RaUnit), row.ra_deg);
@@ -37,7 +37,7 @@ describe("Python coordinate reference fixtures", () => {
   });
 });
 
-describe("Python catalogue and profile reference fixtures", () => {
+describe("v0.2.0 T80-South compatibility: catalogue and profile references", () => {
   it("parses all 4,774 bundled reference rows without a backend", () => {
     const result = parseCatalogueCsv(bytes(referenceCsv), "tiles_nc.csv");
     expect(result.row_count).toBe(4774);
@@ -96,7 +96,7 @@ describe("Python catalogue and profile reference fixtures", () => {
   });
 });
 
-describe("Python generic CSV reference fixtures", () => {
+describe("v0.2.0 T80-South compatibility: decimal and sexagesimal exports", () => {
   const proposal = { id: "proposal-1", name: "", ra_deg: 150.5, dec_deg: -24.25, source: "proposed" as const, enabled: true, generation_method: "manual" as const, original_values: null, metadata: {} };
   it("matches exact CRLF, fields, digits and sexagesimal formatting", () => {
     expect(buildExportCsv([proposal], "splus-t80-south", undefined, "decimal")).toBe(golden.exports.decimal);
@@ -112,7 +112,7 @@ describe("Python generic CSV reference fixtures", () => {
   });
 });
 
-describe("geometry references reserved for the planner port", () => {
+describe("v0.2.0 T80-South compatibility: coordinate geometry", () => {
   it("matches Python bounds across RA zero exactly within floating-point tolerance", () => {
     const bounds = polygonBounds({ vertices: [
       { ra_deg: 359.2, dec_deg: -30 }, { ra_deg: 0.8, dec_deg: -30 },

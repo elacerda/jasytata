@@ -149,7 +149,7 @@ function makePlan(count: number): RegionPlanResponse {
   };
 }
 
-describe("Jasytata proposal workflow", () => {
+describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.loadDefaultProfile.mockResolvedValue({
