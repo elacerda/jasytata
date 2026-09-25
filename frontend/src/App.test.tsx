@@ -192,6 +192,99 @@ describe("Jasytata proposal workflow", () => {
     expect(apiMocks.validateCustomProfile).not.toHaveBeenCalled();
   });
 
+  it("allows manual and imported proposals with an optional empty catalogue", async () => {
+    const user = userEvent.setup();
+    apiMocks.parseCenters.mockResolvedValue([
+      { ra_deg: 150.7708333, dec_deg: -23.9086111, label: "Line 2" },
+    ]);
+    render(<App />);
+
+    expect(await screen.findByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
+    expect(screen.getByText("OPTIONAL")).toBeTruthy();
+    expect(screen.getByText(/Load an existing catalogue to extend a project, or start a new plan from the active tile profile/)).toBeTruthy();
+    expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("0");
+
+    await user.click(screen.getByRole("button", { name: /single tile/i }));
+    expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("add-tile:false:0");
+    await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+    expect(await screen.findByText("Manual sky positions are ready for review.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+
+    await user.click(screen.getByRole("button", { name: /import centers/i }));
+    expect(screen.getByLabelText("RA and DEC pairs")).toBeEnabled();
+    await user.type(screen.getByLabelText("RA and DEC pairs"), "10:03:05, -23:54:31");
+    await user.click(screen.getByRole("button", { name: "Validate and preview" }));
+    expect(await screen.findByText("1 valid center parsed. Review the list, then stage it.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Stage import preview" }));
+    expect(await screen.findByText("Imported centers are ready for review.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+    expect(screen.getByText("2 enabled · 0 disabled")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ generation_method: "manual" }),
+        expect.objectContaining({ generation_method: "imported_centers" }),
+      ]),
+      "splus-t80-south", "2000", "decimal",
+    );
+  });
+
+  it("selects an area and plans from the active profile when no catalogue is loaded", async () => {
+    const user = userEvent.setup();
+    const fallback = makePlan(2);
+    apiMocks.planRegion.mockResolvedValueOnce({
+      ...fallback,
+      solution: "profile_fallback",
+      generation_method: "region_legacy",
+      tiles: fallback.tiles.map((tile) => ({
+        ...tile, generation_method: "region_legacy", metadata: { solution: "profile_fallback" },
+      })),
+      inference: {
+        nearby_tile_count: 0, anchor_tile_ids: [], compatible_neighbor_pairs: 0,
+        dec_spacing_deg: null, ra_spacing_deg: null,
+      },
+      metrics: {
+        ...fallback.metrics,
+        existing_tiles_contributing: 0,
+        already_covered_fraction: 0,
+        selected_region_coverage: 1,
+        incremental_coverage: 1,
+        remaining_uncovered_fraction: 0,
+        remaining_uncovered_area_deg2: 0,
+      },
+    });
+    render(<App />);
+
+    expect(await screen.findByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
+    const selectArea = screen.getByRole("button", { name: /select area/i });
+    expect(selectArea).toBeEnabled();
+    await user.click(selectArea);
+    expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("idle:true:1");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    const generatePlan = screen.getByRole("button", { name: "Generate plan" });
+    expect(generatePlan).toBeEnabled();
+    await user.click(generatePlan);
+
+    expect(await screen.findByText("Profile fallback")).toBeTruthy();
+    expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
+    expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%");
+    expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
+      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south",
+    );
+
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
+    expect(apiMocks.measureCoverage).toHaveBeenLastCalledWith(
+      expect.anything(), [], expect.arrayContaining([expect.objectContaining({ source: "proposed" })]), "splus-t80-south",
+    );
+    await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
+    expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
+      "splus-t80-south", "2000", "decimal",
+    );
+  });
+
   it("uses server supplied geometry in the profile readout", async () => {
     apiMocks.loadDefaultProfile.mockResolvedValueOnce({
       id: "rect-survey", display_name: "Rectangular survey", tile_width_deg: 2.25,

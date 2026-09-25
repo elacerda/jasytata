@@ -208,10 +208,6 @@ export default function App() {
   }
 
   async function stageCenters(centers: CenterInput[], method: "manual" | "imported_centers"): Promise<boolean> {
-    if (!hasCatalogue) {
-      setError("Load a catalogue before adding proposed tiles.");
-      return false;
-    }
     let staged = false;
     await runBusy(
       () => proposeCenters(centers, method),
@@ -246,7 +242,7 @@ export default function App() {
   }
 
   async function handlePlanRegion() {
-    if (!regionPolygon || !hasCatalogue) return;
+    if (!regionPolygon) return;
     const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
@@ -419,8 +415,8 @@ export default function App() {
           </span>
         </div>
         <div className="topbar-state">
-          <span className={`status-dot ${hasCatalogue ? "is-ready" : ""}`} />
-          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : "No catalogue loaded"}</span>
+          <span className={`status-dot ${profile ? "is-ready" : ""}`} />
+          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : profile ? "Profile only · no original tiles" : "Loading tile profile"}</span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
@@ -462,12 +458,14 @@ export default function App() {
       <section className="workspace">
         <aside className="control-panel panel-scroll" aria-label="Catalogue and planning controls">
           <section className="panel-section catalog-section">
-            <SectionHeading title="Catalogue" trailing={hasCatalogue ? "LOADED" : "WAITING"} />
+            <SectionHeading title="Existing catalogue" trailing={hasCatalogue ? "LOADED" : "OPTIONAL"} />
             <div className="catalogue-summary">
-              <span className="summary-number">{hasCatalogue ? originalTiles.length.toLocaleString() : "—"}</span>
+              <span className="summary-number">{originalTiles.length.toLocaleString()}</span>
               <span className="summary-label">original tile centers</span>
             </div>
-            <p className="panel-copy">Original catalogue rows stay unchanged. New tiles remain separate until accepted.</p>
+            <p className="panel-copy">{hasCatalogue
+              ? "Original catalogue rows stay unchanged. New tiles remain separate until accepted."
+              : "Load an existing catalogue to extend a project, or start a new plan from the active tile profile."}</p>
             {columnMapping && (
               <div className="column-mapping">
                 <strong>Map coordinates in {columnMapping.file.name}</strong>
@@ -535,31 +533,25 @@ export default function App() {
               <button
                 className={`mode-button ${mapMode === "add-tile" ? "is-active" : ""}`}
                 onClick={() => {
-                  if (!hasCatalogue) setError("Load a catalogue before proposing tiles.");
-                  else {
-                    setSelectingRegion(false);
-                    setMapMode("add-tile");
-                    setNotice("Click a position on the sky to preview one new tile.");
-                  }
+                  setSelectingRegion(false);
+                  setMapMode("add-tile");
+                  setNotice("Click a position on the sky to preview one new tile.");
                 }}
-                disabled={busy || !hasCatalogue}
+                disabled={busy}
               >
                 <span className="mode-icon"><Icon name="crosshair" /></span>
                 <span><strong>Single tile</strong><small>Click a sky position</small></span>
                 <Icon name="chevron" />
               </button>
-              <button className="mode-button" onClick={() => { setSelectingRegion(false); setMapMode("idle"); setParsedCenters(null); importRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={!hasCatalogue || busy}>
+              <button className="mode-button" onClick={() => { setSelectingRegion(false); setMapMode("idle"); setParsedCenters(null); importRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" }); }} disabled={busy}>
                 <span className="mode-icon"><Icon name="list" /></span>
                 <span><strong>Import centers</strong><small>Paste RA / DEC pairs</small></span>
                 <Icon name="chevron" />
               </button>
               <button
                 className="mode-button"
-                onClick={() => {
-                  if (!hasCatalogue) setError("Load a catalogue before selecting a region.");
-                  else beginRegionSelection();
-                }}
-                disabled={!hasCatalogue || busy}
+                onClick={beginRegionSelection}
+                disabled={busy}
               >
                 <span className="mode-icon"><Icon name="region" /></span>
                 <span><strong>Select area</strong><small>Click polygon vertices on the sky</small></span>
@@ -588,9 +580,9 @@ export default function App() {
                 </details>}
               </div>
             ) : (
-              <p className="panel-copy">Select a sky polygon to plan coverage around existing tiles.</p>
+              <p className="panel-copy">Select a sky polygon to plan coverage with the active tile profile and any existing tiles.</p>
             )}
-            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!hasCatalogue || !regionPolygon || !profile || busy}>
+            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!regionPolygon || !profile || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
             <p className="fine-print">Active profile: {profile?.display_name ?? "loading…"}</p>
@@ -606,9 +598,9 @@ export default function App() {
               onChange={(event) => { setImportText(event.target.value); setParsedCenters(null); }}
               placeholder={"RA, DEC\n10:03:05, -23:54:31\n150.5, -24.25"}
               rows={4}
-              disabled={!hasCatalogue || busy}
+              disabled={busy}
             />
-            <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={!hasCatalogue || busy || !importText.trim()}>
+            <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={busy || !importText.trim()}>
               Validate and preview
             </button>
             {parsedCenters && (

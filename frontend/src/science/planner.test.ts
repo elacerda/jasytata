@@ -205,10 +205,17 @@ describe("scientific geometry and coverage contracts", () => {
     expect(nearestWeight(grid, 26, -14)).toBe(0);
 
     const plan = planRegion(widePolygon, []);
+    expect(plan.solution).toBe("profile_fallback");
+    expect(plan.metrics.already_covered_fraction).toBe(0);
+    expect(plan.metrics.existing_tiles_contributing).toBe(0);
+    expect(plan.inference.anchor_tile_ids).toEqual([]);
+    expect(plan.tiles.length).toBeGreaterThan(0);
     expect(plan.metrics.selected_region_area_deg2).toBeCloseTo(area, 3);
     expect(plan.metrics.selected_region_area_deg2).toBe(77.7009);
     expect(Math.abs(plan.metrics.selected_region_area_deg2 - analyticPolygonAreaDeg2(widePolygon))).toBeLessThan(0.005);
     expect(plan.metrics.selected_region_coverage).toBe(1);
+    expect(plan.metrics.new_tiles).toBe(plan.tiles.length);
+    expect(plan.metrics.incremental_coverage).toBe(1);
     expect(plan.metrics.remaining_uncovered_area_deg2).toBe(0);
     expect(plan.tiles.length).toBeGreaterThan(5);
   });
