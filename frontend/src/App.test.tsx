@@ -123,6 +123,7 @@ function makePlan(count: number): RegionPlanResponse {
     metadata: { solution: "extended_existing_grid" },
   }));
   return {
+    coverage_strategy: "complete",
     solution: "extended_existing_grid",
     generation_method: "region_extended",
     tiles,
@@ -270,7 +271,7 @@ describe("Jasytata proposal workflow", () => {
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
     expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%");
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south",
+      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete",
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
@@ -283,6 +284,29 @@ describe("Jasytata proposal workflow", () => {
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
       "splus-t80-south", "2000", "decimal",
     );
+  });
+
+  it.each([false, true])("switches coverage strategy with catalogue loaded: %s", async (withCatalogue) => {
+    const user = userEvent.setup();
+    apiMocks.planRegion.mockImplementation(async (_polygon: unknown, _tiles: unknown, _profileId: unknown, _profile: unknown, strategy: "complete" | "efficient") => ({
+      ...makePlan(strategy === "efficient" ? 1 : 2), coverage_strategy: strategy,
+    }));
+    render(<App />);
+    if (withCatalogue) await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(await screen.findByText("Complete coverage", { selector: ".strategy-result" })).toBeTruthy();
+    expect(screen.getByText("New tiles").parentElement).toHaveTextContent("2");
+    await user.click(screen.getByRole("radio", { name: /Efficient coverage/ }));
+    expect(screen.queryByText("Complete coverage", { selector: ".strategy-result" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /accept proposal/i })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(await screen.findByText("Efficient coverage", { selector: ".strategy-result" })).toBeTruthy();
+    expect(screen.getByText("New tiles").parentElement).toHaveTextContent("1");
+    expect(apiMocks.planRegion.mock.lastCall?.[4]).toBe("efficient");
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+    expect(screen.getByText("Efficient coverage", { selector: ".accepted-section .strategy-result" })).toBeTruthy();
   });
 
   it("uses server supplied geometry in the profile readout", async () => {
@@ -364,7 +388,7 @@ describe("Jasytata proposal workflow", () => {
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
       expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      "splus-t80-south",
+      "splus-t80-south", undefined, "complete",
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
@@ -604,7 +628,7 @@ describe("Jasytata proposal workflow", () => {
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       expect.anything(), expect.arrayContaining([
         expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
-      ]), "splus-t80-south",
+      ]), "splus-t80-south", undefined, "complete",
     );
     const firstPlanInputs = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
     const initialMetrics = screen.getByText("Already covered").closest(".metrics-panel")?.textContent;

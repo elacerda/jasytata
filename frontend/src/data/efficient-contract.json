@@ -1,0 +1,14 @@
+{
+  "source": "Reviewed Efficient v1 sampled-coverage outcomes; Complete expectations remain in planner-contract.json",
+  "plans": {
+    "large_overlap": { "complete_tiles": 40, "efficient_tiles": 20, "efficient_coverage": 0.997061 },
+    "empty_rectangle": { "complete_tiles": 15, "efficient_tiles": 14, "efficient_coverage": 0.997791 },
+    "splus_b_single": { "complete_tiles": 3, "efficient_tiles": 2, "efficient_coverage": 0.997397 },
+    "splus_b_three_holes": { "complete_tiles": 10, "efficient_tiles": 4, "efficient_coverage": 0.995331 },
+    "splus_b_adjacent_rows": { "complete_tiles": 14, "efficient_tiles": 4, "efficient_coverage": 0.996062 },
+    "splus_b_row_edge": { "complete_tiles": 11, "efficient_tiles": 7, "efficient_coverage": 0.995902 },
+    "wrapped_rectangle": { "complete_tiles": 4, "efficient_tiles": 4, "efficient_coverage": 1 },
+    "tiny_triangle": { "complete_tiles": 1, "efficient_tiles": 1, "efficient_coverage": 1 },
+    "wide_polygon": { "complete_tiles": 52, "efficient_tiles": 52, "efficient_coverage": 1 }
+  }
+}

@@ -22,6 +22,10 @@ vi.mock("./AladinMap", () => ({
         { ra_deg: 37.686125, dec_deg: -21.172083 }, { ra_deg: 37.137375, dec_deg: -13.772167 },
         { ra_deg: 26.4205, dec_deg: -14.405278 }, { ra_deg: 25.434083, dec_deg: -21.233194 },
       ] })}>Draw profile fallback region</button>
+      <button onClick={() => props.onRegionSelect({ vertices: [
+        { ra_deg: 150, dec_deg: -31 }, { ra_deg: 154, dec_deg: -31 },
+        { ra_deg: 154, dec_deg: -27 }, { ra_deg: 150, dec_deg: -27 },
+      ] })}>Draw empty rectangle</button>
       <button onClick={() => props.onSkyClick(150.5, -24.25)}>Place center</button>
       <output data-testid="real-map-state">{JSON.stringify({
         selected: Boolean(props.selectedPolygon),
@@ -42,6 +46,25 @@ afterEach(() => {
 });
 
 describe("backend-off application workflow", () => {
+  it("switches real zero-catalogue plans from Complete to Efficient", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("Profile only · no original tiles");
+    await user.click(screen.getByRole("button", { name: "Draw empty rectangle" }));
+    expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(await screen.findByText("Complete coverage", { selector: ".strategy-result" })).toBeTruthy();
+    expect(screen.getByText("New tiles").parentElement).toHaveTextContent("15");
+    await user.click(screen.getByRole("radio", { name: /Efficient coverage/ }));
+    expect(screen.queryByRole("button", { name: /accept proposal/i })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(await screen.findByText("Efficient coverage", { selector: ".strategy-result" })).toBeTruthy();
+    expect(screen.getByText("New tiles").parentElement).toHaveTextContent("14");
+    expect(screen.getByText("Remaining uncovered").parentElement).toHaveTextContent("0.2%");
+    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
+    expect(screen.getByText("Efficient coverage", { selector: ".accepted-section .strategy-result" })).toBeTruthy();
+  });
+
   it("plans, accepts, measures, edits, and exports with zero original tiles", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn();

@@ -1,4 +1,4 @@
-import type { PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CoverageStrategy, PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { contributingTileCount, polygonLocalGeometry, validatePolygon, type PolygonLocalGeometry } from "./geometry";
 import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
@@ -8,6 +8,8 @@ const SAMPLE_STEP_DEG = 0.01;
 const MAX_REGION_SAMPLES = 90_000;
 const MIN_POLYGON_SAMPLES_PER_AXIS = 8;
 const MIN_INCREMENTAL_GAIN = 1e-10;
+export const EFFICIENT_MIN_COVERAGE = 0.995;
+export const EFFICIENT_MIN_MARGINAL_EFFICIENCY = 0.03;
 
 /** Row-major, declination-weighted polygon samples in ICRS decimal degrees. */
 export interface CoverageGrid {
@@ -152,9 +154,12 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, profile: TilingPr
  * @param grid - Weighted ICRS samples.
  * @param profile - Physical tile geometry in degrees.
  * @param automaticTarget - Optional target fraction for automatic region planning.
+ * @param strategy - Complete sampled coverage or the efficient policy. The latter
+ *   compares declination-weighted new sampled area in square degrees with physical
+ *   tile area in square degrees after the 0.995 coverage floor is reached.
  * @returns Chosen centers in ranking order with their masks.
  */
-export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, profile: TilingProfile, automaticTarget?: number): MaskedCenter[] {
+export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, profile: TilingProfile, automaticTarget?: number, strategy: CoverageStrategy = "complete"): MaskedCenter[] {
   const uncovered = new Uint8Array(existingMask.length);
   for (let index = 0; index < uncovered.length; index += 1) uncovered[index] = existingMask[index] ? 0 : 1;
   const selected: MaskedCenter[] = [];
@@ -176,6 +181,8 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
     const best = remaining.splice(bestIndex, 1)[0];
     const gain = weightSum(grid, best.mask, uncovered);
     if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) break;
+    const marginalEfficiency = gain * grid.cellAreaDeg2 / (profile.tile_width_deg * profile.tile_height_deg);
+    if (strategy === "efficient" && currentCoverage >= EFFICIENT_MIN_COVERAGE && marginalEfficiency < EFFICIENT_MIN_MARGINAL_EFFICIENCY) break;
     selected.push(best);
     for (let index = 0; index < uncovered.length; index += 1) if (best.mask[index]) uncovered[index] = 0;
   }

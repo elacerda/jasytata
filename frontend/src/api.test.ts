@@ -94,7 +94,7 @@ describe("local numerical facade", () => {
     expect(result.solution).toBe("profile_fallback");
     expect(result.tiles.length).toBeGreaterThan(0);
     expect(buildRegionPlanRequest(polygon, [], "splus-t80-south")).toEqual({
-      polygon, existing_tiles: [], profile_id: "splus-t80-south",
+      polygon, existing_tiles: [], profile_id: "splus-t80-south", coverage_strategy: "complete",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

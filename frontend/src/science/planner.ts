@@ -1,4 +1,4 @@
-import type { CenterInput, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CenterInput, CoverageStrategy, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { resolveProfile } from "../profiles";
 import { coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, contributingTileCount, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
@@ -441,10 +441,11 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param existingTiles - Original catalogue and accepted proposals, including disabled records.
  * @param profileId - Bundled profile ID or custom.
  * @param inlineProfile - Optional session-only custom geometry in degrees and arcseconds.
+ * @param strategy - Sampled-coverage stopping policy; complete by default.
  * @returns Deterministic proposal, candidate centers, inference audit, and coverage metrics.
  * @throws On invalid geometry, too many input/candidate records, or sample limits.
  */
-export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId = "splus-t80-south", inlineProfile?: TilingProfile): RegionPlanResponse {
+export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId = "splus-t80-south", inlineProfile?: TilingProfile, strategy: CoverageStrategy = "complete"): RegionPlanResponse {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
   const profile = resolveProfile(profileId, inlineProfile);
@@ -480,7 +481,7 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
   const existingMask = coveredMask(grid, activeTiles, profile);
   const contributing = contributingTileCount(polygon, activeTiles, profile);
   const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, profile);
-  const primary = greedyChoose(primaryCandidates, existingMask, grid, profile, AUTOMATIC_COVERAGE_TARGET);
+  const primary = greedyChoose(primaryCandidates, existingMask, grid, profile, AUTOMATIC_COVERAGE_TARGET, strategy);
   const primaryCoverage = combinedCoverageMask(existingMask, primary);
   const remainingGap = uncoveredSampleBounds(grid, primaryCoverage);
   let gapFill: MaskedCenter[] = [];
@@ -488,7 +489,7 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
     const anchor = nearestGapAnchor(remainingGap, localTiles, lattice, uniqueCandidates);
     const supplementalCenters = gapFillCandidates(grid, remainingGap, anchor, profile, lattice);
     const supplementalCandidates = usefulUncoveredCenters(supplementalCenters, primaryCoverage, grid, profile);
-    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, profile, AUTOMATIC_COVERAGE_TARGET);
+    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, profile, AUTOMATIC_COVERAGE_TARGET, strategy);
     if (gapFill.length) diagnostics.push(`Added ${gapFill.length} overlap-fill tile${gapFill.length === 1 ? "" : "s"} around the remaining sampled gaps, phased from ${lattice ? "the inferred existing grid" : "the active tile profile"}.`);
   }
   const chosen = [...primary, ...gapFill];
@@ -498,7 +499,7 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
     id: `proposal-region-${String(index + 1).padStart(4, "0")}`, name: "",
     ra_deg: ra, dec_deg: dec, source: "proposed", enabled: true,
     dataset_id: null, group_id: null, ra_column: null, dec_column: null,
-    generation_method: method, original_values: null, metadata: { solution },
+    generation_method: method, original_values: null, metadata: { solution, coverage_strategy: strategy },
   }));
   const candidateCenters: CenterInput[] = uniqueCandidates.map(([ra, dec]) => ({ ra_deg: ra, dec_deg: dec, label: null }));
   const metrics = measureMetrics(chosen, existingMask, grid, contributing, profile);
@@ -509,7 +510,7 @@ export function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], pro
       : "Existing tiles already cover all sampled area in the selected region.");
   }
   return {
-    solution, generation_method: method, tiles, candidate_centers: candidateCenters,
+    solution, generation_method: method, coverage_strategy: strategy, tiles, candidate_centers: candidateCenters,
     inference: {
       nearby_tile_count: localTiles.length, anchor_tile_ids: anchors,
       compatible_neighbor_pairs: lattice?.pairCount ?? 0,

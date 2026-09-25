@@ -1,6 +1,7 @@
 import type {
   CenterInput,
   CatalogueResponse,
+  CoverageStrategy,
   CoordinateFormat,
   PlanMetrics,
   RegionPlanResponse,
@@ -117,10 +118,11 @@ export async function downloadCatalogue(
  * @param existingTiles - Original and accepted pointings.
  * @param profileId - Bundled or custom profile ID.
  * @param profile - Inline custom geometry when selected.
+ * @param strategy - Sampled-coverage stopping policy.
  * @returns Auditable proposal and sampled metrics.
  */
-export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile): Promise<RegionPlanResponse> {
-  return planRegionLocal(polygon, existingTiles, profileId, profile);
+export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete"): Promise<RegionPlanResponse> {
+  return planRegionLocal(polygon, existingTiles, profileId, profile, strategy);
 }
 
 /** Build the scientific planning input shared with development diagnostics.
@@ -128,10 +130,11 @@ export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[
  * @param existingTiles - Actual loaded centers and enabled accepted proposals.
  * @param profileId - Active footprint profile ID.
  * @param profile - Optional inline custom profile.
+ * @param strategy - Sampled-coverage stopping policy.
  * @returns JSON-compatible planning request shape.
  */
-export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile) {
-  return { polygon, existing_tiles: existingTiles, profile_id: profileId, ...(profile ? { profile } : {}) };
+export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete") {
+  return { polygon, existing_tiles: existingTiles, profile_id: profileId, ...(profile ? { profile } : {}), coverage_strategy: strategy };
 }
 
 /** Recompute sampled coverage from enabled proposals without HTTP.

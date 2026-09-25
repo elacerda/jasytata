@@ -2,6 +2,8 @@
 export type GenerationMethod = "manual" | "imported_centers" | "region_legacy" | "region_extended";
 /** Distinguishes immutable source rows from session proposal rows. */
 export type TileSource = "original" | "proposed";
+/** Planning policy applied to sampled-region tile selection. */
+export type CoverageStrategy = "complete" | "efficient";
 
 /** Catalogue tile in client state, with original string values retained for inspection. */
 export interface TileRecord {
@@ -102,6 +104,7 @@ export interface InferenceDiagnostics {
 
 /** Auditable preview response from existing-grid inference or legacy fallback. */
 export interface RegionPlanResponse {
+  coverage_strategy: CoverageStrategy;
   solution: "extended_existing_grid" | "profile_fallback";
   generation_method: "region_legacy" | "region_extended";
   tiles: TileRecord[];

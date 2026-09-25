@@ -9,6 +9,7 @@ import type {
   CatalogueDataset,
   CatalogueResponse,
   CoordinateFormat,
+  CoverageStrategy,
   InferenceDiagnostics,
   PlanMetrics,
   SkyPolygon,
@@ -18,6 +19,7 @@ import type {
 } from "./types";
 
 interface ProposalPreview {
+  coverageStrategy: CoverageStrategy | null;
   tiles: TileRecord[];
   candidateCenters: CenterInput[];
   inference: InferenceDiagnostics | null;
@@ -61,6 +63,7 @@ export default function App() {
   const [defaultProfile, setDefaultProfile] = useState<TilingProfile | null>(null);
   const [geometryDraft, setGeometryDraft] = useState<GeometryDraft | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [coverageStrategy, setCoverageStrategy] = useState<CoverageStrategy>("complete");
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
   const [proposalContext, setProposalContext] = useState<ProposalPreview | null>(null);
@@ -214,6 +217,7 @@ export default function App() {
       (tiles) => {
         staged = true;
         setPending({
+          coverageStrategy: null,
           tiles,
           candidateCenters: centers,
           inference: null,
@@ -247,16 +251,17 @@ export default function App() {
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
       setDebugRequestJson(JSON.stringify(profile?.id === "custom"
-        ? buildRegionPlanRequest(regionPolygon, planningTiles, profile.id, profile)
-        : buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id)));
+        ? buildRegionPlanRequest(regionPolygon, planningTiles, profile.id, profile, coverageStrategy)
+        : buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id, undefined, coverageStrategy)));
     }
     await runBusy(
       () => profile?.id === "custom"
-        ? planRegion(regionPolygon, planningTiles, profile.id, profile)
-        : planRegion(regionPolygon, planningTiles, profile?.id),
+        ? planRegion(regionPolygon, planningTiles, profile.id, profile, coverageStrategy)
+        : planRegion(regionPolygon, planningTiles, profile?.id, undefined, coverageStrategy),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
+          coverageStrategy: result.coverage_strategy,
           tiles: result.tiles,
           candidateCenters: result.candidate_centers,
           inference: result.inference,
@@ -270,6 +275,14 @@ export default function App() {
         );
       },
     );
+  }
+
+  function changeCoverageStrategy(strategy: CoverageStrategy) {
+    if (strategy === coverageStrategy) return;
+    regionRevisionRef.current += 1;
+    setCoverageStrategy(strategy);
+    setPending((current) => current?.coverageStrategy ? null : current);
+    setDebugRequestJson("");
   }
 
   function acceptPreview() {
@@ -582,6 +595,13 @@ export default function App() {
             ) : (
               <p className="panel-copy">Select a sky polygon to plan coverage with the active tile profile and any existing tiles.</p>
             )}
+            <fieldset className="coverage-strategy">
+              <legend>Coverage strategy</legend>
+              <label><input type="radio" name="coverage-strategy" value="complete" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} />
+                <span><strong>Complete coverage</strong><small>Continue adding tiles until all sampled area is covered.</small></span></label>
+              <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
+                <span><strong>Efficient coverage</strong><small>Stop when additional tiles provide only marginal coverage gains.</small></span></label>
+            </fieldset>
             <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!regionPolygon || !profile || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
@@ -727,6 +747,7 @@ export default function App() {
                 <span className={pending.solution === "extended_existing_grid" ? "stamp-dot is-extended" : "stamp-dot"} />
                 <strong>{solutionLabel(pending.solution)}</strong>
               </div>
+              {pending.coverageStrategy && <p className="strategy-result">{pending.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
               {pending.metrics ? <MetricsPanel metrics={pending.metrics} inference={pending.inference} candidateCount={pending.candidateCenters.length} /> : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
               {pending.diagnostics.map((line) => <p className="diagnostic-line" key={line}>{line}</p>)}
               {anchors.length > 0 && (
@@ -762,6 +783,7 @@ export default function App() {
               </div>
             </div>
             {proposals.length > 0 && <p className="panel-copy">{proposals.filter((tile) => tile.enabled !== false).length} enabled · {proposals.filter((tile) => tile.enabled === false).length} disabled</p>}
+            {proposals.length > 0 && proposalContext?.coverageStrategy && <p className="strategy-result">{proposalContext.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
             {activeMetrics && <MetricsPanel metrics={activeMetrics} inference={proposalContext?.inference ?? null} candidateCount={proposalContext?.candidateCenters.length ?? 0} />}
             {proposals.length ? (
               <div className="accepted-list">

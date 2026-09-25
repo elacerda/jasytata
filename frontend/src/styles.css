@@ -126,6 +126,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .mode-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 4px; background: #eaf1f2; color: #39757c; }
 .mode-icon .icon { width: 16px; height: 16px; }
 .planning-section { padding-top: 16px; }
+.coverage-strategy { display: grid; gap: 7px; margin: 0 0 11px; padding: 0; border: 0; }
+.coverage-strategy legend { margin-bottom: 7px; color: #75878c; font-size: 9px; font-weight: 700; }
+.coverage-strategy label { display: flex; align-items: flex-start; gap: 7px; color: #3f595e; cursor: pointer; }
+.coverage-strategy input { margin: 2px 0 0; accent-color: #087f89; }
+.coverage-strategy label span { display: grid; gap: 2px; }
+.coverage-strategy strong { font-size: 10px; }
+.coverage-strategy small { color: #829298; font-size: 9px; line-height: 1.35; }
+.strategy-result { margin: 7px 0; color: #39757c; font-size: 10px; font-weight: 700; }
 .region-summary { padding: 9px 9px 7px; border: 1px solid #d7e0e2; border-radius: 4px; background: #f1f5f6; margin-bottom: 11px; }
 .region-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
 .region-actions .button { min-height: 32px; }
