@@ -71,9 +71,9 @@ before enumeration. RA branch crossings are rejected explicitly.
 
 Enumeration is `j` ascending, then `i` ascending. Gate 3 footprint-region
 intersection retains relevant centers. Coverage selection uses existing sampling
-and greedy ranking. Existing centers contribute coverage without generic lattice
-inference or the legacy 0.12° occupied-center exclusion; centers adding no sampled
-gain are omitted by selection. No shifted supplemental grid is introduced for a
+and greedy ranking. Gate 5 can supply a runtime alignment and fractional
+occupied-center exclusion as described below; centers adding no sampled gain
+are omitted by selection. No shifted supplemental grid is introduced for a
 declared lattice: uncovered sampled gaps remain visible in metrics/diagnostics.
 Proposal provenance is `region_lattice`; the historical strategy retains its
 frozen `region_legacy`/`region_extended` values.
@@ -83,8 +83,79 @@ dimensions minus overlap as an authoring convenience. The published inline
 `RECT_GRID_V1` planning entry point retains its historical row generator and
 overlap-fill because its v0.2.0 fixtures are also frozen. Declared Schema v2
 `lattice` surveys always use the generic engine. Manual/imported centers
-and their footprint coverage do not require an automatic tiling policy. Generic
-inference and scale-aware sampling remain Gates 5 and 6.
+and their footprint coverage do not require an automatic tiling policy.
+Scale-aware coverage sampling remains Gate 6.
+
+## Generic existing-grid alignment (Gate 5)
+
+`lattice-inference.ts` aligns centers to the survey's declared matrix-column
+basis `B0`; it never discovers an unconstrained fundamental lattice. Missing
+cells, harmonics, and integer-equivalent bases make that inverse problem
+ambiguous. The fitted basis is only `B = R(theta) B0`, with the same astronomical
+east/north rotation convention as footprints (positive north toward east).
+When `allow_rotation` is false, theta is exactly zero and the basis is unchanged.
+
+The characteristic scale is `s = min(norm(b1), norm(b2))`. Spacing compatibility
+uses `abs(norm(observed pair) - norm(B0*m))/s <= spacing_tolerance_fraction`;
+the final pair-vector residual must satisfy that same normalized tolerance.
+The planner restricts evidence to region bounds in its local plane plus a
+basis-derived search margin. Spatial buckets form only local pairs, with integer
+offsets bounded by `max(abs(m1), abs(m2)) <= 2`. Separations such as `2*b1`,
+`2*b2`, and `b1+b2` support the declared fundamental basis without replacing it.
+Disconnected local groups can share a phase across a large hole, but groups
+containing only separations beyond this bound fail for insufficient pairs.
+
+Spacing-compatible correspondences imply candidate rotations. Deterministic
+circular consensus uses policy-derived angular buckets and unique pair support;
+there is no random RANSAC. Only accepted integer assignments participate in a
+subsequent least-squares rotation refinement, without basis stretching. Modular
+phase consensus estimates `phi` from `B^-1*p mod 1` using circular means, so
+0.99 and 0.01 are neighbors. Both consensus searches retain the strongest 32
+bucket neighborhoods and refine their hypotheses; this is a bounded local fit,
+not an exhaustive solver for adversarial catalogues. Integer assignments are
+`round(B^-1*p - phi)`. Residuals are Euclidean distances in the projection plane
+divided by `s`; `phase_tolerance_fraction` defines inliers. Outliers are reported
+with assignments/residuals but do not enter the final phase or rotation refinement.
+Minimum anchors require distinct lattice sites; minimum pairs require distinct
+inlier site pairs. RMS residuals use inliers only.
+
+A `fixed_anchor` is authoritative: it defines both the projection reference and
+zero phase. Rotation, if allowed, is about that anchor; inference never translates
+it. Inconsistent evidence produces `inconsistent_fixed_anchor`. For
+`region_center`, phase is runtime state only. The result exposes the ICRS site
+(0,0), rotated basis, phase, all assignments, inlier count, normalized RMS, and
+pair support. It also retains the projection reference and local phase offset:
+converting phase to a sky anchor must not change the cosine scale of the original
+plane. The Gate 4 generator consumes this alignment directly and preserves its
+canonical integer enumeration. Successful generic continuation reports
+`extended_existing_grid` with neutral `region_lattice` provenance. Explicitly
+disabled inference or no usable centers retains declared new-survey generation.
+Attempted inference with insufficient anchors/pairs, an incompatible fixed
+anchor, or no acceptable alignment throws an explicit planning error containing
+the inference status before candidate generation. It never resets an existing
+survey to the declared origin/phase after a failed alignment.
+Manual inference is explicitly unavailable; legacy inference stays separate.
+
+Enabled datasets are fitted independently by dataset ID and instrument ID.
+`exclude` never anchors inference but still contributes coverage and occupancy.
+`auto` requires the active instrument identity; `include` admits an independent
+group but still requires a valid fit against the active declared basis. Accepted
+proposals use the active output instrument and, absent a dataset ID, their
+generation-method identity. Groups are never merged into one point cloud. Fits
+rank by most inliers, lowest normalized RMS, most consistent pairs, smallest
+absolute rotation, then lexical group identity and stable numeric phase/orientation
+ties. Dimensionless roundoff allowances resolve numerically equivalent fits.
+Generic grouping does not read CSV `PID` or PID-derived `group_id`; historical
+grouping keeps that coupling until the Gate 7 mapping cleanup.
+
+Generic occupancy compares every enabled actual pointing with a candidate in
+the same local plane, using `separation/s <= occupancy_tolerance_fraction`.
+It does not use the legacy 0.12-degree threshold. This changes only occupancy;
+coverage pitch, the 90,000-sample cap, and Efficient stopping remain unchanged.
+The RA-wrap-safe Gate 3 projection, cosine clamp, branch limits, and near-pole
+limitations still apply. Neither inference nor generation fits an exact spherical
+lattice. Symmetry-equivalent rotations/assignments are canonically ranked; a
+unique historical integer labeling cannot be recovered from unlabeled centers.
 
 ## 3. Compatibility existing-grid inference
 
@@ -143,6 +214,9 @@ linked footprint; it preserves the legacy half-tile seed and pitch even when
 a Gate 3 survey is associated with a different camera shape. The bundled
 `[1.4,1.4]` survey grid extents duplicate the instrument dimensions deliberately
 for that compatibility contract, rather than duplicating values in code. Compatibility inference tolerances and sampling/selection
-constants still duplicate profile policies pending Gates 5/6; full import/export
+constants remain only in the legacy compatibility/sampling paths; generic
+inference reads the existing fractional policy without new schema fields.
+Legacy tolerance duplicates still need a compatibility-reviewed profile migration;
+sampling policy migration remains Gate 6. Full import/export
 UI remains Gate 7. All T80 scientific configuration must be sourced from ordinary
 importable profile data by the v0.3.0 release.

@@ -160,6 +160,54 @@ export interface InferencePolicy {
   allow_rotation: boolean;
 }
 
+/** Runtime alignment in one RA-wrap-safe east/north plane; never persisted into a profile. */
+export interface LatticeAlignment {
+  /** ICRS reference whose cosine scale is retained during inference and generation. */
+  projection_origin: CenterInput;
+  /** East/north displacement of lattice site (0,0) from the projection reference, in degrees. */
+  phase_offset_deg: TangentPlaneOffset;
+}
+
+/** Integer assignment with a Euclidean tangent-plane residual, including rejected outliers. */
+export interface LatticeAssignment {
+  tile_id: string;
+  i: number;
+  j: number;
+  residual_deg: number;
+  /** Residual divided by min(norm(b1), norm(b2)). */
+  residual_fraction: number;
+  inlier: boolean;
+}
+
+/** Successful alignment to the profile basis, rotated only when explicitly allowed. */
+export interface LatticeInferenceResult extends LatticeAlignment {
+  status: "success";
+  group_key: string;
+  considered_tile_count: number;
+  basis_deg: GenericLatticeTiling["basis_deg"];
+  /** Astronomical clockwise rotation: positive maps north toward east. */
+  rotation_deg: number;
+  anchor_ra_deg: number;
+  anchor_dec_deg: number;
+  /** Modular coefficients in [0,1); exactly [0,0] for a fixed anchor. */
+  phase_fraction: TangentPlaneOffset;
+  assignments: LatticeAssignment[];
+  inlier_count: number;
+  rms_residual_fraction: number;
+  compatible_pair_count: number;
+  /** Unique inlier pair correspondences supporting the reported orientation. */
+  rotation_support_pairs: number;
+  characteristic_scale_deg: number;
+}
+
+/** Explicit generic inference outcome; legacy inference keeps its separate contract. */
+export type LatticeInferenceOutcome = LatticeInferenceResult | {
+  status: "disabled" | "manual_tiling" | "legacy_strategy" | "no_usable_centers" |
+    "insufficient_anchors" | "insufficient_pairs" | "inconsistent_fixed_anchor" | "no_alignment";
+  considered_tile_count: number;
+  group_key?: string;
+};
+
 /** Numerical sampling and optional efficient-stopping policy. */
 export interface CoveragePolicy {
   sampling: {
@@ -235,6 +283,8 @@ export interface InferenceDiagnostics {
   compatible_neighbor_pairs: number;
   dec_spacing_deg: number | null;
   ra_spacing_deg: number | null;
+  /** Gate 5 runtime outcome for generic surveys only. */
+  lattice?: LatticeInferenceOutcome;
 }
 
 /** Auditable preview response from existing-grid inference, compatibility fallback, or a declared lattice. */

@@ -1,4 +1,4 @@
-import type { CenterInput, Footprint, GenericLatticeTiling, SkyPolygon } from "../types";
+import type { CenterInput, Footprint, GenericLatticeTiling, LatticeAlignment, SkyPolygon, TangentPlaneOffset } from "../types";
 import { footprintIntersectsRegion, footprintLocalBounds, localOffsetToSky, skyToLocalOffset } from "./footprint-engine";
 import { polygonBounds } from "./geometry";
 import { modulo, radians } from "./math";
@@ -68,10 +68,11 @@ export function latticePlanningOrigin(region: SkyPolygon, tiling: GenericLattice
  * @param basis - Validated east/north degree vectors, interpreted as matrix columns.
  * @param origin - ICRS origin of the planning tangent plane and coefficient (0,0).
  * @param footprint - Instrument geometry, independent of lattice orientation.
+ * @param phaseOffset - Runtime east/north displacement of site (0,0), in degrees, in the same plane.
  * @returns Inclusive integer coefficient bounds; enumeration remains finite.
  * @throws If projection crosses the anchor's RA branch or inverse/range is unrepresentable.
  */
-export function candidateLatticeRange(region: SkyPolygon, basis: Basis, origin: CenterInput, footprint: Footprint): LatticeRange {
+export function candidateLatticeRange(region: SkyPolygon, basis: Basis, origin: CenterInput, footprint: Footprint, phaseOffset: TangentPlaneOffset = [0, 0]): LatticeRange {
   const vertices = region.vertices.map((point) => skyToLocalOffset(point, origin));
   const cosine = Math.max(Math.cos(radians(origin.dec_deg)), 0.01);
   const east = vertices.map((point) => point[0]);
@@ -97,7 +98,10 @@ export function candidateLatticeRange(region: SkyPolygon, basis: Basis, origin: 
   const determinant = a * d - b * c;
   if (!Number.isFinite(determinant) || Math.abs(determinant) <= 1e-12) throw new Error("Lattice basis is degenerate");
   const corners = [[minX, minY], [minX, maxY], [maxX, minY], [maxX, maxY]];
-  const indices = corners.map(([x, y]) => [(d * x - b * y) / determinant / firstLength, (a * y - c * x) / determinant / secondLength]);
+  const indices = corners.map(([east, north]) => {
+    const x = east - phaseOffset[0]; const y = north - phaseOffset[1];
+    return [(d * x - b * y) / determinant / firstLength, (a * y - c * x) / determinant / secondLength];
+  });
   // One integer of padding makes boundary rounding conservative.
   const range = {
     i_min: Math.floor(Math.min(...indices.map(([i]) => i))) - 1,
@@ -112,18 +116,26 @@ export function candidateLatticeRange(region: SkyPolygon, basis: Basis, origin: 
 /** Generate finite candidates in canonical order: ascending j, then ascending i.
  *
  * Uses footprint-region positive-area intersection from Gate 3 for retention.
- * No inference, overlap-derived spacing, center perturbation, or gap-fill occurs.
+ * An optional runtime alignment retains the inference plane's cosine scale.
+ * No fitting, overlap-derived spacing, center perturbation, or gap-fill occurs here.
  *
  * @param region - Validated ICRS polygon in decimal degrees.
  * @param tiling - Validated authoritative basis and explicit origin.
  * @param footprint - Validated instrument footprint, including its own PA.
  * @param maxCandidates - Existing planner candidate budget, checked before enumeration.
+ * @param alignment - Optional inferred phase and its original projection reference; profile remains immutable.
  * @returns Relevant ICRS centers with integer coefficients and local degree offsets.
- * @throws If the finite bounding range exceeds the budget or is unrepresentable.
+ * @throws If alignment moves a fixed anchor, or the finite range exceeds the budget or is unrepresentable.
  */
-export function generateLatticeCandidates(region: SkyPolygon, tiling: GenericLatticeTiling, footprint: Footprint, maxCandidates: number): LatticeCandidate[] {
-  const origin = latticePlanningOrigin(region, tiling);
-  const range = candidateLatticeRange(region, tiling.basis_deg, origin, footprint);
+export function generateLatticeCandidates(region: SkyPolygon, tiling: GenericLatticeTiling, footprint: Footprint, maxCandidates: number, alignment?: LatticeAlignment): LatticeCandidate[] {
+  if (tiling.origin.type === "fixed_anchor" && alignment &&
+    (alignment.projection_origin.ra_deg !== tiling.origin.ra_deg || alignment.projection_origin.dec_deg !== tiling.origin.dec_deg ||
+      alignment.phase_offset_deg.some((value) => value !== 0))) {
+    throw new Error("Runtime alignment must preserve the authoritative fixed anchor and zero phase");
+  }
+  const origin = alignment?.projection_origin ?? latticePlanningOrigin(region, tiling);
+  const phase = alignment?.phase_offset_deg ?? [0, 0];
+  const range = candidateLatticeRange(region, tiling.basis_deg, origin, footprint, phase);
   const count = (range.i_max - range.i_min + 1) * (range.j_max - range.j_min + 1);
   if (!Number.isSafeInteger(maxCandidates) || maxCandidates < 1 || !Number.isSafeInteger(count) || count > maxCandidates) {
     throw new Error(`This region produces ${count} lattice search candidates; reduce the selected area to at most ${maxCandidates}.`);
@@ -134,8 +146,8 @@ export function generateLatticeCandidates(region: SkyPolygon, tiling: GenericLat
     for (let i = range.i_min; i <= range.i_max; i += 1) {
       const point = latticePoint(i, j, tiling.basis_deg);
       // Padding may include remote sites; do not wrap them into duplicate sky centers.
-      if (Math.abs(point.x_deg) >= halfRaBranch) continue;
-      const [ra, dec] = localOffsetToSky(origin, [point.x_deg, point.y_deg]);
+      if (Math.abs(point.x_deg + phase[0]) >= halfRaBranch) continue;
+      const [ra, dec] = localOffsetToSky(origin, [point.x_deg + phase[0], point.y_deg + phase[1]]);
       if (Math.abs(dec) >= 90) continue;
       const candidate = { ...point, ra_deg: ra, dec_deg: dec };
       if (footprintIntersectsRegion(footprint, candidate, region)) candidates.push(candidate);

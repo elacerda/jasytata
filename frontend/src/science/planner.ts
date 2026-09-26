@@ -6,7 +6,9 @@ import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
 import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
-import { generateLatticeCandidates } from "./lattice";
+import { generateLatticeCandidates, latticePlanningOrigin } from "./lattice";
+import { inferSurveyLattice, latticeInferenceSearchRadius, latticeSiteOccupied } from "./lattice-inference";
+import { skyToLocalOffset } from "./footprint-engine";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 
 const INFERENCE_TOLERANCE_DEG = 0.05;
@@ -510,7 +512,7 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param strategy - Existing sampled-coverage stopping policy.
  * @param registry - Session-local validated instrument/survey registry.
  * @returns Deterministic proposal, candidates, diagnostics, and sampled metrics.
- * @throws If tiling is manual, profiles/region are invalid, or existing budgets are exceeded.
+ * @throws If tiling is manual, attempted generic inference fails, profiles/region are invalid, or budgets are exceeded.
  */
 export function planRegion(
   polygon: SkyPolygon,
@@ -624,7 +626,7 @@ function planLegacyRegion(
   };
 }
 
-/** Select coverage only among declared lattice sites, retaining their integer identity. */
+/** Align eligible groups, then select coverage among sites of the authoritative basis. */
 function planDeclaredLattice(
   polygon: SkyPolygon,
   existingTiles: TileRecord[],
@@ -635,7 +637,27 @@ function planDeclaredLattice(
 ): RegionPlanResponse {
   const footprint = outputFootprintForProfile(profile, registry);
   const activeTiles = existingTiles.filter((tile) => tile.enabled !== false);
-  const candidates = generateLatticeCandidates(polygon, tiling, footprint, MAX_CANDIDATES);
+  const survey = registry.resolveSurveyProfile(profile.id);
+  const reference = latticePlanningOrigin(polygon, tiling);
+  const vertices = polygon.vertices.map((point) => skyToLocalOffset(point, reference));
+  const margin = latticeInferenceSearchRadius(tiling.basis_deg, survey.inference.spacing_tolerance_fraction);
+  const east = vertices.map(([x]) => x); const north = vertices.map(([, y]) => y);
+  const minEast = Math.min(...east) - margin; const maxEast = Math.max(...east) + margin;
+  const minNorth = Math.min(...north) - margin; const maxNorth = Math.max(...north) + margin;
+  const localTiles = activeTiles.filter((tile) => {
+    const [x, y] = skyToLocalOffset(tile, reference);
+    return x >= minEast && x <= maxEast && y >= minNorth && y <= maxNorth;
+  });
+  const inference = inferSurveyLattice(localTiles, survey, reference);
+  if (inference.status !== "success" && inference.status !== "disabled" && inference.status !== "no_usable_centers") {
+    throw new Error(`Generic lattice inference failed for survey "${profile.id}": ${inference.status}. Declared-origin generation cannot continue an existing survey without a compatible alignment.`);
+  }
+  const fit = inference.status === "success" ? inference : undefined;
+  const runtimeTiling = fit ? { ...tiling, basis_deg: fit.basis_deg } : tiling;
+  const projection = fit?.projection_origin ?? reference;
+  const candidates = generateLatticeCandidates(polygon, runtimeTiling, footprint, MAX_CANDIDATES, fit)
+    .filter((candidate) => !latticeSiteOccupied(candidate, activeTiles, projection, runtimeTiling.basis_deg, survey.inference.occupancy_tolerance_fraction));
+  const solution = fit ? "extended_existing_grid" : "declared_lattice";
   const centers: Center[] = candidates.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]);
   const grid = sampleRegion(polygon);
   const existingMask = coveredMask(grid, activeTiles, profile, registry);
@@ -651,10 +673,12 @@ function planDeclaredLattice(
       ra_deg: ra, dec_deg: dec, source: "proposed", enabled: true,
       dataset_id: null, group_id: null, ra_column: null, dec_column: null,
       generation_method: "region_lattice", original_values: null,
-      metadata: { solution: "declared_lattice", coverage_strategy: strategy, lattice_i: point.i, lattice_j: point.j },
+      metadata: { solution, coverage_strategy: strategy, lattice_i: point.i, lattice_j: point.j },
     };
   });
-  const diagnostics = [`Used the declared basis-vector lattice with ${tiling.origin.type} placement; candidate order is j ascending, then i ascending.`];
+  const diagnostics = fit
+    ? [`Aligned the declared lattice using ${fit.inlier_count} inliers and ${fit.compatible_pair_count} compatible pairs; rotation ${fit.rotation_deg.toFixed(6)} deg, RMS normalized residual ${fit.rms_residual_fraction.toPrecision(4)}.`]
+    : [`Generic inference: ${inference.status}; used the declared basis-vector lattice with ${tiling.origin.type} placement; candidate order is j ascending, then i ascending.`];
   if (metrics.remaining_uncovered_fraction > 0) {
     diagnostics.push(`The declared lattice leaves sampled gaps covering ${(metrics.remaining_uncovered_fraction * 100).toFixed(3)}% of the selected area.`);
   }
@@ -662,9 +686,14 @@ function planDeclaredLattice(
     ? "No declared lattice centers add coverage to the remaining sampled gaps."
     : "Existing tiles already cover all sampled area in the selected region.");
   return {
-    solution: "declared_lattice", generation_method: "region_lattice", coverage_strategy: strategy,
+    solution, generation_method: "region_lattice", coverage_strategy: strategy,
     tiles, candidate_centers: candidates.map(({ ra_deg, dec_deg }) => ({ ra_deg, dec_deg, label: null })),
-    inference: { nearby_tile_count: 0, anchor_tile_ids: [], compatible_neighbor_pairs: 0, dec_spacing_deg: null, ra_spacing_deg: null },
+    inference: {
+      nearby_tile_count: inference.considered_tile_count,
+      anchor_tile_ids: fit?.assignments.filter((item) => item.inlier).map((item) => item.tile_id) ?? [],
+      compatible_neighbor_pairs: fit?.compatible_pair_count ?? 0, dec_spacing_deg: null, ra_spacing_deg: null,
+      lattice: inference,
+    },
     diagnostics, metrics,
   };
 }
