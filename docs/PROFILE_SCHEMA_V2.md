@@ -51,12 +51,60 @@ no celestial polygon clipping is performed.
 
 ## Survey policies
 
-`TilingModel` is generic: `legacy_splus` names the published compatibility
-strategy, `manual` requests no generated lattice, and `lattice` stores two
-independent tangent-plane basis vectors. Each lattice vector is `[east, north]`
-in degrees. Rectangular, staggered, and hexagonal layouts can be represented by
-choosing different basis vectors; they are not separate scientific model types.
-The origin policy describes how the lattice phase is chosen.
+`TilingModel` dispatches to `legacy_splus`, `lattice`, or `manual`.
+
+A generic lattice has one authoritative spacing representation:
+
+```json
+{
+  "type": "lattice",
+  "basis_deg": [[1, 0], [0.5, 1]],
+  "origin": { "type": "region_center" }
+}
+```
+
+The vectors are matrix columns in local `[east, north]` degrees. Integer sites
+are `P(i,j) = O + i*b1 + j*b2`. Vectors must be finite, nonzero, and
+non-collinear (the normalized determinant must exceed the schema's `1e-12`
+numerical degeneracy threshold). Axis-aligned, rotated, staggered, and
+triangular/hexagonal-center layouts use this same engine. For example, a
+triangular lattice uses `[[s,0], [s/2,sqrt(3)*s/2]]`.
+
+Lattice orientation is encoded only in these vectors; lattice
+`position_angle_deg` and the former `origin_policy` field are rejected. Camera
+PA belongs exclusively to the instrument footprint. A camera at PA 30° may use
+an axis-aligned lattice, and a camera at PA 0° may use a rotated lattice.
+Overlap is not a lattice parameter. The profile bridge can construct basis
+vectors from custom v1 width/height minus overlap as an authoring convenience.
+The published inline `RECT_GRID_V1` planner entry point retains its frozen
+v0.2.0 row-generation/overlap-fill behavior. Registered Schema v2 `lattice`
+surveys always use authoritative vectors and the new generic engine.
+
+`origin` separates phase from geometry. `region_center` uses the midpoint of
+continuous, unwrapped region RA bounds and DEC bounds, with RA normalized to
+`[0,360)`. It is a bounds midpoint, not a polygon centroid. The same region and
+profile produce the same phase and candidate sequence. `fixed_anchor` specifies
+`{"type":"fixed_anchor", "ra_deg":150, "dec_deg":-30}` in ICRS, with RA in
+`[0,360)` and DEC in `(-90,90)`. That anchor is both the planning tangent-plane
+reference and integer site `(0,0)`. Changing the anchor shifts placement; its
+DEC also sets the local cosine scale. This defines a local approximation, not
+an exact global spherical survey grid.
+
+Candidate generation projects the region, expands bounds by conservative
+footprint reach, transforms the corners by the inverse basis, and enumerates
+finite integer ranges with one integer of rounding padding. East reach accounts
+for the difference between the planning-plane cosine and possible pointing
+cosines. Order is explicitly `j` ascending, then `i` ascending. Gate 3 positive
+footprint/region intersection retains candidates, including circles and mosaic
+components. The existing 1,200 candidate budget is checked against the search
+range before allocation. Regions whose footprint margin crosses the tangent
+plane's RA branch require a smaller region or nearby anchor.
+
+`manual` explicitly rejects automatic region planning with a survey-level
+message. Manual pointings, imported centers, and generic footprint coverage
+remain available. Generic plans select only declared lattice sites; they do not
+infer a basis/phase or introduce a supplemental shifted lattice to close gaps.
+Remaining sampled gaps are reported.
 
 `InferencePolicy` holds scale-independent tolerances, evidence counts, and the
 rotation allowance. `CoveragePolicy` holds target sampling density, a sample
@@ -73,15 +121,32 @@ footprint, the current three-anchor/two-neighbor minimum, the existing 140
 samples-per-axis and 90,000-sample cap, current Efficient thresholds, and the
 RA/DEC/EPOCH export contract with epoch `2000`.
 
-`adaptT80SplusV2ToV1` is transitional compatibility infrastructure. It maps the
-bundled instrument and survey back to the existing `TilingProfile`, including
-the legacy 120 arcsecond effective overlap. The production planner remains on
-the v1 profile contract in this gate.
+The bundled configuration is stored in
+`frontend/src/profiles/splus-t80-south.json`, with `instrument` and `survey`
+objects validated through the same Schema v2 validators and registry used for
+ordinary profiles. Each object can be registered as user-supplied profile data;
+Gate 7 still owns the import/export UI. The legacy tiling model declares
+`grid_extent_deg: [1.4,1.4]` and `effective_overlap_arcsec: 120`. Grid extents and
+overlap are consumed from survey profile data by `SPLUS_LEGACY_GRID_V1`; `adaptT80SplusV2ToV1` provides the transitional
+historical default shape without duplicating those values.
 
-## Gate 1 boundary
+The duplicated 1.4° extents in instrument and legacy survey data deliberately
+preserve the inherited Gate 3 compatibility strategy when the linked footprint
+is nonrectangular; there is no corresponding private numeric code constant.
 
-Gate 1 validates and serializes the schema only. It does not implement masks or
-rendering for the new footprint types, generic lattice generation, profile-based
-inference thresholds, configurable coverage sampling, or generic CSV output.
-Planner, coverage, geometry, catalogue, rendering, and export behavior remain
-the v0.2.0 production behavior. Scientific migration is deferred to later gates.
+T80 plans retain historical row inference, phase behavior, occupancy exclusion,
+and supplemental overlap-fill, as well as legacy provenance `region_legacy` and
+`region_extended`. New generic plans use `region_lattice` and
+`solution: declared_lattice`, with integer coordinates retained internally in
+proposal metadata. No frozen fixture values change.
+
+## Remaining migration boundaries
+
+Declared tiling and generic footprints are operational. Generic existing-grid
+inference (Gate 5), scale-aware coverage sampling (Gate 6), profile import/export
+UI and configurable CSV output (Gate 7) remain deferred. Inference thresholds,
+coverage sample constants, and Efficient stopping thresholds still duplicate
+profile policy values in their compatibility implementations. They must migrate
+by release so all T80 scientific configuration is consumed from ordinary
+importable profile data. The local cosine/wrapped-RA approximation remains;
+large regions and near-pole planning do not become exact spherical geometry.

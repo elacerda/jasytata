@@ -1,10 +1,12 @@
-import type { CenterInput, CoverageStrategy, Footprint, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
-import { resolveProfile } from "../profiles";
+import type { CenterInput, CoverageStrategy, Footprint, GenericLatticeTiling, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import { DEFAULT_PROFILE } from "../profiles";
+import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
 import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
+import { generateLatticeCandidates } from "./lattice";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 
 const INFERENCE_TOLERANCE_DEG = 0.05;
@@ -500,29 +502,47 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
     !tiles.some((tile) => angularSeparationDeg(ra, dec, tile.ra_deg, tile.dec_deg) < OCCUPIED_CENTER_TOLERANCE_DEG));
 }
 
-/** Infer or fall back to a lattice, then add overlap-fill tiles if sampled gaps remain.
- * @param polygon - Ordered selected sky polygon in ICRS decimal degrees.
- * @param existingTiles - Original catalogue and accepted proposals, including disabled records.
- * @param profileId - Bundled profile ID or custom.
- * @param inlineProfile - Optional session-only custom geometry in degrees and arcseconds.
- * @param strategy - Sampled-coverage stopping policy; complete by default.
- * @param registry - Session-local registry used to resolve each source instrument.
- * @returns Deterministic proposal, candidate centers, inference audit, and coverage metrics.
- * @throws On invalid geometry, unknown instrument IDs,
- *   too many input/candidate records, or sample limits.
+/** Plan from a declared survey tiling strategy, preserving legacy inference separately.
+ * @param polygon - Ordered selected ICRS polygon in decimal degrees.
+ * @param existingTiles - Actual original and accepted pointings, including disabled records.
+ * @param profileId - Registered survey, bundled preset, or custom rectangle ID.
+ * @param inlineProfile - Optional v1 custom rectangle used to construct basis vectors.
+ * @param strategy - Existing sampled-coverage stopping policy.
+ * @param registry - Session-local validated instrument/survey registry.
+ * @returns Deterministic proposal, candidates, diagnostics, and sampled metrics.
+ * @throws If tiling is manual, profiles/region are invalid, or existing budgets are exceeded.
  */
 export function planRegion(
   polygon: SkyPolygon,
   existingTiles: TileRecord[],
-  profileId = "splus-t80-south",
+  profileId = DEFAULT_PROFILE.id,
   inlineProfile?: TilingProfile,
   strategy: CoverageStrategy = "complete",
   registry: ProfileRegistry = profileRegistry,
 ): RegionPlanResponse {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
-  const profile = resolveProfile(profileId, inlineProfile);
+  const { profile, tiling } = resolvePlanningProfile(profileId, inlineProfile, registry);
+  if (tiling.type === "manual") {
+    throw new Error(`Survey profile "${profile.id}" uses manual tiling and does not define an automatic tiling strategy.`);
+  }
+  // The published inline v1 RECT_GRID_V1 entry point has frozen fixtures.
+  if (!inlineProfile && tiling.type === "lattice") return planDeclaredLattice(polygon, existingTiles, profile, tiling, strategy, registry);
+  return planLegacyRegion(polygon, existingTiles, profile, strategy, registry);
+}
+
+/** Compatibility strategy: retains historical inference, occupancy, and overlap-fill. */
+function planLegacyRegion(
+  polygon: SkyPolygon,
+  existingTiles: TileRecord[],
+  profile: TilingProfile,
+  strategy: CoverageStrategy,
+  registry: ProfileRegistry,
+): RegionPlanResponse {
   const outputFootprint = outputFootprintForProfile(profile, registry);
+  if (profile.effective_overlap_arcsec / 3600 >= Math.min(profile.tile_width_deg, profile.tile_height_deg)) {
+    throw new Error("Legacy overlap must be smaller than the footprint dimensions");
+  }
   const activeTiles = existingTiles.filter((tile) => tile.enabled !== false);
   const bounds = polygonBounds(polygon);
   const centerRa = modulo(bounds.ra_start_deg + bounds.ra_span_deg / 2, 360);
@@ -547,9 +567,9 @@ export function planRegion(
   if (lattice === null) {
     solution = "profile_fallback"; method = "region_legacy";
     const expanded = expandedBounds(bounds, profile);
-    rawCandidates = profile.algorithm === "SPLUS_LEGACY_GRID_V1"
-      ? legacyGridCenters([expanded.ra_start_deg, expanded.ra_end_deg], [expanded.dec_min_deg, expanded.dec_max_deg], expanded.ra_start_deg > expanded.ra_end_deg)
-      : rectangularGridCenters(expanded, profile);
+    rawCandidates = profile.algorithm === "RECT_GRID_V1"
+      ? rectangularGridCenters(expanded, profile)
+      : legacyGridCenters([expanded.ra_start_deg, expanded.ra_end_deg], [expanded.dec_min_deg, expanded.dec_max_deg], expanded.ra_start_deg > expanded.ra_end_deg, profile);
     anchors = [];
     diagnostics.push(`No reliable local lattice was found from ${localTiles.length} nearby tiles; used ${profile.algorithm} around the selected polygon.`);
   } else {
@@ -600,6 +620,51 @@ export function planRegion(
       compatible_neighbor_pairs: lattice?.pairCount ?? 0,
       dec_spacing_deg: lattice?.decSpacingDeg ?? null, ra_spacing_deg: lattice?.raSpacingDeg ?? null,
     },
+    diagnostics, metrics,
+  };
+}
+
+/** Select coverage only among declared lattice sites, retaining their integer identity. */
+function planDeclaredLattice(
+  polygon: SkyPolygon,
+  existingTiles: TileRecord[],
+  profile: TilingProfile,
+  tiling: GenericLatticeTiling,
+  strategy: CoverageStrategy,
+  registry: ProfileRegistry,
+): RegionPlanResponse {
+  const footprint = outputFootprintForProfile(profile, registry);
+  const activeTiles = existingTiles.filter((tile) => tile.enabled !== false);
+  const candidates = generateLatticeCandidates(polygon, tiling, footprint, MAX_CANDIDATES);
+  const centers: Center[] = candidates.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]);
+  const grid = sampleRegion(polygon);
+  const existingMask = coveredMask(grid, activeTiles, profile, registry);
+  const useful = usefulUncoveredCenters(centers, existingMask, grid, footprint);
+  const chosen = greedyChoose(useful, existingMask, grid, footprint, AUTOMATIC_COVERAGE_TARGET, strategy);
+  const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry);
+  const metrics = measureMetrics(chosen, existingMask, grid, contributing, footprint);
+  const byCenter = new Map(candidates.map((candidate) => [`${candidate.ra_deg},${candidate.dec_deg}`, candidate]));
+  const tiles: TileRecord[] = chosen.map(({ center: [ra, dec] }, index) => {
+    const point = byCenter.get(`${ra},${dec}`)!;
+    return {
+      id: `proposal-region-${String(index + 1).padStart(4, "0")}`, name: "",
+      ra_deg: ra, dec_deg: dec, source: "proposed", enabled: true,
+      dataset_id: null, group_id: null, ra_column: null, dec_column: null,
+      generation_method: "region_lattice", original_values: null,
+      metadata: { solution: "declared_lattice", coverage_strategy: strategy, lattice_i: point.i, lattice_j: point.j },
+    };
+  });
+  const diagnostics = [`Used the declared basis-vector lattice with ${tiling.origin.type} placement; candidate order is j ascending, then i ascending.`];
+  if (metrics.remaining_uncovered_fraction > 0) {
+    diagnostics.push(`The declared lattice leaves sampled gaps covering ${(metrics.remaining_uncovered_fraction * 100).toFixed(3)}% of the selected area.`);
+  }
+  if (!tiles.length) diagnostics.push(metrics.remaining_uncovered_fraction > 0
+    ? "No declared lattice centers add coverage to the remaining sampled gaps."
+    : "Existing tiles already cover all sampled area in the selected region.");
+  return {
+    solution: "declared_lattice", generation_method: "region_lattice", coverage_strategy: strategy,
+    tiles, candidate_centers: candidates.map(({ ra_deg, dec_deg }) => ({ ra_deg, dec_deg, label: null })),
+    inference: { nearby_tile_count: 0, anchor_tile_ids: [], compatible_neighbor_pairs: 0, dec_spacing_deg: null, ra_spacing_deg: null },
     diagnostics, metrics,
   };
 }

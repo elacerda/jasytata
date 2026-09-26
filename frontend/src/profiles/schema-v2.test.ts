@@ -105,15 +105,42 @@ describe("Profile Schema v2", () => {
     }))).toThrow(/finite/);
   });
 
-  it("validates independent lattice basis vectors and origin policies", () => {
+  it("validates independent lattice basis vectors and explicit origins", () => {
     const lattice = {
-      type: "lattice", basis_deg: [[1, 0], [0.5, 0.8]], origin_policy: "fixed_phase", position_angle_deg: 5,
+      type: "lattice", basis_deg: [[1, 0], [0.5, 0.8]], origin: { type: "fixed_anchor", ra_deg: 150, dec_deg: -30 },
     };
     expect(validateSurveyProfileV2(surveyWith({ tiling: lattice })).tiling).toEqual(lattice);
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[0, 0], [1, 1]] } }))).toThrow(/non-zero/);
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[1, 1], [2, 2]] } }))).toThrow(/collinear/);
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[1, 0], [0, Number.POSITIVE_INFINITY]] } }))).toThrow(/finite/);
-    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, origin_policy: "unknown" } }))).toThrow(/origin policy/);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, origin: { type: "unknown" } } }))).toThrow(/origin type/);
+  });
+
+  it("rejects redundant lattice angle/old origin fields and validates fixed ICRS anchors", () => {
+    const lattice = { type: "lattice", basis_deg: [[1, 0], [0, 1]], origin: { type: "region_center" } };
+    const validate = (tiling: unknown) => validateSurveyProfileV2(surveyWith({ tiling }));
+    expect(validate(lattice).tiling).toEqual(lattice);
+    expect(() => validate({ ...lattice, position_angle_deg: 0 })).toThrow(/remove position_angle_deg/);
+    expect(() => validate({ ...lattice, origin_policy: "region_center" })).toThrow(/origin_policy/);
+    expect(() => validate({ ...lattice, origin: undefined })).toThrow(/origin/);
+    for (const [ra, dec] of [[-1, 0], [360, 0], [0, -90], [0, 90]]) {
+      expect(() => validate({ ...lattice, origin: { type: "fixed_anchor", ra_deg: ra, dec_deg: dec } })).toThrow(/anchor/);
+    }
+    expect(() => validate({ ...lattice, origin: { type: "fixed_anchor", ra_deg: 0, dec_deg: Number.NaN } })).toThrow(/finite/);
+    const fixed = { ...lattice, origin: { type: "fixed_anchor", ra_deg: 0, dec_deg: -89 } };
+    expect(validate(JSON.parse(JSON.stringify(fixed))).tiling).toEqual(fixed);
+    expect(validate({ type: "manual" }).tiling).toEqual({ type: "manual" });
+  });
+
+  it("validates profile-supplied legacy overlap without hidden defaults", () => {
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { type: "legacy_splus" } }))).toThrow(/finite/);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { type: "legacy_splus", effective_overlap_arcsec: -1 } }))).toThrow(/non-negative/);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { type: "legacy_splus", effective_overlap_arcsec: Infinity } }))).toThrow(/finite/);
+    const legacy = { type: "legacy_splus", grid_extent_deg: [1, 2], effective_overlap_arcsec: 0 };
+    expect(validateSurveyProfileV2(surveyWith({ tiling: legacy })).tiling).toEqual(legacy);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...legacy, grid_extent_deg: [0, 2] } }))).toThrow(/dimensions/);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...legacy, grid_extent_deg: [1, Infinity] } }))).toThrow(/finite/);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...legacy, effective_overlap_arcsec: 3600 } }))).toThrow(/overlap/);
   });
 
   it("rejects invalid inference fractions and evidence counts", () => {

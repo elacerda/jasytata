@@ -738,6 +738,7 @@ export default function App() {
                 selectingRegion ? <span className="interaction-pill">CLICK POLYGON VERTICES</span> :
                 pending?.solution === "profile_fallback" ? <span className="interaction-pill is-fallback">PROFILE FALLBACK</span> :
                 pending?.solution === "extended_existing_grid" ? <span className="interaction-pill is-extended">EXISTING GRID EXTENDED</span> :
+                pending?.solution === "declared_lattice" ? <span className="interaction-pill">SURVEY LATTICE</span> :
                 <span className="interaction-pill is-idle">PAN · ZOOM · INSPECT</span>}
             </div>
             {hasCatalogue && (
@@ -974,6 +975,7 @@ function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "re
 function solutionLabel(solution: string) {
   if (solution === "extended_existing_grid") return "Existing grid extended";
   if (solution === "profile_fallback") return "Profile fallback";
+  if (solution === "declared_lattice") return "Declared survey lattice";
   if (solution === "manual") return "Manual sky placement";
   return "Imported centers";
 }
@@ -981,6 +983,7 @@ function solutionLabel(solution: string) {
 function shortMethod(method: TileRecord["generation_method"]) {
   if (method === "region_extended") return "grid extension";
   if (method === "region_legacy") return "legacy grid";
+  if (method === "region_lattice") return "survey lattice";
   if (method === "imported_centers") return "imported";
   if (method === "manual") return "manual";
   return "proposed";

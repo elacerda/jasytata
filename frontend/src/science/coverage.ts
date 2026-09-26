@@ -3,7 +3,8 @@ import { polygonLocalGeometry, validatePolygon, type PolygonLocalGeometry } from
 import { createFootprintContainmentTester, createSkyToLocalProjector, footprintArea, footprintIntersectsRegion, footprintLocalBounds } from "./footprint-engine";
 import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
-import { resolveProfile } from "../profiles";
+import { DEFAULT_PROFILE } from "../profiles";
+import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
 
@@ -322,7 +323,7 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
  * @param polygon - Validated ICRS selected region in decimal degrees.
  * @param existingTiles - All original and accepted pointings; disabled proposals are ignored.
  * @param proposedTiles - Editable proposal preview; only enabled records contribute.
- * @param profileId - Installed profile ID or custom.
+ * @param profileId - Registered survey, bundled preset, or custom profile ID.
  * @param inlineProfile - Session-only custom profile, if any.
  * @param registry - Session-local registry used to resolve source instrument profiles.
  * @returns Current sampled-coverage metrics for enabled existing and proposed footprints.
@@ -333,14 +334,14 @@ export function measureActiveCoverage(
   polygon: SkyPolygon,
   existingTiles: TileRecord[],
   proposedTiles: TileRecord[],
-  profileId = "splus-t80-south",
+  profileId = DEFAULT_PROFILE.id,
   inlineProfile?: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
 ): PlanMetrics {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000 || proposedTiles.length > 500) throw new Error("Too many tile records");
   if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Coverage edits may contain only proposed tiles");
-  const profile = resolveProfile(profileId, inlineProfile);
+  const { profile } = resolvePlanningProfile(profileId, inlineProfile, registry);
   const outputFootprint = outputFootprintForProfile(profile, registry);
   const grid = sampleRegion(polygon);
   const activeExisting = existingTiles.filter((tile) => tile.enabled !== false);

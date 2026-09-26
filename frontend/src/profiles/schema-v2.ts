@@ -6,6 +6,7 @@ import type {
   Footprint,
   InferencePolicy,
   InstrumentProfileV2,
+  LatticeOrigin,
   NonCompoundFootprint,
   PolygonFootprint,
   SurveyProfileV2,
@@ -181,8 +182,18 @@ export function validateInstrumentProfileV2(profile: unknown): InstrumentProfile
 function validateTiling(value: unknown): TilingModel {
   const tiling = requireRecord(value, "Tiling model");
   switch (tiling.type) {
-    case "legacy_splus":
-      return { type: "legacy_splus" };
+    case "legacy_splus": {
+      const overlap = requireFiniteNumber(tiling.effective_overlap_arcsec, "Legacy effective overlap");
+      if (overlap < 0) throw new Error("Legacy effective overlap must be non-negative");
+      if (!Array.isArray(tiling.grid_extent_deg) || tiling.grid_extent_deg.length !== 2) {
+        throw new Error("Legacy grid_extent_deg must contain width and height");
+      }
+      const width = requireFiniteNumber(tiling.grid_extent_deg[0], "Legacy grid width");
+      const height = requireFiniteNumber(tiling.grid_extent_deg[1], "Legacy grid height");
+      if (width <= 0 || height <= 0 || width > 180 || height > 180) throw new Error("Legacy grid dimensions must be in (0, 180] degrees");
+      if (overlap / 3600 >= Math.min(width, height)) throw new Error("Legacy overlap must be smaller than the grid dimensions");
+      return { type: "legacy_splus", grid_extent_deg: [width, height], effective_overlap_arcsec: overlap };
+    }
     case "manual":
       return { type: "manual" };
     case "lattice": {
@@ -191,21 +202,28 @@ function validateTiling(value: unknown): TilingModel {
       const second = validateOffset(tiling.basis_deg[1], "Second lattice basis vector");
       const firstLength = Math.hypot(first[0], first[1]);
       const secondLength = Math.hypot(second[0], second[1]);
+      if (!Number.isFinite(firstLength) || !Number.isFinite(secondLength)) throw new Error("Lattice vector lengths must be finite");
       if (firstLength === 0 || secondLength === 0) throw new Error("Lattice basis vectors must be non-zero");
       const normalizedDeterminant = (first[0] / firstLength) * (second[1] / secondLength) -
         (first[1] / firstLength) * (second[0] / secondLength);
       if (!Number.isFinite(normalizedDeterminant) || Math.abs(normalizedDeterminant) <= FRACTION_EPSILON) {
         throw new Error("Lattice basis vectors must not be collinear or degenerate");
       }
-      const originPolicy = tiling.origin_policy;
-      if (originPolicy !== "region_center" && originPolicy !== "region_corner" && originPolicy !== "fixed_phase") {
-        throw new Error("Invalid lattice origin policy");
+      if ("position_angle_deg" in tiling || "origin_policy" in tiling) {
+        throw new Error("Lattice uses basis_deg and origin only; remove position_angle_deg and origin_policy");
       }
-      const positionAngle = validateOptionalAngle(tiling.position_angle_deg, "Lattice position angle");
-      return {
-        type: "lattice", basis_deg: [first, second], origin_policy: originPolicy,
-        ...(positionAngle !== undefined ? { position_angle_deg: positionAngle } : {}),
-      };
+      const placement = requireRecord(tiling.origin, "Lattice origin");
+      let origin: LatticeOrigin;
+      if (placement.type === "region_center") origin = { type: "region_center" };
+      else if (placement.type === "fixed_anchor") {
+        const ra = requireFiniteNumber(placement.ra_deg, "Lattice anchor RA");
+        const dec = requireFiniteNumber(placement.dec_deg, "Lattice anchor DEC");
+        if (ra < 0 || ra >= 360 || Math.abs(dec) >= 90) {
+          throw new Error("Lattice anchor must have RA in [0, 360) and DEC in (-90, 90)");
+        }
+        origin = { type: "fixed_anchor", ra_deg: ra, dec_deg: dec };
+      } else throw new Error("Invalid lattice origin type");
+      return { type: "lattice", basis_deg: [first, second], origin };
     }
     default:
       throw new Error(`Unknown tiling model type: ${String(tiling.type)}`);
@@ -304,8 +322,10 @@ function validateExport(value: unknown): ExportPolicy {
 
 /** Validate and copy a version 2 survey policy profile.
  *
- * Policies are declarative schema in this release. They do not alter the v1
- * planner, coverage sampling, or CSV exporter.
+ * Declared tiling controls automatic candidate generation. Inference, coverage
+ * sampling, and export policies retain their staged migration boundaries.
+ * Lattice basis vectors use east/north degrees and encode all orientation;
+ * origin selects the planning tangent plane and its lattice phase.
  *
  * @param profile - Untrusted JSON-compatible survey profile value.
  * @returns A normalized, independently allocated version 2 profile.

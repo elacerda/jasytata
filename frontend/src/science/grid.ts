@@ -1,5 +1,6 @@
 import type { TilingProfile } from "../types";
 import type { RegionBounds } from "./geometry";
+import { DEFAULT_PROFILE } from "../profiles";
 import { modulo, radians } from "./math";
 
 /** Ordered ICRS center, [right ascension, declination] in decimal degrees. */
@@ -9,10 +10,11 @@ export type Center = readonly [number, number];
  * @param raBounds - RA endpoints in degrees; wrapsRa chooses the eastward zero-crossing arc.
  * @param decBounds - Declination endpoints in degrees; reversed limits are normalized.
  * @param wrapsRa - Whether RA endpoints span zero eastward.
+ * @param profile - Validated compatibility dimensions in degrees and overlap in arcseconds.
  * @returns Centers ordered by ascending DEC and then traversal RA.
  * @throws On non-finite bounds or declinations outside [-90, 90].
  */
-export function legacyGridCenters(raBounds: Center, decBounds: Center, wrapsRa = false): Center[] {
+export function legacyGridCenters(raBounds: Center, decBounds: Center, wrapsRa = false, profile: TilingProfile = DEFAULT_PROFILE): Center[] {
   const [raA, raB] = raBounds;
   const [decA, decB] = decBounds;
   if (![raA, raB, decA, decB].every(Number.isFinite)) throw new Error("Bounds must be finite");
@@ -23,16 +25,17 @@ export function legacyGridCenters(raBounds: Center, decBounds: Center, wrapsRa =
   const decHigh = Math.max(decA, decB);
   const raFixed = !wrapsRa && raSpan === 0;
   const decFixed = decLow === decHigh;
-  const tileSize = 1.4;
-  const spacing = tileSize - 120 / 3600;
-  const firstRaOffset = raFixed ? 0 : (tileSize / 2) / Math.cos(radians(decLow));
-  let dec = decFixed ? decLow : decLow + tileSize / 2;
+  const spacing = profile.tile_height_deg - profile.effective_overlap_arcsec / 3600;
+  const raSpacing = profile.tile_width_deg - profile.effective_overlap_arcsec / 3600;
+  if (spacing <= 0 || raSpacing <= 0) throw new Error("Legacy spacing must be positive");
+  const firstRaOffset = raFixed ? 0 : (profile.tile_width_deg / 2) / Math.cos(radians(decLow));
+  let dec = decFixed ? decLow : decLow + profile.tile_height_deg / 2;
   const rowLimit = Math.max(1, Math.ceil((decHigh - decLow) / spacing) + 2);
-  const colLimit = Math.max(1, Math.ceil(Math.max(raSpan, 0.01) / spacing * 2) + 4);
+  const colLimit = Math.max(1, Math.ceil(Math.max(raSpan, 0.01) / raSpacing * 2) + 4);
   const centers: Center[] = [];
   for (let row = 0; row < rowLimit; row += 1) {
     if (dec > decHigh + 1e-12) break;
-    const rowStep = spacing / Math.cos(radians(dec));
+    const rowStep = raSpacing / Math.cos(radians(dec));
     let offset = firstRaOffset;
     if (raFixed) centers.push([raStart, dec]);
     else for (let col = 0; col < colLimit; col += 1) {
@@ -46,7 +49,8 @@ export function legacyGridCenters(raBounds: Center, decBounds: Center, wrapsRa =
   return centers;
 }
 
-/** Seed a rectangular ICRS grid with profile width/height and edge overlap.
+/** Preserve the published v1 RECT_GRID_V1 row generator for historical callers.
+ * Schema v2 generic surveys use the basis-vector engine instead.
  * @param bounds - Eastward RA and northward DEC limits in degrees.
  * @param profile - Physical tile dimensions in degrees and overlap in arcseconds.
  * @returns Ordered [RA, DEC] center pairs in decimal degrees.

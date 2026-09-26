@@ -1,0 +1,60 @@
+{
+  "instrument": {
+    "schema_version": 2,
+    "id": "t80-south",
+    "display_name": "T80-South camera",
+    "description": "S-PLUS / T80-South imaging camera",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "rectangle",
+      "width_deg": 1.4,
+      "height_deg": 1.4
+    }
+  },
+  "survey": {
+    "schema_version": 2,
+    "id": "splus-t80-south",
+    "display_name": "S-PLUS / T80-South",
+    "description": "T80-South survey camera",
+    "instrument_id": "t80-south",
+    "tiling": {
+      "type": "legacy_splus",
+      "effective_overlap_arcsec": 120,
+      "grid_extent_deg": [
+        1.4,
+        1.4
+      ]
+    },
+    "inference": {
+      "enabled": true,
+      "spacing_tolerance_fraction": 0.03571428571428572,
+      "phase_tolerance_fraction": 0.07142857142857144,
+      "occupancy_tolerance_fraction": 0.08571428571428572,
+      "min_anchor_tiles": 3,
+      "min_neighbor_pairs": 2,
+      "allow_rotation": false
+    },
+    "coverage": {
+      "sampling": {
+        "target_samples_per_footprint_axis": 140,
+        "max_samples": 90000
+      },
+      "efficient": {
+        "min_coverage": 0.995,
+        "min_marginal_efficiency": 0.03
+      }
+    },
+    "export": {
+      "ra_column": "RA",
+      "dec_column": "DEC",
+      "coordinate_format": "decimal",
+      "epoch": {
+        "column": "EPOCH",
+        "default": "2000",
+        "allowed": [
+          "2000"
+        ]
+      }
+    }
+  }
+}

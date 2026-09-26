@@ -113,13 +113,13 @@ export function parseCenterText(text: string): CenterInput[] {
 
 /** Create deterministic provisional proposal records from browser-side centers.
  * @param centers - Validated ICRS RA/DEC centers in decimal degrees, at most 500.
- * @param generationMethod - Manual or imported center provenance.
+ * @param generationMethod - Manual, imported, compatibility, or declared lattice provenance.
  * @returns Proposed tiles with stable sequential session IDs.
  * @throws If centers or generation method violate the Python request contract.
  */
 export function makeCenterProposals(centers: CenterInput[], generationMethod: GenerationMethod): TileRecord[] {
   if (!centers.length || centers.length > 500) throw new Error("Provide between 1 and 500 centers");
-  if (!["manual", "imported_centers", "region_legacy", "region_extended"].includes(generationMethod)) throw new Error("Invalid generation method");
+  if (!["manual", "imported_centers", "region_legacy", "region_extended", "region_lattice"].includes(generationMethod)) throw new Error("Invalid generation method");
   return centers.map((center, index) => {
     if (!Number.isFinite(center.ra_deg) || center.ra_deg < 0 || center.ra_deg >= 360 || !Number.isFinite(center.dec_deg) || Math.abs(center.dec_deg) > 90) throw new Error(`Center ${index + 1}: invalid RA or DEC`);
     return {

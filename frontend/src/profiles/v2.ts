@@ -1,54 +1,18 @@
 import type { InstrumentProfileV2, SurveyProfileV2, TilingProfile } from "../types";
 import { validateInstrumentProfileV2, validateSurveyProfileV2 } from "./schema-v2";
+import bundledProfile from "./splus-t80-south.json";
 
-/** Bundled Schema v2 geometry for the S-PLUS T80-South camera. */
-export const T80_SOUTH_INSTRUMENT_V2: InstrumentProfileV2 = {
-  schema_version: 2,
-  id: "t80-south",
-  display_name: "T80-South camera",
-  description: "S-PLUS / T80-South imaging camera",
-  coordinate_frame: "icrs",
-  footprint: { type: "rectangle", width_deg: 1.4, height_deg: 1.4 },
-};
+/** Bundled camera data loaded through the ordinary Schema v2 validator. */
+export const T80_SOUTH_INSTRUMENT_V2: InstrumentProfileV2 = validateInstrumentProfileV2(bundledProfile.instrument);
 
-/** Bundled Schema v2 S-PLUS survey policy associated with T80-South. */
-export const SPLUS_SURVEY_V2: SurveyProfileV2 = {
-  schema_version: 2,
-  id: "splus-t80-south",
-  display_name: "S-PLUS / T80-South",
-  description: "T80-South survey camera",
-  instrument_id: "t80-south",
-  tiling: { type: "legacy_splus" },
-  inference: {
-    enabled: true,
-    // Fractions use the 1.4 degree T80 footprint as their reference scale. The
-    // production planner continues to use its existing fixed degree values.
-    spacing_tolerance_fraction: 0.05 / 1.4,
-    phase_tolerance_fraction: 0.1 / 1.4,
-    occupancy_tolerance_fraction: 0.12 / 1.4,
-    min_anchor_tiles: 3,
-    min_neighbor_pairs: 2,
-    allow_rotation: false,
-  },
-  coverage: {
-    sampling: { target_samples_per_footprint_axis: 140, max_samples: 90_000 },
-    efficient: { min_coverage: 0.995, min_marginal_efficiency: 0.03 },
-  },
-  export: {
-    ra_column: "RA",
-    dec_column: "DEC",
-    coordinate_format: "decimal",
-    epoch: { column: "EPOCH", default: "2000", allowed: ["2000"] },
-  },
-};
-
-const LEGACY_SPLUS_EFFECTIVE_OVERLAP_ARCSEC = 120;
+/** Bundled survey data loaded through the ordinary Schema v2 validator. */
+export const SPLUS_SURVEY_V2: SurveyProfileV2 = validateSurveyProfileV2(bundledProfile.survey);
 
 /** Adapt the bundled v2 T80/S-PLUS pair into the historical planner contract.
  *
  * Transitional compatibility infrastructure: this mapping is structural and
- * contains no geometry calculations. The legacy tiling discriminator has the
- * fixed 120 arcsecond effective overlap used by the v1 T80 planner. Survey
+ * contains no geometry calculations. Dimensions and effective overlap are read
+ * from the validated bundled/imported profiles. Survey
  * inference and coverage policies remain declarative; the production planner
  * continues to consume its existing v1 constants.
  *
@@ -64,10 +28,12 @@ export function adaptT80SplusV2ToV1(instrument: unknown, survey: unknown): Tilin
   if (checkedInstrument.id !== T80_SOUTH_INSTRUMENT_V2.id || checkedSurvey.id !== SPLUS_SURVEY_V2.id) {
     throw new Error("Only the bundled T80-South / S-PLUS v2 pair can be adapted to the v1 planner");
   }
+  const reference = T80_SOUTH_INSTRUMENT_V2.footprint;
+  if (reference.type !== "rectangle") throw new Error("Bundled compatibility footprint must be rectangular");
   if (checkedInstrument.coordinate_frame !== "icrs" || checkedInstrument.footprint.type !== "rectangle" ||
-      checkedInstrument.footprint.width_deg !== 1.4 || checkedInstrument.footprint.height_deg !== 1.4 ||
+      checkedInstrument.footprint.width_deg !== reference.width_deg || checkedInstrument.footprint.height_deg !== reference.height_deg ||
       checkedInstrument.footprint.position_angle_deg !== undefined) {
-    throw new Error("The v1 T80 planner requires its unrotated 1.4 by 1.4 degree rectangle");
+    throw new Error("The v1 T80 planner requires its reference unrotated rectangle");
   }
   if (checkedSurvey.tiling.type !== "legacy_splus") throw new Error("The v1 T80 planner requires legacy_splus tiling");
   const exportPolicy = checkedSurvey.export;
@@ -80,9 +46,9 @@ export function adaptT80SplusV2ToV1(instrument: unknown, survey: unknown): Tilin
     id: checkedSurvey.id,
     display_name: checkedSurvey.display_name,
     ...(checkedSurvey.description !== undefined ? { description: checkedSurvey.description } : {}),
-    tile_width_deg: checkedInstrument.footprint.width_deg,
-    tile_height_deg: checkedInstrument.footprint.height_deg,
-    effective_overlap_arcsec: LEGACY_SPLUS_EFFECTIVE_OVERLAP_ARCSEC,
+    tile_width_deg: checkedSurvey.tiling.grid_extent_deg[0],
+    tile_height_deg: checkedSurvey.tiling.grid_extent_deg[1],
+    effective_overlap_arcsec: checkedSurvey.tiling.effective_overlap_arcsec,
     coordinate_frame: checkedInstrument.coordinate_frame,
     export_epoch_default: exportPolicy.epoch.default,
     export_epoch_options: [...exportPolicy.epoch.allowed],

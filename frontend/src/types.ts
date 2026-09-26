@@ -1,5 +1,5 @@
 /** Origin of a proposed tile center. */
-export type GenerationMethod = "manual" | "imported_centers" | "region_legacy" | "region_extended";
+export type GenerationMethod = "manual" | "imported_centers" | "region_legacy" | "region_extended" | "region_lattice";
 /** Distinguishes immutable source rows from session proposal rows. */
 export type TileSource = "original" | "proposed";
 /** Planning policy applied to sampled-region tile selection. */
@@ -131,15 +131,22 @@ export interface InstrumentProfileV2 {
   footprint: Footprint;
 }
 
-/** Explicit compatibility or generic local-plane tiling strategy. */
+/** Placement of a local lattice; fixed anchors are canonical ICRS degrees. */
+export type LatticeOrigin =
+  | { type: "region_center" }
+  | { type: "fixed_anchor"; ra_deg: number; dec_deg: number };
+
+/** Authoritative east/north pointing spacing, independent of footprint PA. */
+export interface GenericLatticeTiling {
+  type: "lattice";
+  basis_deg: [TangentPlaneOffset, TangentPlaneOffset];
+  origin: LatticeOrigin;
+}
+
+/** Compatibility generation, a declared local lattice, or manual coverage only. */
 export type TilingModel =
-  | { type: "legacy_splus" }
-  | {
-      type: "lattice";
-      basis_deg: [TangentPlaneOffset, TangentPlaneOffset];
-      origin_policy: "region_center" | "region_corner" | "fixed_phase";
-      position_angle_deg?: number;
-    }
+  | { type: "legacy_splus"; grid_extent_deg: [width_deg: number, height_deg: number]; effective_overlap_arcsec: number }
+  | GenericLatticeTiling
   | { type: "manual" };
 
 /** Scale-independent thresholds and minimum evidence for lattice inference. */
@@ -230,11 +237,11 @@ export interface InferenceDiagnostics {
   ra_spacing_deg: number | null;
 }
 
-/** Auditable preview response from existing-grid inference or legacy fallback. */
+/** Auditable preview response from existing-grid inference, compatibility fallback, or a declared lattice. */
 export interface RegionPlanResponse {
   coverage_strategy: CoverageStrategy;
-  solution: "extended_existing_grid" | "profile_fallback";
-  generation_method: "region_legacy" | "region_extended";
+  solution: "extended_existing_grid" | "profile_fallback" | "declared_lattice";
+  generation_method: "region_legacy" | "region_extended" | "region_lattice";
   tiles: TileRecord[];
   candidate_centers: CenterInput[];
   inference: InferenceDiagnostics;

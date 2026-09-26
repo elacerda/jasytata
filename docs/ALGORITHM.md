@@ -1,6 +1,6 @@
 # Scientific and planning algorithms
 
-This document distinguishes the compatibility geometry in `SPLUS_LEGACY_GRID_V1` from local-grid inference and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `planner.ts`, and `coverage.ts`. `frontend/src/data/golden.json` preserves former Python reference data for coordinates, catalogue semantics, exports, legacy grid geometry, and compatible lattice evidence. `frontend/src/data/planner-contract.json` records reviewed outcomes under the current sampling and coverage contract.
+This document distinguishes declared local-plane lattices, the compatibility geometry in `SPLUS_LEGACY_GRID_V1`, existing-grid inference, and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `lattice.ts`, `planner.ts`, and `coverage.ts`. `frontend/src/data/golden.json` preserves former Python reference data for coordinates, catalogue semantics, exports, legacy grid geometry, and compatible lattice evidence. `frontend/src/data/planner-contract.json` records reviewed outcomes under the current sampling and coverage contract.
 
 ## 1. Coordinate conventions
 
@@ -12,7 +12,7 @@ This document distinguishes the compatibility geometry in `SPLUS_LEGACY_GRID_V1`
 
 ## 2. `SPLUS_LEGACY_GRID_V1`
 
-The compatibility constants are:
+The bundled profile supplies the compatibility dimensions and effective overlap. The historical derivation is:
 
 ```text
 tile size                  T = 1.4 deg
@@ -46,7 +46,47 @@ The division by cosine is applied to the angular increment as in the reference's
 
 The committed Python-generated compatibility fixture records legacy grid centers and RA wrap behavior. TypeScript grid tests compare center sequences to the fixture within `1e-10` degree. The implementation intentionally does not replace the half-tile seed with a modern centered-grid convention.
 
-## 3. Local existing-grid inference
+## Declared generic tiling (Gate 4)
+
+Footprint means the shape covered by an exposure. Lattice means relative center
+positions. Origin means lattice placement/phase. The planner selects sites by
+coverage. These are independent inputs and stages.
+
+Schema v2 dispatches `legacy_splus` to the historical strategy below, `lattice`
+to the pure generic engine, and `manual` to an explicit unavailable-automatic-plan
+error. The instrument supplies footprint geometry; survey `basis_deg` supplies
+two matrix-column vectors `[east,north]` in degrees, with
+`P(i,j) = O + i*b1 + j*b2`. There is no lattice PA or fundamental overlap scalar.
+All rectangular, rotated, staggered, and triangular layouts use this one model.
+
+The planning plane uses the Gate 3 wrapped-RA/cosine approximation. The origin
+is the midpoint of unwrapped RA and DEC region bounds, or a declared fixed ICRS
+anchor. A fixed anchor establishes site `(0,0)` and the plane's cosine scale;
+it does not define an exact global spherical grid. Region vertices are projected
+into that plane, then bounded with footprint reach (including camera PA and
+mosaic offsets). East reach is conservatively rescaled for possible center
+cosines. The inverse basis transforms expanded corners to finite integer ranges,
+with one index of rounding padding. The existing 1,200-candidate budget applies
+before enumeration. RA branch crossings are rejected explicitly.
+
+Enumeration is `j` ascending, then `i` ascending. Gate 3 footprint-region
+intersection retains relevant centers. Coverage selection uses existing sampling
+and greedy ranking. Existing centers contribute coverage without generic lattice
+inference or the legacy 0.12° occupied-center exclusion; centers adding no sampled
+gain are omitted by selection. No shifted supplemental grid is introduced for a
+declared lattice: uncovered sampled gaps remain visible in metrics/diagnostics.
+Proposal provenance is `region_lattice`; the historical strategy retains its
+frozen `region_legacy`/`region_extended` values.
+
+The profile bridge can construct an axis-aligned basis from v1 rectangle
+dimensions minus overlap as an authoring convenience. The published inline
+`RECT_GRID_V1` planning entry point retains its historical row generator and
+overlap-fill because its v0.2.0 fixtures are also frozen. Declared Schema v2
+`lattice` surveys always use the generic engine. Manual/imported centers
+and their footprint coverage do not require an automatic tiling policy. Generic
+inference and scale-aware sampling remain Gates 5 and 6.
+
+## 3. Compatibility existing-grid inference
 
 The selected polygon is unwrapped around its local RA center and must span at most 180°. Neighbor pairs are measured in local physical east-west degrees at the pair's mean declination:
 
@@ -64,7 +104,7 @@ The tolerance is `τ = 0.05°` (3 arcmin). This was calibrated against nearest-n
 
 At least two compatible neighbor pairs, two horizontal pairs, and three distinct anchor tiles are required. DEC and physical RA spacings are robust medians of observed compatible steps; when vertical neighbors are absent, DEC spacing falls back to the active profile. Anchor centers are clustered into declination rows, retaining each observed row's actual DEC instead of forcing one constant spacing across a broad region. Each observed row also retains its own measured physical RA pitch. RA phases are inferred and residual-checked independently within each observed row, measured relative to the selected region's RA center. Missing rows interpolate from observed row coordinates, phases, and RA pitches; rows beyond the observed range extrapolate from nearby rows. Candidate centers are extended over the selected region plus a half-tile margin. They remain on those inferred lattice coordinates; optimization never continuously shifts a center. If row phases are inconsistent, the planner reports `profile_fallback` rather than labeling an unsupported phase as an existing-grid extension.
 
-Candidate centers within 0.12° **great-circle angular separation** of an actual input center are removed as occupied. This exclusion is wider than the 0.10° maximum accepted phase residual plus the Run C 14.93-arcsecond historical holdout tolerance, while remaining much smaller than the roughly 1.35° spacing between distinct sites. Occupancy compares every candidate with actual loaded centers; it does not use inferred row membership. When inference does not meet the anchor count and phase-residual checks, the planner reports `profile_fallback` and calls the active profile's grid builder on polygon bounds expanded by half a tile. The bounds accelerate lattice construction; polygon samples decide whether each candidate contributes. A successful fit is reported as `extended_existing_grid`. Structured inference diagnostics distinguish nearby candidate tiles from the stable IDs of anchors in compatible neighbor pairs and report the selected pair count and inferred spacings. The nearby count comes from polygon **bounds plus a three-tile search margin**, so it can substantially exceed the number of tiles inside the selected polygon. Fallback reports nearby candidates but zero matched anchors, zero compatible pairs, and no inferred spacings. Coverage recalculation does not replace inference diagnostics.
+Candidate centers within 0.12° **great-circle angular separation** of an actual input center are removed as occupied. This exclusion is wider than the 0.10° maximum accepted phase residual plus the Run C 14.93-arcsecond historical holdout tolerance, while remaining much smaller than the roughly 1.35° spacing between distinct sites. Occupancy compares every candidate with actual loaded centers; it does not use inferred row membership. For the compatibility strategy, when inference does not meet the anchor count and phase-residual checks, the planner reports `profile_fallback` and calls the active profile's grid builder on polygon bounds expanded by half a tile. The bounds accelerate lattice construction; polygon samples decide whether each candidate contributes. A successful fit is reported as `extended_existing_grid`. Structured inference diagnostics distinguish nearby candidate tiles from the stable IDs of anchors in compatible neighbor pairs and report the selected pair count and inferred spacings. The nearby count comes from polygon **bounds plus a three-tile search margin**, so it can substantially exceed the number of tiles inside the selected polygon. Fallback reports nearby candidates but zero matched anchors, zero compatible pairs, and no inferred spacings. Coverage recalculation does not replace inference diagnostics.
 
 ## 4. Coverage representation and scoring
 
@@ -93,4 +133,16 @@ Original catalogue records retain every source CSV string and arbitrary non-coor
 
 ## 6. Deliberate limitations
 
-This planner is designed for the near-axis-aligned T80/S-PLUS mosaic at ordinary survey declinations. It does not use full spherical polygon clipping, infer a rotated lattice, or model exact HEALPix footprints. The coverage score is a reproducible planning estimate and must be checked against the survey's final operational acceptance criteria before treating it as a formal completeness statement. Near the celestial poles, the RA/DEC rectangle approximation is not suitable; selected regions are validated to avoid the exact poles but the recommended operating area remains the southern survey footprint.
+Declared lattices and generic footprints support independent orientations in a local plane. Compatibility inference remains designed for the near-axis-aligned T80/S-PLUS mosaic at ordinary survey declinations. It does not use full spherical polygon clipping, infer a rotated lattice, or model exact HEALPix footprints. The coverage score is a reproducible planning estimate and must be checked against the survey's final operational acceptance criteria before treating it as a formal completeness statement. Near the celestial poles, the RA/DEC rectangle approximation is not suitable; selected regions are validated to avoid the exact poles but the recommended operating area remains the southern survey footprint.
+
+Scientific configuration migration: the bundled instrument/survey objects in
+`frontend/src/profiles/splus-t80-south.json` use the ordinary validators and
+registry loader. Legacy generation reads grid extents and effective overlap from
+those profiles. Compatibility survey `grid_extent_deg` is independent of the
+linked footprint; it preserves the legacy half-tile seed and pitch even when
+a Gate 3 survey is associated with a different camera shape. The bundled
+`[1.4,1.4]` survey grid extents duplicate the instrument dimensions deliberately
+for that compatibility contract, rather than duplicating values in code. Compatibility inference tolerances and sampling/selection
+constants still duplicate profile policies pending Gates 5/6; full import/export
+UI remains Gate 7. All T80 scientific configuration must be sourced from ordinary
+importable profile data by the v0.3.0 release.

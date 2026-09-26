@@ -1,12 +1,8 @@
 import type { TilingProfile } from "../types";
+import { adaptT80SplusV2ToV1, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "./v2";
 
 /** Bundled and validated default S-PLUS / T80-South observing profile. */
-export const DEFAULT_PROFILE: TilingProfile = {
-  id: "splus-t80-south", display_name: "S-PLUS / T80-South", description: "T80-South survey camera",
-  tile_width_deg: 1.4, tile_height_deg: 1.4, effective_overlap_arcsec: 120,
-  coordinate_frame: "icrs", export_epoch_default: "2000", export_epoch_options: ["2000"],
-  algorithm: "SPLUS_LEGACY_GRID_V1",
-};
+export const DEFAULT_PROFILE: TilingProfile = adaptT80SplusV2ToV1(T80_SOUTH_INSTRUMENT_V2, SPLUS_SURVEY_V2);
 
 /** Return the locally installed profile by identifier.
  * @param id - Installed profile identifier.
@@ -43,7 +39,7 @@ export function validateProfile(profile: TilingProfile): TilingProfile {
     new Set(profile.export_epoch_options).size !== profile.export_epoch_options.length ||
     profile.export_epoch_options.some((option) => !option.trim())) throw new Error("Export epoch default must be one of the unique allowed options");
   if (profile.effective_overlap_arcsec / 3600 >= Math.min(profile.tile_width_deg, profile.tile_height_deg)) throw new Error("Effective overlap must be smaller than both tile dimensions");
-  if (profile.algorithm === "SPLUS_LEGACY_GRID_V1" && (profile.tile_width_deg !== 1.4 || profile.tile_height_deg !== 1.4 || profile.effective_overlap_arcsec !== 120)) throw new Error("SPLUS_LEGACY_GRID_V1 requires its exact reference geometry");
+  if (profile.algorithm === "SPLUS_LEGACY_GRID_V1" && (profile.tile_width_deg !== DEFAULT_PROFILE.tile_width_deg || profile.tile_height_deg !== DEFAULT_PROFILE.tile_height_deg || profile.effective_overlap_arcsec !== DEFAULT_PROFILE.effective_overlap_arcsec)) throw new Error("SPLUS_LEGACY_GRID_V1 requires its exact reference geometry");
   if (profile.id !== "custom") throw new Error("Inline profiles must use the custom identifier");
   if (profile.algorithm !== "RECT_GRID_V1") throw new Error("Custom profiles must use RECT_GRID_V1");
   return { ...profile, export_epoch_options: [...profile.export_epoch_options] };
