@@ -162,6 +162,19 @@ describe("Profile Schema v2", () => {
     expect(() => validateSurveyProfileV2(surveyWithCoverage({ ...baseline, efficient: { min_coverage: 0.99, min_marginal_efficiency: -0.1 } }))).toThrow(/marginal efficiency/);
   });
 
+  it.each(["min_coverage", "min_marginal_efficiency"] as const)("validates finite [0,1] Efficient %s without requiring policy for Complete", (field) => {
+    const baseline = SPLUS_SURVEY_V2.coverage;
+    for (const value of [Number.NaN, Infinity, -Infinity, -0.01, 1.01]) {
+      expect(() => validateSurveyProfileV2(surveyWithCoverage({ ...baseline,
+        efficient: { min_coverage: 0.5, min_marginal_efficiency: 0.5, [field]: value } }))).toThrow();
+    }
+    for (const value of [0, 1]) {
+      const coverage = { ...baseline, efficient: { min_coverage: 0.5, min_marginal_efficiency: 0.5, [field]: value } };
+      expect(validateSurveyProfileV2(surveyWithCoverage(coverage)).coverage).toEqual(coverage);
+    }
+    expect(validateSurveyProfileV2(surveyWithCoverage({ sampling: baseline.sampling })).coverage.efficient).toBeUndefined();
+  });
+
   it("rejects export column collisions and invalid epoch defaults", () => {
     const baseline = SPLUS_SURVEY_V2.export;
     expect(() => validateSurveyProfileV2(surveyWithExport({ ...baseline, dec_column: "RA" }))).toThrow(/unique/);

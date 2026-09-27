@@ -151,7 +151,7 @@ grouping keeps that coupling until the Gate 7 mapping cleanup.
 Generic occupancy compares every enabled actual pointing with a candidate in
 the same local plane, using `separation/s <= occupancy_tolerance_fraction`.
 It does not use the legacy 0.12-degree threshold. Gate 5 changed only occupancy. Gate 6A now derives generic coverage pitch and
-its sample cap from the survey policy; Efficient stopping remains unchanged.
+its sample cap from the survey policy; Gate 6B consumes profile Efficient thresholds.
 The RA-wrap-safe Gate 3 projection, cosine clamp, branch limits, and near-pole
 limitations still apply. Neither inference nor generation fits an exact spherical
 lattice. Symmetry-equivalent rotations/assignments are canonically ranked; a
@@ -265,16 +265,59 @@ not guarantee resolving gaps narrower than the resulting step; budget coarsening
 can miss small detectors or thin region features. If no cell belongs to the
 polygon, sampling fails explicitly rather than inventing selected coverage.
 Large fields and near-pole regions retain the existing cosine/wrapped-RA limits.
-There is no adaptive refinement or continuous/spherical coverage proof. Planner
-strategy migration belongs to G6B; high-resolution error validation to G6C.
+There is no adaptive refinement or continuous/spherical coverage proof. Gate 6B
+adds profile-driven selection; high-resolution error validation belongs to G6C.
 
 All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" separately counts actual tile rectangles with positive geometric intersection against the polygon; it does not depend on sample-cell hits. Every actual tile centered inside the polygon therefore counts as a contributor, including when a boundary sliver is smaller than the coverage sample pitch.
 
 The scientific stages are: actual input footprints → existing coverage; actual input centers → lattice inference; inferred or profile lattice → candidates; actual input centers → spherical candidate occupancy; unoccupied candidates plus uncovered samples → proposals; existing footprints plus enabled proposal footprints → final coverage. The selected-area coverage fraction remains a numerical sample estimate, while contributor membership is a geometric intersection count.
 
-Selection is deterministic greedy maximum incremental gain. Complete coverage is the default and targets every sampled polygon cell, including gains below 0.05% of its area. Efficient coverage uses the same candidates, ranking, and supplemental gap-fill, but stops before the next tile when current sampled coverage is at least 0.995 and that tile's newly covered sampled area divided by its physical tile area is strictly less than 0.03. A tile at exactly 0.03 remains eligible. Ties prefer, in order, less overlap with already covered selected-region samples, less estimated tile area outside the selected polygon, then stable coordinate order. Candidate coordinates are never perturbed. If the inferred or profile lattice leaves uncovered samples, a supplemental lattice is phased halfway between centers around the uncovered-sample bounds. It is anchored to the nearest stable inferred-grid tile when one exists, and its center spacing is capped at 90% of tile width and height, allowing additional overlap with existing or proposed footprints to close gaps. The same sampled-coverage selection and stopping policy apply there. Outside area is estimated from sampled polygon cells covered by each tile; overlapping outside tile areas are summed, so this is an estimate of exported new footprint area rather than a spherical union.
+Selection is deterministic greedy maximum incremental gain. Complete coverage is
+the default and targets every sampled polygon cell. It ignores Efficient policy;
+selection stops at full sampled coverage, candidate exhaustion, or best gain
+below `1e-10` of the selected-region weight. This numerical safeguard is unchanged.
+Ties prefer less overlap with already covered samples, less estimated tile area
+outside the selected polygon, then stable coordinate order. Candidate coordinates
+are never perturbed.
 
-Efficient v1 optimizes marginal sampled area per physical tile area. It does not assess the topology or scientific importance of residual uncovered regions. Select Complete when exhaustive sampled coverage is required.
+Efficient uses the same candidates and ranking. The loop first checks full
+coverage, ranks the best tile, and applies the same incremental-gain safeguard.
+It then stops before that tile when current sampled coverage is at least
+`coverage.efficient.min_coverage` and marginal physical efficiency is **strictly
+less** than `coverage.efficient.min_marginal_efficiency`. Equality remains eligible.
+Both thresholds come from the active Schema v2 survey. Missing policy rejects
+Efficient explicitly and does not affect Complete. The bundled S-PLUS/T80 JSON
+sets `0.995` and `0.03`, reproducing frozen behavior. Only v1 inputs inherit these
+values via the isolated `resolvePlanningProfile` compatibility adapter.
+
+```text
+marginal physical efficiency =
+    sum(weights of newly covered selected samples) * cellAreaDeg2
+    / footprintArea(active output footprint)
+```
+
+The numerator retains cos(DEC) weighting and has units of square degrees. The
+Gate 3 area engine supplies rectangle product, circle analytic area, polygon
+shoelace area, or deterministic adaptive compound union area. Mosaic detector
+gaps remain empty and overlaps count once. The compound denominator inherits
+Gate 3's 1/4096 bounding-scale boundary-cell approximation. It is not a bounding
+rectangle or the sum of overlapping detector areas.
+
+Supplemental gap-fill is exclusive to `legacy_splus` and frozen inline v1
+`RECT_GRID_V1`. If their primary grid leaves uncovered samples, a supplemental
+lattice is phased halfway between centers around the uncovered-sample bounds,
+anchored to the nearest stable inferred tile where available. Spacing remains
+capped at 90% of compatibility tile width and height. Both passes use the resolved
+Efficient policy. Generic declared lattices never add supplemental spacing or
+phase, and report remaining gaps. Generic occupancy continues to use the Gate 5
+basis-relative fraction; the legacy spherical `0.12°` exclusion remains isolated.
+The 1200-candidate safeguards reject excess browser work without truncating
+candidates; focused generic tests reveal no reason to change these operational
+limits. Outside area subtracts sampled inside area from generic physical footprint
+area; overlapping outside tile areas are summed rather than unioned.
+
+Efficient does not assess the topology or scientific importance of residual gaps.
+Select Complete when exhaustive sampled coverage is required.
 
 The reported 100% target means every selected sample is covered. It is an estimate based on the sample grid, not an exact continuous-polygon coverage proof; regions exceeding their applicable sample cap use a coarser grid and have correspondingly lower spatial resolution.
 
@@ -297,9 +340,8 @@ a Gate 3 survey is associated with a different camera shape. The bundled
 `[1.4,1.4]` survey grid extents duplicate the instrument dimensions deliberately
 for that compatibility contract, rather than duplicating values in code. Compatibility inference and sampling constants remain in the explicit legacy
 paths. Generic inference reads fractional policy and generic sampling reads
-`CoveragePolicy.sampling`; Complete/Efficient selection thresholds retain their
-transitional constants until G6B.
+`CoveragePolicy.sampling`; Efficient selection reads `CoveragePolicy.efficient`.
 Legacy tolerance duplicates still need a compatibility-reviewed profile migration;
-T80 sampling compatibility migration and G6B/C remain deferred. Full import/export
+T80 sampling compatibility migration and G6C remain deferred. Full import/export
 UI remains Gate 7. All T80 scientific configuration must be sourced from ordinary
 importable profile data by the v0.3.0 release.

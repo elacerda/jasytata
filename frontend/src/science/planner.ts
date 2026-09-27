@@ -1,4 +1,4 @@
-import type { CenterInput, CoverageStrategy, Footprint, GenericLatticeTiling, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CenterInput, CoveragePolicy, CoverageStrategy, Footprint, GenericLatticeTiling, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { DEFAULT_PROFILE } from "../profiles";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
@@ -494,7 +494,7 @@ function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array
   return useful;
 }
 
-/** Remove centers within 0.12° great-circle distance of actual input pointings.
+/** Legacy compatibility: remove centers within 0.12° of actual input pointings.
  * @param centers - Candidate ICRS [RA, DEC] positions in decimal degrees.
  * @param tiles - All enabled actual catalogue and accepted proposal centers.
  * @returns Unique, sorted unoccupied centers in decimal degrees.
@@ -509,10 +509,10 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param existingTiles - Actual original and accepted pointings, including disabled records.
  * @param profileId - Registered survey, bundled preset, or custom rectangle ID.
  * @param inlineProfile - Optional v1 custom rectangle used to construct basis vectors.
- * @param strategy - Existing sampled-coverage stopping policy.
+ * @param strategy - Complete sampled coverage or profile-driven Efficient stopping.
  * @param registry - Session-local validated instrument/survey registry.
  * @returns Deterministic proposal, candidates, diagnostics, and sampled metrics.
- * @throws If tiling is manual, attempted generic inference fails, profiles/region are invalid, or budgets are exceeded.
+ * @throws If tiling is manual, Efficient policy is absent, attempted generic inference fails, profiles/region are invalid, or budgets are exceeded.
  */
 export function planRegion(
   polygon: SkyPolygon,
@@ -524,13 +524,16 @@ export function planRegion(
 ): RegionPlanResponse {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
-  const { profile, tiling } = resolvePlanningProfile(profileId, inlineProfile, registry);
+  const { profile, tiling, efficientPolicy } = resolvePlanningProfile(profileId, inlineProfile, registry);
   if (tiling.type === "manual") {
     throw new Error(`Survey profile "${profile.id}" uses manual tiling and does not define an automatic tiling strategy.`);
   }
+  if (strategy === "efficient" && !efficientPolicy) {
+    throw new Error(`Survey profile "${profile.id}" requires coverage.efficient policy for Efficient planning.`);
+  }
   // The published inline v1 RECT_GRID_V1 entry point has frozen fixtures.
-  if (!inlineProfile && tiling.type === "lattice") return planDeclaredLattice(polygon, existingTiles, profile, tiling, strategy, registry);
-  return planLegacyRegion(polygon, existingTiles, profile, strategy, registry);
+  if (!inlineProfile && tiling.type === "lattice") return planDeclaredLattice(polygon, existingTiles, profile, tiling, strategy, registry, efficientPolicy);
+  return planLegacyRegion(polygon, existingTiles, profile, strategy, registry, efficientPolicy);
 }
 
 /** Compatibility strategy: retains historical inference, occupancy, and overlap-fill. */
@@ -540,6 +543,7 @@ function planLegacyRegion(
   profile: TilingProfile,
   strategy: CoverageStrategy,
   registry: ProfileRegistry,
+  efficientPolicy: CoveragePolicy["efficient"],
 ): RegionPlanResponse {
   const outputFootprint = outputFootprintForProfile(profile, registry);
   if (profile.effective_overlap_arcsec / 3600 >= Math.min(profile.tile_width_deg, profile.tile_height_deg)) {
@@ -587,7 +591,7 @@ function planLegacyRegion(
   const existingMask = coveredMask(grid, activeTiles, profile, registry);
   const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry);
   const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, outputFootprint);
-  const primary = greedyChoose(primaryCandidates, existingMask, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy);
+  const primary = greedyChoose(primaryCandidates, existingMask, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy, efficientPolicy);
   const primaryCoverage = combinedCoverageMask(existingMask, primary);
   const remainingGap = uncoveredSampleBounds(grid, primaryCoverage);
   let gapFill: MaskedCenter[] = [];
@@ -595,7 +599,7 @@ function planLegacyRegion(
     const anchor = nearestGapAnchor(remainingGap, latticeTiles.length ? latticeTiles : localTiles, lattice, uniqueCandidates);
     const supplementalCenters = gapFillCandidates(grid, remainingGap, anchor, profile, lattice);
     const supplementalCandidates = usefulUncoveredCenters(supplementalCenters, primaryCoverage, grid, outputFootprint);
-    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy);
+    gapFill = greedyChoose(supplementalCandidates, primaryCoverage, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy, efficientPolicy);
     if (gapFill.length) diagnostics.push(`Added ${gapFill.length} overlap-fill tile${gapFill.length === 1 ? "" : "s"} around the remaining sampled gaps, phased from ${lattice ? "the inferred existing grid" : "the active tile profile"}.`);
   }
   const chosen = [...primary, ...gapFill];
@@ -634,6 +638,7 @@ function planDeclaredLattice(
   tiling: GenericLatticeTiling,
   strategy: CoverageStrategy,
   registry: ProfileRegistry,
+  efficientPolicy: CoveragePolicy["efficient"],
 ): RegionPlanResponse {
   const footprint = outputFootprintForProfile(profile, registry);
   const activeTiles = existingTiles.filter((tile) => tile.enabled !== false);
@@ -662,7 +667,7 @@ function planDeclaredLattice(
   const grid = sampleRegion(polygon, footprint, survey.coverage);
   const existingMask = coveredMask(grid, activeTiles, profile, registry);
   const useful = usefulUncoveredCenters(centers, existingMask, grid, footprint);
-  const chosen = greedyChoose(useful, existingMask, grid, footprint, AUTOMATIC_COVERAGE_TARGET, strategy);
+  const chosen = greedyChoose(useful, existingMask, grid, footprint, AUTOMATIC_COVERAGE_TARGET, strategy, efficientPolicy);
   const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry);
   const metrics = measureMetrics(chosen, existingMask, grid, contributing, footprint);
   const byCenter = new Map(candidates.map((candidate) => [`${candidate.ra_deg},${candidate.dec_deg}`, candidate]));

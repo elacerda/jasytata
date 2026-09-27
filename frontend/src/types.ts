@@ -217,7 +217,9 @@ export interface CoveragePolicy {
     max_samples: number;
   };
   efficient?: {
+    /** Current sampled coverage floor in [0,1]; Complete ignores this policy. */
     min_coverage: number;
+    /** Strict stopping floor in [0,1] for new sampled physical area / footprint area. */
     min_marginal_efficiency: number;
   };
 }

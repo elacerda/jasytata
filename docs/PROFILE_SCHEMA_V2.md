@@ -109,7 +109,8 @@ Remaining sampled gaps are reported.
 `InferencePolicy` holds scale-independent tolerances, evidence counts, and the
 rotation allowance. `CoveragePolicy` holds target sampling density, a sample
 cap, and optional Efficient stopping thresholds. Gate 6A consumes `sampling`
-for generic lattice/manual coverage; Efficient policy migration remains G6B. `ExportPolicy` describes
+for generic lattice/manual coverage; Gate 6B consumes `efficient` for automatic
+selection, including Schema v2 `legacy_splus`. `ExportPolicy` describes
 coordinate columns and format, optional epoch and position-angle columns, and
 constant output fields.
 
@@ -145,13 +146,57 @@ and cos(DEC) weights. Small gaps or detectors can be missed at coarse resolution
 a grid with no polygon-interior cell fails explicitly. Exact spherical coverage,
 adaptive refinement, and the G6C coverage-error matrix are not implemented.
 
+### Complete and Efficient policy (Gate 6B)
+
+Complete greedily targets every selected sample. It ignores `coverage.efficient`
+and adds no coverage floor or marginal-efficiency stop. The existing safeguards
+remain: selection stops at full sampled coverage, candidate exhaustion, or best
+incremental gain below `1e-10` of selected-region weight. Declared lattices may
+leave gaps if no declared site can cover them; Complete does not invent sites.
+
+Efficient uses the same candidates, sampled grid, ranking, and full-coverage
+safeguards. After ranking the best next tile and checking the incremental-gain
+safeguard, it stops **before** selecting that tile only when both conditions hold:
+
+```text
+current sampled coverage >= coverage.efficient.min_coverage
+new sampled physical area / footprintArea(output footprint)
+    < coverage.efficient.min_marginal_efficiency
+```
+
+Equality at the marginal threshold remains eligible. Both fields must be finite
+and in `[0,1]`: they are coverage/physical-efficiency fractions. The policy is
+optional for Complete-only surveys; requesting Efficient without it fails
+explicitly. Schema v2 never inherits T80 thresholds. The isolated v1 adapter in
+`resolvePlanningProfile` supplies frozen inline/custom defaults from the bundled
+T80 survey data because v1 has no `CoveragePolicy` field.
+
+The numerator is newly covered selected-region sample weight times cell area in
+square degrees, retaining cos(DEC) weighting. The denominator is the active
+output instrument's physical local-plane area, independent of source datasets:
+rectangle `width * height`, circle `pi * radius^2`, polygon absolute shoelace area,
+or Gate 3's deterministic adaptive compound union estimate. Compound overlaps
+count once and detector gaps are excluded; Efficient inherits that estimate's
+boundary resolution, not the mosaic bounding-box area.
+
+The Gate 6B audit confirms supplemental gap-fill and its rectangle spacing are
+compatibility-only (`legacy_splus` and frozen inline v1); their geometry is
+unchanged. Both compatibility selection passes now consume the resolved
+Efficient policy. Generic occupancy still uses separation divided by basis scale
+and `inference.occupancy_tolerance_fraction`; it never applies the compatibility
+`0.12°` exclusion. The 1200 candidate caps reject oversized work before mask
+selection; they are browser-computation safeguards, not scientific thresholds
+or truncation rules. No generic failure in the focused tests requires changing
+them. High-resolution error characterization remains G6C.
+
 ## Bundled T80/S-PLUS pair
 
 `T80_SOUTH_INSTRUMENT_V2` defines the ICRS T80-South camera with a rectangular
 1.4° × 1.4° footprint. `SPLUS_SURVEY_V2` references that instrument and selects
 `legacy_splus`. It records inference fractions expressed against the 1.4° T80
 footprint, the current three-anchor/two-neighbor minimum, the existing 140
-samples-per-axis and 90,000-sample cap, current Efficient thresholds, and the
+samples-per-axis and 90,000-sample cap, consumed Efficient thresholds
+`min_coverage: 0.995` and `min_marginal_efficiency: 0.03`, and the
 RA/DEC/EPOCH export contract with epoch `2000`.
 
 The bundled configuration is stored in
@@ -176,15 +221,15 @@ proposal metadata. No frozen fixture values change.
 ## Remaining migration boundaries
 
 Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
-and generic scale-aware sampling (Gate 6A) are operational. Strategy migration
-(G6B), scientific error validation (G6C), profile import/export UI and
+generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
+are operational. Scientific error validation (G6C), profile import/export UI and
 configurable CSV output (Gate 7) remain deferred. Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
 90,000-cell cap, minimum eight cells per axis, and historical metric shape.
 Sampling policy fields remain declarative for those paths. Compatibility
-inference/sample constants and transitional Efficient stopping thresholds still
-duplicate profile policy values. They must migrate
+inference/sample constants still duplicate profile policy values. Efficient
+thresholds are consumed from survey data. Remaining compatibility values must migrate
 by release so all T80 scientific configuration is consumed from ordinary
 importable profile data. The local cosine/wrapped-RA approximation remains;
 large regions and near-pole planning do not become exact spherical geometry.

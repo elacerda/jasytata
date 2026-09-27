@@ -3,11 +3,14 @@ import golden from "../data/golden.json";
 import contract from "../data/efficient-contract.json";
 import referenceCsv from "../../public/data/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
-import { coveredMask, EFFICIENT_MIN_COVERAGE, EFFICIENT_MIN_MARGINAL_EFFICIENCY, greedyChoose, sampleRegion, tileMask, type CoverageGrid } from "./coverage";
+import { coveredMask, greedyChoose, sampleRegion, tileMask, type CoverageGrid } from "./coverage";
 import { planRegion } from "./planner";
-import { loadProfile } from "../profiles";
+import { loadProfile, SPLUS_SURVEY_V2 } from "../profiles";
 import type { SkyPolygon, TileRecord, TilingProfile } from "../types";
 
+const efficientPolicy = SPLUS_SURVEY_V2.coverage.efficient!;
+const EFFICIENT_MIN_COVERAGE = efficientPolicy.min_coverage;
+const EFFICIENT_MIN_MARGINAL_EFFICIENCY = efficientPolicy.min_marginal_efficiency;
 const catalogue = parseCatalogueCsv(new TextEncoder().encode(referenceCsv), "tiles_nc.csv").tiles;
 const byName = new Map(catalogue.map((tile) => [tile.name, tile]));
 const widePolygon: SkyPolygon = { vertices: [
@@ -123,10 +126,10 @@ describe("v0.2.0 T80-South Efficient coverage contract", () => {
     existing[999] = 0;
     const candidate = [{ center: [0, 0] as [number, number], mask: new Uint8Array(1000) }];
     candidate[0].mask[999] = 1;
-    expect(greedyChoose(candidate, existing, grid, profile, 1, "efficient")).toHaveLength(1);
+    expect(greedyChoose(candidate, existing, grid, profile, 1, "efficient", efficientPolicy)).toHaveLength(1);
     grid.cellAreaDeg2 = 0.029;
-    expect(greedyChoose(candidate, existing, grid, profile, 1, "efficient")).toHaveLength(0);
+    expect(greedyChoose(candidate, existing, grid, profile, 1, "efficient", efficientPolicy)).toHaveLength(0);
     existing.fill(0);
-    expect(greedyChoose(candidate, existing, grid, profile, 1, "efficient")).toHaveLength(1);
+    expect(greedyChoose(candidate, existing, grid, profile, 1, "efficient", efficientPolicy)).toHaveLength(1);
   });
 });

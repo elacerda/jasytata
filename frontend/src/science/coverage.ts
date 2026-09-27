@@ -14,8 +14,6 @@ const LEGACY_MAX_REGION_SAMPLES = 90_000;
 const LEGACY_MIN_POLYGON_SAMPLES_PER_AXIS = 8;
 const MIN_INCREMENTAL_GAIN = 1e-10;
 type FootprintGeometry = Footprint | Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">;
-export const EFFICIENT_MIN_COVERAGE = 0.995;
-export const EFFICIENT_MIN_MARGINAL_EFFICIENCY = 0.03;
 
 /** Row-major, declination-weighted polygon samples in ICRS decimal degrees. */
 export interface CoverageGrid {
@@ -301,10 +299,17 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, footprint: Footpr
  * @param automaticTarget - Optional target fraction for automatic region planning.
  * @param strategy - Complete sampled coverage or the efficient policy. The latter
  *   compares declination-weighted new sampled area in square degrees with physical
- *   tile area in square degrees after the 0.995 coverage floor is reached.
+ *   footprint area in square degrees after the profile coverage floor is reached.
+ * @param efficientPolicy - Active survey's stopping thresholds; required for
+ *   Efficient, ignored by Complete. Legacy v1 callers resolve these via the
+ *   compatibility adapter, never through generic defaults.
+ *   Compound area inherits Gate 3's deterministic adaptive union estimate,
+ *   preserving detector gaps and counting overlaps once.
  * @returns Chosen centers in ranking order with their masks.
+ * @throws If Efficient is requested without explicit policy.
  */
-export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete"): MaskedCenter[] {
+export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete", efficientPolicy?: CoveragePolicy["efficient"]): MaskedCenter[] {
+  if (strategy === "efficient" && !efficientPolicy) throw new Error("Efficient selection requires coverage.efficient policy");
   const footprint = toFootprint(geometry);
   const uncovered = new Uint8Array(existingMask.length);
   for (let index = 0; index < uncovered.length; index += 1) uncovered[index] = existingMask[index] ? 0 : 1;
@@ -328,7 +333,7 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
     const gain = weightSum(grid, best.mask, uncovered);
     if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) break;
     const marginalEfficiency = gain * grid.cellAreaDeg2 / footprintArea(footprint);
-    if (strategy === "efficient" && currentCoverage >= EFFICIENT_MIN_COVERAGE && marginalEfficiency < EFFICIENT_MIN_MARGINAL_EFFICIENCY) break;
+    if (strategy === "efficient" && efficientPolicy && currentCoverage >= efficientPolicy.min_coverage && marginalEfficiency < efficientPolicy.min_marginal_efficiency) break;
     selected.push(best);
     for (let index = 0; index < uncovered.length; index += 1) if (best.mask[index]) uncovered[index] = 0;
   }
