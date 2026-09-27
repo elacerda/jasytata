@@ -211,13 +211,30 @@ export type LatticeInferenceOutcome = LatticeInferenceResult | {
 /** Numerical sampling and optional efficient-stopping policy. */
 export interface CoveragePolicy {
   sampling: {
+    /** Positive integer density along the intrinsic smaller footprint extent. */
     target_samples_per_footprint_axis: number;
+    /** Positive integer cap on the actual full rectangular grid, including zero-weight cells. */
     max_samples: number;
   };
   efficient?: {
     min_coverage: number;
     min_marginal_efficiency: number;
   };
+}
+
+/** Unrounded generic sampling resolution; all lengths are local-plane degrees. */
+export interface CoverageSamplingMetadata {
+  characteristic_scale_deg: number;
+  natural_step_deg: number;
+  /** Requested maximum cell pitch after coarsening; full bounds are subdivided evenly. */
+  effective_step_deg: number;
+  /** Actual principal grid length, including cells excluded by the polygon mask. */
+  sample_count: number;
+  max_samples: number;
+  budget_limited: boolean;
+  /** Actual east/north cell widths at the bounding-box midpoint declination. */
+  cell_width_deg: number;
+  cell_height_deg: number;
 }
 
 /** Output column layout and optional per-row export values. */
@@ -274,6 +291,8 @@ export interface PlanMetrics {
   redundant_coverage: number;
   outside_region_coverage_deg2: number;
   sample_step_deg: number;
+  /** Gate 6A audit data; absent on the frozen legacy sampling path. */
+  sampling?: CoverageSamplingMetadata;
 }
 
 /** Nearby candidates and matched catalogue centers supporting a fitted grid. */

@@ -133,6 +133,34 @@ export function footprintArea(footprint: Footprint): number {
   return compoundUnionArea(flattenFootprint(footprint));
 }
 
+/** Determine the intrinsic smaller extent used for relative coverage sampling.
+ *
+ * Rectangle: smaller side; circle: diameter; polygon: smaller positive extent
+ * of its unrotated vertex bounding box. Compound: recursively the minimum child
+ * scale, independent of offsets and parent/child rotations. Widely separated
+ * detectors therefore retain detector-scale resolution rather than mosaic-span
+ * resolution. This does not guarantee resolution of gaps narrower than a step.
+ *
+ * @param footprint - Validated Schema v2 local east/north geometry in degrees.
+ * @returns Positive characteristic length in local tangent-plane degrees.
+ * @throws If the resulting scale is not finite and positive.
+ */
+export function footprintCharacteristicScale(footprint: Footprint): number {
+  let scale: number;
+  if (footprint.type === "rectangle") scale = Math.min(footprint.width_deg, footprint.height_deg);
+  else if (footprint.type === "circle") scale = 2 * footprint.radius_deg;
+  else if (footprint.type === "polygon") {
+    const east = footprint.vertices_deg.map(([x]) => x);
+    const north = footprint.vertices_deg.map(([, y]) => y);
+    const extents = [Math.max(...east) - Math.min(...east), Math.max(...north) - Math.min(...north)];
+    scale = Math.min(...extents.filter((extent) => extent > 0));
+  } else {
+    scale = Math.min(...footprint.components.map((component) => footprintCharacteristicScale(component.footprint)));
+  }
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error("Footprint characteristic scale must be finite and positive");
+  return scale;
+}
+
 /** Enclose every physical footprint component in its intrinsic local plane.
  *
  * @param footprint - Validated Schema v2 footprint centered on `(0, 0)`.

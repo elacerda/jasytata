@@ -1,6 +1,6 @@
-import type { CoverageStrategy, Footprint, PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CoveragePolicy, CoverageSamplingMetadata, CoverageStrategy, Footprint, PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { polygonLocalGeometry, validatePolygon, type PolygonLocalGeometry } from "./geometry";
-import { createFootprintContainmentTester, createSkyToLocalProjector, footprintArea, footprintIntersectsRegion, footprintLocalBounds } from "./footprint-engine";
+import { createFootprintContainmentTester, createSkyToLocalProjector, footprintArea, footprintCharacteristicScale, footprintIntersectsRegion, footprintLocalBounds } from "./footprint-engine";
 import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 import { DEFAULT_PROFILE } from "../profiles";
@@ -8,9 +8,10 @@ import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
 
-const SAMPLE_STEP_DEG = 0.01;
-const MAX_REGION_SAMPLES = 90_000;
-const MIN_POLYGON_SAMPLES_PER_AXIS = 8;
+// Compatibility-only numerical policy for legacy_splus and the frozen v1 adapter.
+const LEGACY_SAMPLE_STEP_DEG = 0.01;
+const LEGACY_MAX_REGION_SAMPLES = 90_000;
+const LEGACY_MIN_POLYGON_SAMPLES_PER_AXIS = 8;
 const MIN_INCREMENTAL_GAIN = 1e-10;
 type FootprintGeometry = Footprint | Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">;
 export const EFFICIENT_MIN_COVERAGE = 0.995;
@@ -29,6 +30,8 @@ export interface CoverageGrid {
   decMinDeg: number;
   decMaxDeg: number;
   cellAreaDeg2: number;
+  /** Unrounded generic resolution; absent on the compatibility path. */
+  sampling?: CoverageSamplingMetadata;
 }
 
 /** One chosen center and its selected-region footprint mask. */
@@ -37,36 +40,104 @@ export interface MaskedCenter {
   mask: Uint8Array;
 }
 
-/** Sample the selected ICRS polygon using the Python row-major cell convention.
- * @param polygon - Validated ordered vertices in decimal-degree RA/DEC.
- * @returns Weighted samples at a nominal 0.01° pitch, with RA/DEC cell area
- *   and cosine declination weights. Large regions use a coarser pitch to stay
- *   below 90,000 bounding-box samples.
- * @throws If the polygon contains no selected sample cells.
+/** Sample an ICRS region with footprint-relative resolution and a bounded grid.
+ *
+ * The principal set is the entire rectangular row-major grid, including
+ * zero-weight polygon-exterior cells; the policy bounds its actual array length.
+ * Cells evenly subdivide the full unwrapped bounds, with centers at half a cell
+ * from the southwest edge. Rows increase DEC; columns increase unwrapped RA.
+ * The existing strict ray-crossing polygon mask and cos(DEC) weights are retained.
+ * Cell widths are at most the effective pitch in the midpoint local plane.
+ *
+ * @param polygon - Validated ordered ICRS vertices in decimal-degree RA/DEC.
+ * @param footprint - Output footprint in local degrees. Omit only for frozen legacy callers.
+ * @param policy - Schema v2 numerical policy; required with a footprint.
+ * @returns Weighted grid and unrounded audit metadata for generic sampling.
+ *   The one-argument compatibility adapter retains the historical 0.01° layout.
+ * @throws If arguments are unpaired, resolution/policy is invalid, or no cell is selected.
  */
-export function sampleRegion(polygon: SkyPolygon): CoverageGrid {
-  return sampleBounds(polygonLocalGeometry(polygon), polygon);
+export function sampleRegion(polygon: SkyPolygon, footprint?: Footprint, policy?: CoveragePolicy): CoverageGrid {
+  if (Boolean(footprint) !== Boolean(policy)) throw new Error("Coverage sampling requires both footprint and policy");
+  const geometry = polygonLocalGeometry(polygon);
+  const layout = footprint && policy
+    ? scaleAwareSampleLayout(geometry, footprint, policy)
+    : legacySampleLayout(geometry);
+  return sampleBounds(geometry, polygon, layout);
 }
 
-function sampleBounds({ bounds, originRaDeg, ra: polygonX }: PolygonLocalGeometry, polygon: SkyPolygon): CoverageGrid {
+interface SampleLayout {
+  rows: number;
+  cols: number;
+  step: number;
+  sampling?: CoverageSamplingMetadata;
+}
+
+/** Coarsen only the numerical pitch; allocate nothing until the full grid fits. */
+function scaleAwareSampleLayout({ bounds }: PolygonLocalGeometry, footprint: Footprint, policy: CoveragePolicy): SampleLayout {
+  const { target_samples_per_footprint_axis: density, max_samples: maxSamples } = policy.sampling;
+  if (!Number.isSafeInteger(density) || density <= 0) throw new Error("Target samples per footprint axis must be a positive finite integer");
+  if (!Number.isSafeInteger(maxSamples) || maxSamples <= 0) throw new Error("Maximum coverage samples must be a positive finite integer");
+  const scale = footprintCharacteristicScale(footprint);
+  const naturalStep = scale / density;
+  if (!Number.isFinite(naturalStep) || naturalStep <= 0) throw new Error("Natural coverage sample step must be finite and positive");
+  const centerDec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2;
+  const width = bounds.ra_span_deg * Math.max(Math.cos(radians(centerDec)), 0.01);
+  const height = bounds.dec_max_deg - bounds.dec_min_deg;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) throw new Error("Coverage sample bounds must have finite positive extents");
+  const dimensions = (step: number) => ({ rows: Math.max(1, Math.ceil(height / step)), cols: Math.max(1, Math.ceil(width / step)) });
+  let step = naturalStep;
+  let { rows, cols } = dimensions(step);
+  const budgetLimited = rows > maxSamples / cols;
+  if (budgetLimited) {
+    // Inverse-square density estimate, with a separate one-cell case. Taking
+    // square roots separately avoids overflowing the initial candidate product.
+    step = Math.max(step, maxSamples === 1 ? Math.max(width, height) : Math.sqrt(width) * Math.sqrt(height / maxSamples));
+    ({ rows, cols } = dimensions(step));
+    while (rows > maxSamples / cols) {
+      // Ceilings and long thin regions need correction. Force at least one
+      // row/column transition, rather than iterating toward a threshold forever.
+      const nextTransition = Math.min(rows > 1 ? height / (rows - 1) : Infinity, cols > 1 ? width / (cols - 1) : Infinity);
+      step = Math.max(step * Math.sqrt(rows) * Math.sqrt(cols / maxSamples), nextTransition * (1 + 4 * Number.EPSILON));
+      ({ rows, cols } = dimensions(step));
+    }
+  }
+  return { rows, cols, step, sampling: {
+    characteristic_scale_deg: scale, natural_step_deg: naturalStep, effective_step_deg: step,
+    sample_count: rows * cols, max_samples: maxSamples, budget_limited: budgetLimited,
+    cell_width_deg: width / cols, cell_height_deg: height / rows,
+  } };
+}
+
+/** Frozen v0.2.0 layout, including its minimum eight cells per axis. */
+function legacySampleLayout({ bounds }: PolygonLocalGeometry): SampleLayout {
   const centerDec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2;
   const widthDeg = bounds.ra_span_deg * Math.max(Math.cos(radians(centerDec)), 0.01);
   const heightDeg = bounds.dec_max_deg - bounds.dec_min_deg;
-  let step = Math.max(SAMPLE_STEP_DEG, Math.sqrt(Math.max(widthDeg * heightDeg, SAMPLE_STEP_DEG ** 2) / MAX_REGION_SAMPLES));
+  let step = Math.max(LEGACY_SAMPLE_STEP_DEG, Math.sqrt(Math.max(widthDeg * heightDeg, LEGACY_SAMPLE_STEP_DEG ** 2) / LEGACY_MAX_REGION_SAMPLES));
   let rows = Math.max(1, Math.ceil(heightDeg / step));
   let cols = Math.max(1, Math.ceil(bounds.ra_span_deg / step));
-  if (rows * cols > MAX_REGION_SAMPLES) {
-    step *= Math.sqrt(rows * cols / MAX_REGION_SAMPLES);
+  if (rows * cols > LEGACY_MAX_REGION_SAMPLES) {
+    step *= Math.sqrt(rows * cols / LEGACY_MAX_REGION_SAMPLES);
     rows = Math.max(1, Math.ceil(heightDeg / step));
     cols = Math.max(1, Math.ceil(bounds.ra_span_deg / step));
   }
-  rows = Math.max(rows, MIN_POLYGON_SAMPLES_PER_AXIS);
-  cols = Math.max(cols, MIN_POLYGON_SAMPLES_PER_AXIS);
-  while (rows * cols > MAX_REGION_SAMPLES) {
+  rows = Math.max(rows, LEGACY_MIN_POLYGON_SAMPLES_PER_AXIS);
+  cols = Math.max(cols, LEGACY_MIN_POLYGON_SAMPLES_PER_AXIS);
+  while (rows * cols > LEGACY_MAX_REGION_SAMPLES) {
     if (rows >= cols) rows -= 1;
     else cols -= 1;
   }
   step = Math.max(heightDeg / rows, bounds.ra_span_deg / cols);
+  return { rows, cols, step };
+}
+
+function sampleBounds(
+  { bounds, originRaDeg, ra: polygonX }: PolygonLocalGeometry,
+  polygon: SkyPolygon,
+  { rows, cols, step, sampling }: SampleLayout,
+): CoverageGrid {
+  const centerDec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2;
+  const heightDeg = bounds.dec_max_deg - bounds.dec_min_deg;
   const size = rows * cols;
   const ra = new Float64Array(size);
   const dec = new Float64Array(size);
@@ -96,6 +167,7 @@ function sampleBounds({ bounds, originRaDeg, ra: polygonX }: PolygonLocalGeometr
   if (!selectedSamples) throw new Error("Polygon is too small for the coverage sample resolution");
   return {
     ra, dec, weights, totalWeight, stepDeg: step,
+    ...(sampling ? { sampling: { ...sampling, sample_count: ra.length } } : {}),
     centerRaDeg: modulo(originRaDeg + bounds.ra_span_deg / 2, 360),
     centerDecDeg: centerDec, raSpanDeg: bounds.ra_span_deg,
     decMinDeg: bounds.dec_min_deg, decMaxDeg: bounds.dec_max_deg,
@@ -316,6 +388,7 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
     redundant_coverage: roundDecimal(redundant, 5),
     outside_region_coverage_deg2: roundDecimal(outsideArea, 4),
     sample_step_deg: roundDecimal(grid.stepDeg, 4),
+    ...(grid.sampling ? { sampling: { ...grid.sampling } } : {}),
   };
 }
 
@@ -341,9 +414,11 @@ export function measureActiveCoverage(
   validatePolygon(polygon);
   if (existingTiles.length > 20_000 || proposedTiles.length > 500) throw new Error("Too many tile records");
   if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Coverage edits may contain only proposed tiles");
-  const { profile } = resolvePlanningProfile(profileId, inlineProfile, registry);
+  const { profile, tiling } = resolvePlanningProfile(profileId, inlineProfile, registry);
   const outputFootprint = outputFootprintForProfile(profile, registry);
-  const grid = sampleRegion(polygon);
+  const grid = inlineProfile || tiling.type === "legacy_splus"
+    ? sampleRegion(polygon)
+    : sampleRegion(polygon, outputFootprint, registry.resolveSurveyProfile(profile.id).coverage);
   const activeExisting = existingTiles.filter((tile) => tile.enabled !== false);
   const existing = coveredMask(grid, activeExisting, profile, registry);
   const selected = proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => ({

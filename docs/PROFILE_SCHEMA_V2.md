@@ -108,9 +108,42 @@ Remaining sampled gaps are reported.
 
 `InferencePolicy` holds scale-independent tolerances, evidence counts, and the
 rotation allowance. `CoveragePolicy` holds target sampling density, a sample
-cap, and optional Efficient stopping thresholds. `ExportPolicy` describes
+cap, and optional Efficient stopping thresholds. Gate 6A consumes `sampling`
+for generic lattice/manual coverage; Efficient policy migration remains G6B. `ExportPolicy` describes
 coordinate columns and format, optional epoch and position-angle columns, and
 constant output fields.
+
+### Coverage sampling policy (Gate 6A)
+
+Both `sampling.target_samples_per_footprint_axis` and `sampling.max_samples`
+must be finite positive safe integers. There is no absolute `sample_step_deg`
+profile field. The generic natural step is the footprint characteristic scale
+in local degrees divided by the target samples per footprint axis. The scale
+is the smaller rectangle side, circle diameter, smaller positive intrinsic
+polygon bounding-box extent, or recursively the minimum child scale in a
+compound. Footprint position angles, child rotations, and mosaic separations
+do not enlarge that scale.
+
+`max_samples` limits the actual full rectangular row-major grid, including
+zero-weight cells outside the selected polygon. It therefore bounds allocation
+and footprint-mask traversal, and is a conservative limit on positive-weight
+containment tests. Natural sampling that fits keeps its step exactly; otherwise
+the effective step coarsens analytically with inverse-square density, followed
+by deterministic integer-count correction. All selected-region bounds remain
+represented; no truncation or stochastic sampling is used.
+
+Full bounds are evenly subdivided at cell centers. The effective step is a
+maximum requested local pitch; integer subdivision can produce smaller actual
+cell widths. Generic metrics expose unrounded `sampling` metadata with
+characteristic/natural/effective steps, actual full-grid `sample_count`, the cap,
+budget-limited flag, and actual east/north cell widths. See
+[the sampling algorithm](ALGORITHM.md#scale-aware-sampling-gate-6a) for origin,
+RA unwrap, ordering, and boundary details.
+
+Coverage remains a sampled estimate using the existing local-plane geometry
+and cos(DEC) weights. Small gaps or detectors can be missed at coarse resolution;
+a grid with no polygon-interior cell fails explicitly. Exact spherical coverage,
+adaptive refinement, and the G6C coverage-error matrix are not implemented.
 
 ## Bundled T80/S-PLUS pair
 
@@ -142,11 +175,16 @@ proposal metadata. No frozen fixture values change.
 
 ## Remaining migration boundaries
 
-Declared tiling and generic footprints are operational. Generic existing-grid
-inference (Gate 5), scale-aware coverage sampling (Gate 6), profile import/export
-UI and configurable CSV output (Gate 7) remain deferred. Inference thresholds,
-coverage sample constants, and Efficient stopping thresholds still duplicate
-profile policy values in their compatibility implementations. They must migrate
+Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
+and generic scale-aware sampling (Gate 6A) are operational. Strategy migration
+(G6B), scientific error validation (G6C), profile import/export UI and
+configurable CSV output (Gate 7) remain deferred. Compatibility sampling uses
+`legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
+and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
+90,000-cell cap, minimum eight cells per axis, and historical metric shape.
+Sampling policy fields remain declarative for those paths. Compatibility
+inference/sample constants and transitional Efficient stopping thresholds still
+duplicate profile policy values. They must migrate
 by release so all T80 scientific configuration is consumed from ordinary
 importable profile data. The local cosine/wrapped-RA approximation remains;
 large regions and near-pole planning do not become exact spherical geometry.

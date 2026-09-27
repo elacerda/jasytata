@@ -659,7 +659,7 @@ function planDeclaredLattice(
     .filter((candidate) => !latticeSiteOccupied(candidate, activeTiles, projection, runtimeTiling.basis_deg, survey.inference.occupancy_tolerance_fraction));
   const solution = fit ? "extended_existing_grid" : "declared_lattice";
   const centers: Center[] = candidates.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]);
-  const grid = sampleRegion(polygon);
+  const grid = sampleRegion(polygon, footprint, survey.coverage);
   const existingMask = coveredMask(grid, activeTiles, profile, registry);
   const useful = usefulUncoveredCenters(centers, existingMask, grid, footprint);
   const chosen = greedyChoose(useful, existingMask, grid, footprint, AUTOMATIC_COVERAGE_TARGET, strategy);
