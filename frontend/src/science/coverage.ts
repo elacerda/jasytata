@@ -305,8 +305,9 @@ function weightSum(grid: CoverageGrid, mask: Uint8Array, other?: Uint8Array, inc
   return total;
 }
 
-function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, footprint: Footprint): number {
-  return Math.max(0, footprintArea(footprint) - weightSum(grid, mask) * grid.cellAreaDeg2);
+/** Subtract sampled in-region area from the operation's physical area in deg². */
+function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, physicalAreaDeg2: number): number {
+  return Math.max(0, physicalAreaDeg2 - weightSum(grid, mask) * grid.cellAreaDeg2);
 }
 
 /** Greedily select centers by incremental coverage and Python's ordered tie breaks.
@@ -322,13 +323,15 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, footprint: Footpr
  *   Efficient, ignored by Complete. Legacy v1 callers resolve these via the
  *   compatibility adapter, never through generic defaults.
  *   Compound area inherits Gate 3's deterministic adaptive union estimate,
- *   preserving detector gaps and counting overlaps once.
+ *   preserving detector gaps and counting overlaps once. The same area is
+ *   computed once per selection, independent of candidate count.
  * @returns Chosen centers in ranking order with their masks.
  * @throws If Efficient is requested without explicit policy.
  */
 export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete", efficientPolicy?: CoveragePolicy["efficient"]): MaskedCenter[] {
   if (strategy === "efficient" && !efficientPolicy) throw new Error("Efficient selection requires coverage.efficient policy");
   const footprint = toFootprint(geometry);
+  const physicalAreaDeg2 = footprintArea(footprint);
   const uncovered = new Uint8Array(existingMask.length);
   for (let index = 0; index < uncovered.length; index += 1) uncovered[index] = existingMask[index] ? 0 : 1;
   const selected: MaskedCenter[] = [];
@@ -343,14 +346,14 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
       const gain = weightSum(grid, mask, uncovered);
       const overlap = weightSum(grid, mask, uncovered, false);
       const inside = Math.max(weightSum(grid, mask), 1e-12);
-      const outsideArea = outsideTileArea(mask, grid, footprint);
+      const outsideArea = outsideTileArea(mask, grid, physicalAreaDeg2);
       const score = [gain, -overlap / inside, -outsideArea, -dec, -ra, index];
       if (bestScore === null || compareScore(score, bestScore) > 0) { bestScore = score; bestIndex = index; }
     }
     const best = remaining.splice(bestIndex, 1)[0];
     const gain = weightSum(grid, best.mask, uncovered);
     if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) break;
-    const marginalEfficiency = gain * grid.cellAreaDeg2 / footprintArea(footprint);
+    const marginalEfficiency = gain * grid.cellAreaDeg2 / physicalAreaDeg2;
     if (strategy === "efficient" && efficientPolicy && currentCoverage >= efficientPolicy.min_coverage && marginalEfficiency < efficientPolicy.min_marginal_efficiency) break;
     selected.push(best);
     for (let index = 0; index < uncovered.length; index += 1) if (best.mask[index]) uncovered[index] = 0;
@@ -377,10 +380,12 @@ function compareScore(left: readonly number[], right: readonly number[]): number
  * @param grid - Weighted ICRS polygon samples.
  * @param contributing - Number of actual footprints with positive geometric intersection.
  * @param geometry - Schema v2 output footprint or legacy rectangular tile dimensions.
+ *   Its physical union area is computed once for all selected masks.
  * @returns Current declination-weighted sampled fractions, areas in square degrees, and counts.
  */
 export function measureMetrics(selected: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, contributing: number, geometry: FootprintGeometry): PlanMetrics {
   const footprint = toFootprint(geometry);
+  const physicalAreaDeg2 = footprintArea(footprint);
   const covered = existingMask.slice();
   const newCovered = new Uint8Array(covered.length);
   let proposedSampleWeight = 0;
@@ -392,7 +397,7 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
     for (let index = 0; index < mask.length; index += 1) {
       if (mask[index]) { if (!covered[index]) newCovered[index] = 1; covered[index] = 1; }
     }
-    outsideArea += outsideTileArea(mask, grid, footprint);
+    outsideArea += outsideTileArea(mask, grid, physicalAreaDeg2);
   }
   const total = Math.max(grid.totalWeight, 1e-12);
   const totalCoverage = weightSum(grid, covered) / total;

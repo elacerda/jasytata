@@ -1,0 +1,70 @@
+{
+  "instrument": {
+    "schema_version": 2,
+    "id": "g8-triangular-camera",
+    "display_name": "Gate 8 triangular wide field camera",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "circle",
+      "radius_deg": 0.6
+    }
+  },
+  "survey": {
+    "schema_version": 2,
+    "id": "g8-triangular",
+    "display_name": "Gate 8 triangular wide field",
+    "instrument_id": "g8-triangular-camera",
+    "tiling": {
+      "type": "lattice",
+      "basis_deg": [
+        [
+          0.8,
+          0
+        ],
+        [
+          0.4,
+          0.6928203230275509
+        ]
+      ],
+      "origin": {
+        "type": "region_center"
+      }
+    },
+    "inference": {
+      "enabled": true,
+      "allow_rotation": false,
+      "spacing_tolerance_fraction": 0.02,
+      "phase_tolerance_fraction": 0.04,
+      "occupancy_tolerance_fraction": 0.06,
+      "min_anchor_tiles": 4,
+      "min_neighbor_pairs": 3
+    },
+    "coverage": {
+      "sampling": {
+        "target_samples_per_footprint_axis": 32,
+        "max_samples": 20000
+      },
+      "efficient": {
+        "min_coverage": 0.9,
+        "min_marginal_efficiency": 0.12
+      }
+    },
+    "export": {
+      "ra_column": "RA_DEG",
+      "dec_column": "DEC_DEG",
+      "coordinate_format": "decimal",
+      "epoch": {
+        "column": "FRAME_EPOCH",
+        "default": "J2000",
+        "allowed": [
+          "J2000"
+        ]
+      },
+      "identifiers": {
+        "id_column": "TARGET",
+        "name_column": "LABEL",
+        "group_column": "PROGRAM"
+      }
+    }
+  }
+}

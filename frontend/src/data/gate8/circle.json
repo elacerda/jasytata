@@ -1,0 +1,58 @@
+{
+  "instrument": {
+    "schema_version": 2,
+    "id": "g8-circle-camera",
+    "display_name": "Gate 8 small circle camera",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "circle",
+      "radius_deg": 0.08
+    }
+  },
+  "survey": {
+    "schema_version": 2,
+    "id": "g8-circle",
+    "display_name": "Gate 8 small circle",
+    "instrument_id": "g8-circle-camera",
+    "tiling": {
+      "type": "lattice",
+      "basis_deg": [
+        [
+          0.1,
+          0
+        ],
+        [
+          0,
+          0.1
+        ]
+      ],
+      "origin": {
+        "type": "region_center"
+      }
+    },
+    "inference": {
+      "enabled": true,
+      "allow_rotation": true,
+      "spacing_tolerance_fraction": 0.02,
+      "phase_tolerance_fraction": 0.04,
+      "occupancy_tolerance_fraction": 0.06,
+      "min_anchor_tiles": 4,
+      "min_neighbor_pairs": 3
+    },
+    "coverage": {
+      "sampling": {
+        "target_samples_per_footprint_axis": 32,
+        "max_samples": 20000
+      },
+      "efficient": {
+        "min_coverage": 0.8,
+        "min_marginal_efficiency": 0.25
+      }
+    },
+    "export": {
+      "ra_column": "ALPHA",
+      "dec_column": "DELTA",
+      "coordinate_format": "decimal"
+    }
+  }
+}

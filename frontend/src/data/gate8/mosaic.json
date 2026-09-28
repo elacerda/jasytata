@@ -1,0 +1,104 @@
+{
+  "instrument": {
+    "schema_version": 2,
+    "id": "g8-mosaic-camera",
+    "display_name": "Gate 8 rotated mosaic camera",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "compound",
+      "position_angle_deg": 31,
+      "components": [
+        {
+          "offset_deg": [
+            -0.22,
+            0
+          ],
+          "rotation_deg": 12,
+          "footprint": {
+            "type": "rectangle",
+            "width_deg": 0.3,
+            "height_deg": 0.28
+          }
+        },
+        {
+          "offset_deg": [
+            0.22,
+            0.03
+          ],
+          "rotation_deg": -8,
+          "footprint": {
+            "type": "polygon",
+            "vertices_deg": [
+              [
+                -0.14,
+                -0.13
+              ],
+              [
+                0.14,
+                -0.13
+              ],
+              [
+                0.14,
+                0.13
+              ],
+              [
+                -0.14,
+                0.13
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "survey": {
+    "schema_version": 2,
+    "id": "g8-mosaic",
+    "display_name": "Gate 8 rotated mosaic",
+    "instrument_id": "g8-mosaic-camera",
+    "tiling": {
+      "type": "lattice",
+      "basis_deg": [
+        [
+          0.16687662118610289,
+          -0.03243752921401262
+        ],
+        [
+          0.02862134930648172,
+          0.1472440775171496
+        ]
+      ],
+      "origin": {
+        "type": "region_center"
+      }
+    },
+    "inference": {
+      "enabled": true,
+      "allow_rotation": true,
+      "spacing_tolerance_fraction": 0.02,
+      "phase_tolerance_fraction": 0.04,
+      "occupancy_tolerance_fraction": 0.06,
+      "min_anchor_tiles": 4,
+      "min_neighbor_pairs": 3
+    },
+    "coverage": {
+      "sampling": {
+        "target_samples_per_footprint_axis": 32,
+        "max_samples": 20000
+      },
+      "efficient": {
+        "min_coverage": 0.95,
+        "min_marginal_efficiency": 0.02
+      }
+    },
+    "export": {
+      "ra_column": "RA_HMS",
+      "dec_column": "DEC_DMS",
+      "coordinate_format": "sexagesimal",
+      "position_angle_column": "PA",
+      "constant_fields": {
+        "SURVEY": "G8-MOSAIC"
+      }
+    }
+  }
+}
