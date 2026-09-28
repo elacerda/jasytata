@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, ReactNode, SyntheticEvent } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import type { ProfileDocument } from "./document";
+import { NumericField } from "./numeric-input";
+import { parsedNumber, replacePath, type NumericPath, type NumericFieldProps } from "./numeric-draft";
+import { SurveyProfileEditor } from "./SurveyProfileEditor";
 import { footprintSummary } from "./presentation";
 import { validateInstrumentProfileV2 } from "./schema-v2";
 import type {
@@ -15,21 +18,11 @@ import type {
 
 type ProfileDocumentDraft = Pick<ProfileDocument, "instrument">;
 type FootprintType = Footprint["type"];
-type NumericPath = Array<string | number>;
 
 interface ValidationPreview {
   instrument: InstrumentProfileV2 | null;
   error: string | null;
   incomplete: boolean;
-}
-
-interface NumericFieldProps {
-  label: string;
-  path: NumericPath;
-  optional?: boolean;
-  value: number | undefined;
-  inputValues: Record<string, string>;
-  onChange: (path: NumericPath, value: string, optional: boolean) => void;
 }
 
 interface GeometryFieldsProps {
@@ -50,7 +43,7 @@ const FOOTPRINT_LABELS: Record<FootprintType, string> = {
 };
 
 function defaultRectangle(): RectangleFootprint {
-  return { type: "rectangle", width_deg: 1.4, height_deg: 1.4, position_angle_deg: 0 };
+  return { type: "rectangle", width_deg: 1, height_deg: 1, position_angle_deg: 0 };
 }
 
 function defaultCircle(): CircleFootprint {
@@ -105,29 +98,6 @@ function readPath(source: unknown, path: NumericPath): unknown {
   }, source);
 }
 
-function replacePath<T>(source: T, path: NumericPath, value: unknown): T {
-  const copy = structuredClone(source);
-  let parent: unknown = copy;
-  for (const segment of path.slice(0, -1)) {
-    if (Array.isArray(parent)) parent = parent[segment as number];
-    else if (typeof parent === "object" && parent !== null) parent = (parent as Record<string, unknown>)[String(segment)];
-  }
-  const last = path[path.length - 1];
-  if (Array.isArray(parent) && typeof last === "number") parent[last] = value;
-  else if (typeof parent === "object" && parent !== null && typeof last === "string") {
-    if (value === undefined) delete (parent as Record<string, unknown>)[last];
-    else (parent as Record<string, unknown>)[last] = value;
-  }
-  return copy;
-}
-
-function parsedNumber(value: string): number | undefined {
-  const text = value.trim();
-  if (!text || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return undefined;
-  const parsed = Number(text);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 function shiftIndexedPaths<T extends string[] | Record<string, string>>(
   values: T,
   prefix: string,
@@ -158,24 +128,6 @@ function shiftIndexedPaths<T extends string[] | Record<string, string>>(
   }
   if (Array.isArray(values)) return nextEntries.map(([key]) => key) as T;
   return Object.fromEntries(nextEntries) as T;
-}
-
-function NumericField({ label, path, optional = false, value, inputValues, onChange }: NumericFieldProps) {
-  const key = path.join(".");
-  const displayValue = inputValues[key] ?? (value === undefined ? "" : String(value));
-  return (
-    <label className="instrument-editor-field">
-      <span>{label}{optional ? " · optional" : ""}</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        value={displayValue}
-        aria-label={label}
-        onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(path, event.currentTarget.value, optional)}
-      />
-    </label>
-  );
 }
 
 function GeometryFields({
@@ -234,10 +186,12 @@ function GeometryFields({
   );
 }
 
-/** Props for the isolated Gate 7B2A instrument authoring form. */
+/** Callbacks for the isolated instrument/survey authoring workflow. */
 export interface InstrumentProfileEditorProps {
   /** Close the draft without registering it or changing planner state. */
   onCancel: () => void;
+  /** Atomically register a complete validated document; throws on failure. */
+  onRegister?: (document: ProfileDocument) => void;
   /** Receive the normalized instrument when it is valid, or null otherwise. */
   onInstrumentValidatedChange?: (instrument: InstrumentProfileV2 | null) => void;
 }
@@ -245,15 +199,17 @@ export interface InstrumentProfileEditorProps {
 /**
  * Author a Schema v2 instrument profile in isolated local form state.
  *
- * The document-shaped draft contains only the existing instrument member while
- * survey authoring remains deferred. Numeric text buffers are UI state for
+ * The first stage retains the existing instrument object; the survey stage
+ * completes the same ProfileDocument used by JSON import. Numeric text buffers are UI state for
  * incomplete keystrokes; scientific values remain `InstrumentProfileV2` and are
  * checked by the shared validator. This component never mutates the registry.
  *
- * @param props - Close and optional validation preview callbacks.
+ * @param props - Cancel, explicit registration and optional instrument preview callbacks.
  * @returns A keyboard-accessible profile authoring dialog.
  */
-export function InstrumentProfileEditor({ onCancel, onInstrumentValidatedChange }: InstrumentProfileEditorProps) {
+export function InstrumentProfileEditor({ onCancel, onRegister, onInstrumentValidatedChange }: InstrumentProfileEditorProps) {
+  const [stage, setStage] = useState<"instrument" | "survey">("instrument");
+  const [surveyStarted, setSurveyStarted] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [documentDraft, setDocumentDraft] = useState<ProfileDocumentDraft>(createDraft);
   const [numberInputs, setNumberInputs] = useState<Record<string, string>>({});
@@ -289,6 +245,11 @@ export function InstrumentProfileEditor({ onCancel, onInstrumentValidatedChange 
       else dialog.open = false;
     };
   }, []);
+
+  useEffect(() => {
+    const label = stage === "instrument" ? "Instrument ID" : "Survey ID";
+    dialogRef.current?.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.focus();
+  }, [stage]);
 
   useEffect(() => {
     onInstrumentValidatedChange?.(validation.instrument);
@@ -391,6 +352,8 @@ export function InstrumentProfileEditor({ onCancel, onInstrumentValidatedChange 
   }
 
   function resetDraft() {
+    setSurveyStarted(false);
+    setStage("instrument");
     setDocumentDraft(createDraft());
     setNumberInputs({});
     setIncompleteNumberPaths([]);
@@ -502,11 +465,12 @@ export function InstrumentProfileEditor({ onCancel, onInstrumentValidatedChange 
       <div className="instrument-profile-editor-shell">
         <header className="instrument-profile-editor-header">
           <div>
-            <h2 id="instrument-profile-editor-title">Create instrument profile</h2>
-            <p id="instrument-profile-editor-description">Build an instrument draft with the Schema v2 fields used by imported profiles.</p>
+            <h2 id="instrument-profile-editor-title">{stage === "instrument" ? "Create instrument profile" : "Create survey profile"}</h2>
+            <p id="instrument-profile-editor-description">{stage === "instrument" ? "Step 1 · Instrument geometry. Continue to survey policies when the instrument is valid." : "Step 2 · Survey policies. Validate the complete profile, then add it or download JSON."}</p>
           </div>
           <button className="button button-quiet" type="button" aria-label="Cancel profile authoring" onClick={onCancel}>Close</button>
         </header>
+        <div className="profile-authoring-stage" hidden={stage !== "instrument"}>
         <div className="instrument-profile-editor-content">
           <section className="instrument-editor-section" aria-labelledby="instrument-identity-heading">
             <h3 id="instrument-identity-heading">Instrument identity</h3>
@@ -533,7 +497,7 @@ export function InstrumentProfileEditor({ onCancel, onInstrumentValidatedChange 
                   onChange={(event) => updateDescription(event.currentTarget.value)} />
               </label>
             </div>
-            <p className="instrument-editor-help">ID is the exact Schema v2 and registry identifier. Coordinate frame is fixed to ICRS.</p>
+            <p className="instrument-editor-help">ID is the exact Schema v2 and registry identifier. Coordinate frame is fixed to ICRS. Geometry starts with editable examples (rectangle: 1° × 1°); set your instrument dimensions.</p>
           </section>
 
           <section className="instrument-editor-section" aria-labelledby="instrument-footprint-heading">
@@ -564,7 +528,12 @@ export function InstrumentProfileEditor({ onCancel, onInstrumentValidatedChange 
         <footer className="instrument-profile-editor-footer">
           <button className="button button-quiet" type="button" onClick={resetDraft}>Reset draft</button>
           <button className="button button-outline" type="button" onClick={onCancel}>Cancel</button>
+          <button className="button button-primary" type="button" disabled={!validation.instrument} onClick={() => { setSurveyStarted(true); setStage("survey"); }}>Continue to survey</button>
         </footer>
+        </div>
+        {surveyStarted && <div className="profile-authoring-stage" hidden={stage !== "survey"}>
+          <SurveyProfileEditor instrument={instrumentDraft} onBack={() => setStage("instrument")} onCancel={onCancel} onRegister={onRegister} />
+        </div>}
       </div>
     </dialog>
   );

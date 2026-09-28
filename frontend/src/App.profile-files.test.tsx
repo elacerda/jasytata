@@ -5,6 +5,7 @@ import App from "./App";
 import type { RegionPlanResponse } from "./types";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { parseProfileJson, serializeProfile } from "./profiles/document";
+import { planRegion as planRegionLocal } from "./science/planner";
 import smallJson from "./profiles/fixtures/small-camera.json";
 
 const session = vi.hoisted(() => ({ registry: null as ProfileRegistry | null }));
@@ -219,6 +220,10 @@ describe("minimal browser profile file controls", () => {
     await user.clear(screen.getByRole("textbox", { name: "width (°)" }));
     await user.type(screen.getByRole("textbox", { name: "width (°)" }), "2.4");
     expect(within(screen.getByRole("dialog", { name: "Create instrument profile" })).getByRole("status")).toHaveTextContent("Instrument valid");
+    await user.click(screen.getByRole("button", { name: "Continue to survey" }));
+    await user.type(screen.getByRole("textbox", { name: "Survey ID" }), "scratch-survey");
+    await user.type(screen.getByRole("textbox", { name: "Survey display name" }), "Scratch survey");
+    expect(within(screen.getByRole("dialog", { name: "Create survey profile" })).getByRole("status")).toHaveTextContent("Profile valid");
 
     expect(session.registry!.listInstrumentProfiles()).toEqual(profilesBefore);
     expect((surveySelector as HTMLSelectElement).value).toBe(surveyIdBefore);
@@ -229,8 +234,11 @@ describe("minimal browser profile file controls", () => {
     expect(apiSession.planRegion).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole("button", { name: /^Cancel$/ }));
-    expect(screen.queryByRole("dialog", { name: "Create instrument profile" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(session.registry!.listInstrumentProfiles()).toEqual(profilesBefore);
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    expect(screen.getByRole("textbox", { name: "Instrument ID" })).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: /^Cancel$/ }));
     expect(screen.getByText("PROPOSED_0001")).toBeTruthy();
   });
 
@@ -374,6 +382,68 @@ describe("minimal browser profile file controls", () => {
     await user.selectOptions(selector, "custom");
     expect(selector).toHaveValue("custom");
     expect(screen.getByText("Small circular camera")).toBeTruthy();
+  });
+
+  it("registers an authored survey into both selectors and plans with no catalogue immediately", async () => {
+    const user = userEvent.setup();
+    apiSession.planRegion.mockImplementation(async (polygon, existing, id, inline, strategy) => planRegionLocal(polygon, existing, id, inline, strategy, session.registry!));
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    await user.type(screen.getByRole("textbox", { name: "Instrument ID" }), "browser-camera");
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Browser camera");
+    await user.click(screen.getByRole("button", { name: "Continue to survey" }));
+    await user.type(screen.getByRole("textbox", { name: "Survey ID" }), "browser-survey");
+    await user.type(screen.getByRole("textbox", { name: "Survey display name" }), "Browser survey");
+    expect(session.registry!.listSurveyProfiles()).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Add profile" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Added survey profile: Browser survey. Choose it as the active survey");
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
+    expect(selector).toHaveValue("splus-t80-south");
+    expect(within(selector).getByRole("option", { name: "Browser survey" })).toBeTruthy();
+    await user.selectOptions(selector, "browser-survey");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByText("Proposal preview");
+    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.anything(), [], "browser-survey", undefined, "complete");
+    const plan = await apiSession.planRegion.mock.results[0].value as RegionPlanResponse;
+    expect(plan.solution).toBe("declared_lattice"); expect(plan.tiles.length).toBeGreaterThan(0);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n150,-30\n", "assign.csv"));
+    const assignment = await screen.findByRole("combobox", { name: "Catalogue instrument for assign.csv" });
+    expect(assignment).toHaveValue("");
+    expect(within(assignment).getByRole("option", { name: /Browser camera/ })).toBeTruthy();
+    await user.selectOptions(assignment, "browser-camera"); expect(assignment).toHaveValue("browser-camera");
+  });
+
+  it("preserves catalogue assignments, proposals and coverage on registration until explicit survey selection", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n150,-30\n", "existing.csv"));
+    const assignment = await screen.findByRole("combobox", { name: "Catalogue instrument for existing.csv" });
+    expect(assignment).toHaveValue("t80-south");
+    await user.click(screen.getByRole("button", { name: "Mock select region" })); await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    await waitFor(() => expect(screen.getByText("Already covered")).toBeTruthy());
+    const summaryBefore = screen.getByLabelText("Active survey summary").textContent;
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    await user.type(screen.getByRole("textbox", { name: "Instrument ID" }), "isolation-camera");
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Isolation camera");
+    await user.click(screen.getByRole("button", { name: "Continue to survey" }));
+    await user.type(screen.getByRole("textbox", { name: "Survey ID" }), "isolation-survey");
+    await user.type(screen.getByRole("textbox", { name: "Survey display name" }), "Isolation survey");
+    const coverageBefore = screen.getByText("Already covered").closest(".metrics-panel")?.textContent;
+    const proposalsBefore = screen.getByText("1 generated · 1 enabled · 0 disabled").textContent;
+    await user.click(screen.getByRole("button", { name: "Add profile" }));
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
+    expect(selector).toHaveValue("splus-t80-south"); expect(assignment).toHaveValue("t80-south");
+    expect(screen.getByLabelText("Active survey summary").textContent).toBe(summaryBefore);
+    expect(screen.getByText("Already covered").closest(".metrics-panel")?.textContent).toBe(coverageBefore);
+    expect(screen.getByText("1 generated · 1 enabled · 0 disabled").textContent).toBe(proposalsBefore);
+    expect(screen.getByText("PROPOSED_0001")).toBeTruthy();
+    expect(within(assignment).getByRole("option", { name: /Isolation camera/ })).toBeTruthy();
+    expect(apiSession.planRegion).toHaveBeenCalledOnce();
+    await user.selectOptions(selector, "isolation-survey");
+    expect(screen.queryByText("PROPOSED_0001")).toBeNull(); expect(screen.getByText("0 generated · 0 enabled · 0 disabled")).toBeTruthy();
+    expect(assignment).toHaveValue("t80-south");
   });
 
   it("downloads the selected survey and instrument as canonical JSON", async () => {

@@ -149,7 +149,7 @@ describe("Schema v2 instrument authoring draft", () => {
           {
             offset_deg: [-0.75, 0.1],
             rotation_deg: 15,
-            footprint: { type: "rectangle", width_deg: 1.4, height_deg: 1.4, position_angle_deg: 6 },
+            footprint: { type: "rectangle", width_deg: 1, height_deg: 1, position_angle_deg: 6 },
           },
           {
             offset_deg: [0.8, -0.2],
@@ -187,7 +187,7 @@ describe("Schema v2 instrument authoring draft", () => {
 
     expect(screen.getByRole("textbox", { name: "Instrument ID" })).toHaveValue("");
     expect(screen.getByRole("combobox", { name: "Footprint type" })).toHaveValue("rectangle");
-    expect(screen.getByRole("textbox", { name: "width (°)" })).toHaveValue("1.4");
+    expect(screen.getByRole("textbox", { name: "width (°)" })).toHaveValue("1");
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid profile identifier");
     expect(onValidatedChange).toHaveBeenLastCalledWith(null);
   });

@@ -5,6 +5,7 @@ import AladinMap, { type MapMode } from "./AladinMap";
 import { buildRegionPlanRequest, downloadCatalogue, downloadProfileJson, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
+import type { ProfileDocument } from "./profiles/document";
 import { InstrumentProfileEditor } from "./profiles/InstrumentProfileEditor";
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
 import type {
@@ -258,6 +259,15 @@ export default function App() {
       } else applyCatalogue(result);
     });
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function registerAuthoredProfile(document: ProfileDocument) {
+    const registered = profileRegistry.registerProfileDocument(document);
+    setInstrumentProfiles(profileRegistry.listInstrumentProfiles());
+    setSurveyProfiles(profileRegistry.listSurveyProfiles());
+    setProfileEditorOpen(false);
+    setError(null);
+    setNotice(`Added survey profile: ${registered.survey.display_name}. Choose it as the active survey to plan with it.`);
   }
 
   async function handleProfileUpload(file?: File) {
@@ -898,7 +908,7 @@ export default function App() {
           </section>
         </aside>
       </section>
-      {profileEditorOpen && <InstrumentProfileEditor onCancel={() => setProfileEditorOpen(false)} />}
+      {profileEditorOpen && <InstrumentProfileEditor onCancel={() => setProfileEditorOpen(false)} onRegister={registerAuthoredProfile} />}
     </main>
   );
 }

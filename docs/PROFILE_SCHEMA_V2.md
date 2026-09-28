@@ -243,9 +243,8 @@ Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
 generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
 are operational. Scientific error validation (G6C) passes for the documented
 resolved local geometries and policies. Gate 7A profile JSON import/export,
-Gate 7B1 registry-backed selection/assignment, and Gate 7B2A instrument
-authoring are complete. Survey profile authoring (Gate 7B2B) and configurable
-CSV output (Gate 7C) remain deferred.
+Gate 7B1 registry-backed selection/assignment, and Gate 7B2 instrument/survey
+authoring are complete. Configurable CSV output (Gate 7C) remains deferred.
 Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
@@ -342,18 +341,85 @@ scientific configuration and deterministic planning/coverage behavior. To import
 an exported T80 file into a session already containing T80, duplicate rejection
 is expected; equivalence tests use a fresh isolated registry.
 
-**Create profile** opens a local Schema v2 instrument draft. Its instrument object
-uses the same `InstrumentProfileV2` shape as imports: identity fields plus a
-rectangle, circle, ordered local tangent-plane polygon, or compound footprint
-with non-compound child geometry, east/north offsets, and separate child rotation.
-Numeric text that is temporarily incomplete stays in UI-only input buffers; the
-editor does not coerce an empty value to zero. Once the current fields are
-complete, `validateInstrumentProfileV2` supplies the validation preview and
-normalized instrument. A valid instrument is not a complete profile document and
-is not inserted into `ProfileRegistry`; survey identity and policies, followed
-by complete-document registration, are deferred to Gate 7B2B. Cancel and reset
-discard only the local draft. The bundled T80 instrument remains a normal
-read-only registry reference in this gate.
+**Create profile** uses two local stages and explicit final actions:
+
+1. Instrument geometry: a canonical `InstrumentProfileV2` with identity,
+   rectangle, circle, ordered local tangent-plane polygon, or compound footprint.
+   A valid instrument enables **Continue to survey**.
+2. Survey policies: a canonical `SurveyProfileV2`, always referencing that draft
+   instrument. **Back to instrument** retains both stages; changing the
+   instrument ID updates the document reference. Existing registry instruments
+   cannot be substituted in this create-only flow.
+3. Complete validation and actions: `validateProfileDocument({ instrument,
+   survey })` is the same strict authority as imported JSON. **Profile valid**
+   applies only to the complete document. **Add profile** validates again and
+   calls `registerProfileDocument` atomically. Either duplicate ID fails without
+   replacing or partially inserting anything; users can edit and retry.
+   **Download profile JSON** calls the canonical `serializeProfile` path without
+   registry insertion and can be used solely for a file-based workflow.
+
+The survey form exposes exact Schema v2 identity, inference, coverage and export
+fields. Lattice orientation is solely `basis_deg = [[east, north], [east, north]]`
+with four directly editable degree values; no separate lattice angle exists.
+`region_center` has no anchor fields; `fixed_anchor` stores RA/DEC in ICRS degrees
+and has no runtime phase controls. Manual tiling stores only `{ type: "manual" }`:
+coverage and manual/imported pointings work, automatic tiling is unavailable.
+Choosing manual disables inference and resets its mandatory policy fields to
+neutral starter values; hidden incomplete numeric buffers are discarded.
+
+Inference uses `enabled`, the three dimensionless tolerance fractions,
+`min_anchor_tiles`, `min_neighbor_pairs`, and `allow_rotation` exactly as in the
+schema. Coverage uses relative `target_samples_per_footprint_axis` and the
+browser `max_samples` budget, with an optional Efficient policy containing
+`min_coverage` and `min_marginal_efficiency`. Leaving Efficient absent remains
+meaningful: Complete works, and Efficient planning reports the established
+missing-policy error. No Complete knobs or absolute sampling step are authored.
+
+Export authoring includes RA/DEC columns, coordinate format, optional epoch
+column/default/allowed values, optional position-angle column and free-form
+`constant_fields`. Constant entries support string, finite number and boolean
+values; add/remove keys and edit typed values. Existing keys are never silently
+overwritten by another add. All column collisions and policy validity use the
+shared validator. These declarations are preserved in JSON; runtime pointing CSV
+mapping remains Gate 7C work.
+
+Numeric text that is temporarily incomplete stays in UI-only buffers shared
+with the instrument editor; empty text does not become zero and values are not
+clamped. Complete-document validation/actions are unavailable until every active
+numeric input is complete. Validator messages identify failing fields without a
+parallel scientific validation model. Cancel, Close and Escape discard the whole
+local draft without changing registry, active survey, assignments, proposals or
+coverage. Successful registration refreshes survey and instrument choices, keeps
+the current survey selected, and asks the user to select the new one. That
+selection uses the existing G7B1 proposal invalidation path.
+
+### Authoring starters and legacy compatibility
+
+No universal scientific defaults are inferred from T80. Editable, labeled UI
+starters are a 1° rectangle / square basis, region-centered origin, disabled
+inference with zero tolerance fractions and one anchor/pair, 16 samples per
+footprint axis, and a 10,000-sample budget. Efficient is absent until requested;
+its editable example thresholds are 0.9 and 0.1. A fixed-anchor starter is (0°, 0°).
+Epoch, PA column and constants are absent initially. These are draft values only;
+scientific consumers read the resulting validated document without fallback
+injection. Other instrument geometry examples remain editable. The former 1.4°
+rectangle starter was removed; bundled T80 data and scientific behavior are
+unchanged.
+
+The public `legacy_splus` schema declares grid extents, effective overlap and the
+same policies, but it explicitly selects the historical, nonrotating row/grid
+algorithm, phase rules and supplemental overlap-fill. It is not a generic tiling
+preset or a way to obtain arbitrary lattice orientation. The create-new editor
+therefore offers lattice and manual; known legacy configurations remain fully
+supported through bundled profiles and strict JSON import/export. This is an
+authoring distinction, not a schema or validator restriction.
+
+Focused authoring tests create a non-T80 rotated fixed-anchor survey through
+browser fields, export before registration, reimport in an isolated registry and
+compare every policy and deterministic planning result. Additional tests cover
+region-centered generation without catalogues, policy consumption, manual
+coverage/refusal, duplicate-safe registration, immediate selectors and
+back/cancel isolation.
 
 Only declarative configuration is exported. Inferred rotation/phase, runtime
 anchors, assignments, inference quality, effective sample step, sample count,
@@ -364,8 +430,7 @@ and footprint position angles remain configuration and are preserved. Declared
 future configurable CSV output contract. The pre-G7 inline v1 custom rectangle
 editor is no longer exposed in the active planning UI because it bypassed the
 selected Schema v2 survey policies. Generic Schema v2 instrument authoring is
-available through **Create profile**; survey authoring remains deferred to Gate
-7B2B. Legacy inline APIs remain transitional and do not appear in the registry
+available through **Create profile** together with complete survey authoring. Legacy inline APIs remain transitional and do not appear in the registry
 selector.
 
 S-PLUS/T80 is the bundled reference profile, available by default for observer

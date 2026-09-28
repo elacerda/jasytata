@@ -179,11 +179,20 @@ export async function uploadProfileFile(file: File, registry: ProfileRegistry = 
  * @throws If the profile is unknown or serialization fails.
  */
 export async function downloadProfileJson(id: string, registry: ProfileRegistry = profileRegistry): Promise<void> {
-  const blob = new Blob([serializeProfile(registry.resolveProfileDocument(id))], { type: "application/json; charset=utf-8" });
+  return downloadProfileDocument(registry.resolveProfileDocument(id));
+}
+
+/** Download a complete authored document without registering it.
+ * @param profileDocument - Declarative instrument/survey configuration only.
+ * @returns Resolves after canonical validation and browser JSON download.
+ * @throws If strict document validation or download fails. No registry is mutated.
+ */
+export async function downloadProfileDocument(profileDocument: ProfileDocument): Promise<void> {
+  const blob = new Blob([serializeProfile(profileDocument)], { type: "application/json; charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${id}.json`;
+  link.download = `${profileDocument.survey.id}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();

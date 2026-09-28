@@ -513,3 +513,14 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .app-shell[data-theme="dark"] .map-footer { background: #07162c; border-color: #1c3451; }
 .app-shell[data-theme="dark"] .aladin-frame { background: #010d21; }
 .app-shell[data-theme="dark"] .map-instruction { background: #122a42ed; border-color: #476b85; }
+
+.profile-authoring-stage { display: flex; min-height: 0; flex-direction: column; }
+.profile-authoring-stage[hidden] { display: none; }
+.survey-editor-checkbox { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 11px; }
+.survey-editor-constant { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) auto; align-items: end; gap: 10px; }
+.survey-editor-constant strong { align-self: center; overflow-wrap: anywhere; font-size: 11px; }
+.instrument-editor-section h4 { margin: 8px 0 0; color: var(--ink); font-size: 12px; }
+@media (max-width: 600px) {
+  .survey-editor-constant { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .instrument-profile-editor-footer { flex-wrap: wrap; }
+}
