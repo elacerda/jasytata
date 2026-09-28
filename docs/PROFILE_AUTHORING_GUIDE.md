@@ -209,11 +209,12 @@ That is measured evidence, not an arbitrary-profile guarantee. See the
 [Gate 8 report](GATE8_AGNOSTICISM_VALIDATION.md) covers T80, small circular FoV,
 rotated detector mosaic and non-orthogonal triangular lattice workflows.
 
+The offset-polygon intersection defect is
+[resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+The [release audit](GATE9_RELEASE_AUDIT.md) records final readiness and operational caps.
+
 ### Limits to consider before using a coverage result
 
-- **Known G9B blocker:** a valid polygon that excludes its local origin can give
-  a false-positive region intersection/contributor count. Sample containment is
-  separate; see the [reproduction](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
 - Numerical coverage is sampled, not exact analytic geometry.
 - Sub-pitch gaps, thin region structure or small detectors may be unresolved.
 - Extreme budget coarsening reduces accuracy; increasing requested density alone

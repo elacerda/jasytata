@@ -59,7 +59,7 @@ contact only at an edge or vertex is excluded, while point containment remains
 boundary-inclusive. The existing local geometry tolerance is `1e-12`.
 The offset-polygon false-positive blocker is
 [resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive);
-Gate 9B2 remains pending.
+Gate 9B2 is PASS; see the [release audit](GATE9_RELEASE_AUDIT.md).
 
 ## Survey policies
 
@@ -562,5 +562,5 @@ The v1 compatibility adapter's historical CSV-shape guard is confined to that
 legacy adapter; registered v2 runtime export does not pass through it.
 
 See the [Gate 8 validation matrix](GATE8_AGNOSTICISM_VALIDATION.md) and
-[generic profile authoring guide](PROFILE_AUTHORING_GUIDE.md). Gate 9B
-release-candidate audit remains pending; see the [roadmap](V0.3.0_ROADMAP.md).
+[generic profile authoring guide](PROFILE_AUTHORING_GUIDE.md). Gate 9 is PASS; v0.3.0 is release ready with
+[documented non-blocking limitations](GATE9_RELEASE_AUDIT.md).

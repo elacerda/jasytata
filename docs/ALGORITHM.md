@@ -376,7 +376,8 @@ for numbering, epoch choices, escaping and limits. The bundled T80 default remai
 The offset-polygon intersection blocker is
 [resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
 Contributor counting and candidate filtering now test physical polygon overlap
-without assuming local-origin containment. Gate 9B2 release audit remains pending.
+without assuming local-origin containment. Gate 9B2 is PASS; see the
+[release audit](GATE9_RELEASE_AUDIT.md).
 
 - Coverage is a numerical sample estimate, not exact analytic or spherical
   geometry; 100% means all selected samples are covered.
@@ -420,5 +421,5 @@ There is no claim of bitwise reproducibility across arbitrary future versions.
 Jasytata remains browser-only with no API backend or database. It is not an
 observing scheduler: exposure-time optimization, filter sequencing, airmass, Moon
 constraints, weather, mount constraints, queue scheduling and observatory control
-are outside scope. Gate 9B release-candidate audit remains pending in the
-[roadmap](V0.3.0_ROADMAP.md).
+are outside scope. Gate 9 is PASS; v0.3.0 is release ready with
+[documented non-blocking limitations](GATE9_RELEASE_AUDIT.md).

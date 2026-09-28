@@ -12,6 +12,10 @@ Extend an existing pointing catalogue or start a **new project with no initial
 catalogue**. S-PLUS/T80-South is the bundled reference/default profile;
 user-defined instrument and survey profiles supply other geometries and policies.
 
+**v0.3.0 release candidate:** ready with documented non-blocking limitations;
+see the [release summary and audit](docs/GATE9_RELEASE_AUDIT.md). This branch has
+not been tagged or published. The Release badge tracks published GitHub releases.
+
 **Live application:** <https://elacerda.github.io/jasytata/>
 
 React/TypeScript/Vite runs catalogue parsing, planning, coverage and export in
@@ -64,8 +68,8 @@ analytic geometry**. Sub-pitch structure may be unresolved; extreme sample-budge
 coarsening reduces accuracy, and threshold decisions can depend on sampling.
 Local tangent-plane approximations limit large fields and extreme polar regimes,
 which are outside validated precision. Complete can still leave gaps when the
-available lattice sites cannot cover them. A known polygon-intersection
-false-positive case is tracked as a [G9B release blocker](docs/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+available lattice sites cannot cover them. The offset-polygon intersection
+false-positive is [resolved in G9B1](docs/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
 
 Jasytata is not an observing scheduler. Exposure-time optimization, filter
 sequencing, airmass, Moon constraints, weather, mount constraints, queue scheduling
