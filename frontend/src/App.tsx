@@ -5,13 +5,14 @@ import AladinMap, { type MapMode } from "./AladinMap";
 import { buildRegionPlanRequest, downloadCatalogue, downloadProfileJson, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
+import { InstrumentProfileEditor } from "./profiles/InstrumentProfileEditor";
+import { footprintSummary, formatDegrees } from "./profiles/presentation";
 import type {
   CenterInput,
   CatalogueDataset,
   CatalogueResponse,
   CoordinateFormat,
   CoverageStrategy,
-  Footprint,
   InferenceDiagnostics,
   PlanMetrics,
   SkyPolygon,
@@ -44,23 +45,6 @@ const EMPTY_IDS: string[] = [];
 type ThemeMode = "light" | "dark";
 
 const THEME_STORAGE_KEY = "jasytata-theme";
-
-function formatDegrees(value: number): string {
-  return `${value.toFixed(3).replace(/\.?0+$/, "")}°`;
-}
-
-function footprintSummary(footprint: Footprint): string {
-  switch (footprint.type) {
-    case "rectangle":
-      return `Rectangle ${formatDegrees(footprint.width_deg)} × ${formatDegrees(footprint.height_deg)}`;
-    case "circle":
-      return `Circle · radius ${formatDegrees(footprint.radius_deg)}`;
-    case "polygon":
-      return `Polygon · ${footprint.vertices_deg.length} vertices`;
-    case "compound":
-      return `Mosaic · ${footprint.components.length} components`;
-  }
-}
 
 function tilingSummary(tiling: SurveyProfileV2["tiling"]): string {
   if (tiling.type === "legacy_splus") return "Legacy S-PLUS grid";
@@ -98,6 +82,7 @@ export default function App() {
     proposals: true, region: true, anchors: false, lattice: false,
   });
   const [importText, setImportText] = useState("");
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
   const [exportEpoch, setExportEpoch] = useState(DEFAULT_PROFILE.export_epoch_default);
   const [coordinateFormat, setCoordinateFormat] = useState<CoordinateFormat>("decimal");
@@ -563,6 +548,7 @@ export default function App() {
             </select>
             <input ref={profileFileInputRef} type="file" accept=".json,application/json" aria-label="Profile JSON file" hidden
               onChange={(event) => void handleProfileUpload(event.target.files?.[0])} />
+            <button className="button button-outline button-full" onClick={() => setProfileEditorOpen(true)}>Create profile</button>
             <div className="profile-actions">
               <button className="button button-outline" onClick={() => profileFileInputRef.current?.click()} disabled={busy}>Import profile</button>
               <button className="button button-outline" onClick={() => activeSurvey && void runBusy(() => downloadProfileJson(activeSurveyId), () => setNotice(`Exported ${activeSurvey.display_name} survey and ${activeInstrument?.display_name ?? "linked instrument"} profile JSON.`))}
@@ -912,6 +898,7 @@ export default function App() {
           </section>
         </aside>
       </section>
+      {profileEditorOpen && <InstrumentProfileEditor onCancel={() => setProfileEditorOpen(false)} />}
     </main>
   );
 }

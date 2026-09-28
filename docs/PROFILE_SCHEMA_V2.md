@@ -242,9 +242,10 @@ proposal metadata. No frozen fixture values change.
 Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
 generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
 are operational. Scientific error validation (G6C) passes for the documented
-resolved local geometries and policies. Gate 7A profile JSON import/export and
-Gate 7B1 registry-backed selection/assignment are complete. Schema v2 profile
-authoring (Gate 7B2) and configurable CSV output (Gate 7C) remain deferred.
+resolved local geometries and policies. Gate 7A profile JSON import/export,
+Gate 7B1 registry-backed selection/assignment, and Gate 7B2A instrument
+authoring are complete. Survey profile authoring (Gate 7B2B) and configurable
+CSV output (Gate 7C) remain deferred.
 Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
@@ -341,6 +342,19 @@ scientific configuration and deterministic planning/coverage behavior. To import
 an exported T80 file into a session already containing T80, duplicate rejection
 is expected; equivalence tests use a fresh isolated registry.
 
+**Create profile** opens a local Schema v2 instrument draft. Its instrument object
+uses the same `InstrumentProfileV2` shape as imports: identity fields plus a
+rectangle, circle, ordered local tangent-plane polygon, or compound footprint
+with non-compound child geometry, east/north offsets, and separate child rotation.
+Numeric text that is temporarily incomplete stays in UI-only input buffers; the
+editor does not coerce an empty value to zero. Once the current fields are
+complete, `validateInstrumentProfileV2` supplies the validation preview and
+normalized instrument. A valid instrument is not a complete profile document and
+is not inserted into `ProfileRegistry`; survey identity and policies, followed
+by complete-document registration, are deferred to Gate 7B2B. Cancel and reset
+discard only the local draft. The bundled T80 instrument remains a normal
+read-only registry reference in this gate.
+
 Only declarative configuration is exported. Inferred rotation/phase, runtime
 anchors, assignments, inference quality, effective sample step, sample count,
 budget-limited flag, actual cell dimensions, catalogue rows, proposals, disabled
@@ -349,9 +363,10 @@ and footprint position angles remain configuration and are preserved. Declared
 `ExportPolicy` fields are preserved as data; this gate does not implement their
 future configurable CSV output contract. The pre-G7 inline v1 custom rectangle
 editor is no longer exposed in the active planning UI because it bypassed the
-selected Schema v2 survey policies. Rectangle authoring will return as part of
-the generic Schema v2 authoring work in Gate 7B2; legacy inline APIs remain
-transitional and do not appear in the registry selector.
+selected Schema v2 survey policies. Generic Schema v2 instrument authoring is
+available through **Create profile**; survey authoring remains deferred to Gate
+7B2B. Legacy inline APIs remain transitional and do not appear in the registry
+selector.
 
 S-PLUS/T80 is the bundled reference profile, available by default for observer
 convenience. Its file and user imports share the document validators, registry

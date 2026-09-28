@@ -189,6 +189,51 @@ describe("minimal browser profile file controls", () => {
     expect(screen.queryByText("Proposal preview")).toBeNull();
   });
 
+  it("keeps the registry, active survey, and accepted proposals unchanged while editing a draft", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const surveySelector = screen.getByRole("combobox", { name: "Active survey" });
+    const profileInput = screen.getByLabelText("Profile JSON file");
+    await user.upload(profileInput, jsonFile(JSON.stringify(smallJson)));
+    await screen.findByText(/Imported survey profile: Small oblique survey/);
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n150,-30\n", "draft-check.csv"));
+    const assignment = screen.getByRole("combobox", { name: /Catalogue instrument for/ });
+    await user.selectOptions(assignment, "small-camera");
+
+    const surveyIdBefore = (surveySelector as HTMLSelectElement).value;
+    const profileSummaryBefore = screen.getByLabelText("Active survey summary").textContent;
+    const profilesBefore = session.registry!.listInstrumentProfiles();
+    const assignmentBefore = (assignment as HTMLSelectElement).value;
+
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByText("Proposal preview");
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    expect(screen.getByText("PROPOSED_0001")).toBeTruthy();
+    expect(screen.getByText("1 generated · 1 enabled · 0 disabled")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    expect(screen.getByRole("dialog", { name: "Create instrument profile" })).toBeTruthy();
+    await user.type(screen.getByRole("textbox", { name: "Instrument ID" }), "scratch-camera");
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Scratch camera");
+    await user.clear(screen.getByRole("textbox", { name: "width (°)" }));
+    await user.type(screen.getByRole("textbox", { name: "width (°)" }), "2.4");
+    expect(within(screen.getByRole("dialog", { name: "Create instrument profile" })).getByRole("status")).toHaveTextContent("Instrument valid");
+
+    expect(session.registry!.listInstrumentProfiles()).toEqual(profilesBefore);
+    expect((surveySelector as HTMLSelectElement).value).toBe(surveyIdBefore);
+    expect(screen.getByLabelText("Active survey summary").textContent).toBe(profileSummaryBefore);
+    expect((assignment as HTMLSelectElement).value).toBe(assignmentBefore);
+    expect(screen.getByText("PROPOSED_0001")).toBeTruthy();
+    expect(screen.getByText("1 generated · 1 enabled · 0 disabled")).toBeTruthy();
+    expect(apiSession.planRegion).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: /^Cancel$/ }));
+    expect(screen.queryByRole("dialog", { name: "Create instrument profile" })).toBeNull();
+    expect(session.registry!.listInstrumentProfiles()).toEqual(profilesBefore);
+    expect(screen.getByText("PROPOSED_0001")).toBeTruthy();
+  });
+
   it("keeps assignments independent across catalogues and invalidates previews after science changes", async () => {
     const user = userEvent.setup();
     render(<App />);
