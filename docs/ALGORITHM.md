@@ -289,7 +289,15 @@ convergence, phase sensitivity, budget behavior and Complete/Efficient margins.
 This is empirical validation of the local model, not exact geometric coverage
 or an accuracy promise for arbitrary policies and thresholds.
 
-All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" is intended to count actual instrument footprints with positive geometric intersection against the polygon, independently of sample-cell hits, including boundary slivers smaller than the sample pitch. Pointing-center containment alone is not a universal contributor test: a mosaic can have a central gap and a polygon can exclude its local origin. The latter currently exposes the intersection false-positive blocker documented below.
+All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" counts actual instrument footprints with positive geometric intersection against the polygon, independently of sample-cell hits, including boundary slivers smaller than the sample pitch. Pointing-center containment alone is not a universal contributor test: a mosaic can have a central gap and a polygon can exclude its local origin.
+
+Polygon/rectangle intersection uses actual boundaries after PA and component
+translation: strict containment, proper crossings, coincident edges with
+interiors on the same side, and open edge fragments between vertex contacts.
+Simple concave polygons and either winding are supported. Boundary-only contact
+has zero area and is excluded, preserving the existing contributor contract.
+The local geometry tolerance remains `1e-12`; circle/edge distance remains
+analytic. This classifies topology without increasing coverage sampling density.
 
 The scientific stages are: actual input footprints → existing coverage; actual input centers → lattice inference; inferred or profile lattice → candidates; actual input centers → candidate occupancy (generic local-plane, legacy spherical); unoccupied candidates plus uncovered samples → proposals; existing footprints plus enabled proposal footprints → final coverage. The selected-area coverage fraction remains a numerical sample estimate, while contributor membership is a geometric intersection count.
 
@@ -365,12 +373,10 @@ for numbering, epoch choices, escaping and limits. The bundled T80 default remai
 
 ## 6. Deliberate limitations
 
-**Known G9B blocker:** polygon footprints that exclude their local origin can
-produce a false-positive footprint/region intersection and contributor count.
-The current shortcut assumes that origin is inside the shape, although Schema v2
-does not require it. Shared candidate filtering also uses this helper; sampled
-coverage containment is separate. See the [exact reproduction](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
-G9A documents the contradiction without changing scientific code.
+The offset-polygon intersection blocker is
+[resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+Contributor counting and candidate filtering now test physical polygon overlap
+without assuming local-origin containment. Gate 9B2 release audit remains pending.
 
 - Coverage is a numerical sample estimate, not exact analytic or spherical
   geometry; 100% means all selected samples are covered.

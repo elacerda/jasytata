@@ -207,7 +207,9 @@ export function footprintLocalBounds(footprint: Footprint): FootprintLocalBounds
  * The selected region vertices are projected into the pointing's local
  * tangent-plane frame. Rectangle and polygon boundaries are tested exactly in
  * that plane; circle/edge overlap uses point-to-segment distance rather than
- * the sampled display boundary.
+ * the sampled display boundary. Polygon origins need not be interior points.
+ * Concave simple polygons are supported; boundary-only contact has zero area
+ * and does not count as intersection, using the existing geometry tolerance.
  *
  * @param footprint - Validated Schema v2 footprint centered on the pointing.
  * @param pointing - ICRS center in decimal-degree RA/DEC.
@@ -405,6 +407,12 @@ function primitiveIntersectsPolygon(primitive: PrimitiveFootprint, polygon: read
 
   const boundary = primitiveBoundary(primitive, DEFAULT_CIRCLE_SEGMENTS);
   if (boundary.slice(0, -1).some((point) => pointInPolygon(point, polygon, false))) return true;
+  if (primitive.footprint.type === "polygon") {
+    // The nominal pointing (or child origin) is not necessarily inside an
+    // arbitrary polygon. Only its transformed physical boundary is evidence.
+    boundary.pop();
+    return polygonBoundariesOverlapArea(boundary, polygon);
+  }
   if (pointInPolygon(primitive.center, polygon, false)) return true;
 
   if (primitive.footprint.type === "circle") {
@@ -416,16 +424,93 @@ function primitiveIntersectsPolygon(primitive: PrimitiveFootprint, polygon: read
     return false;
   }
 
-  for (let first = 0; first < boundary.length - 1; first += 1) {
-    const firstStart = boundary[first];
-    const firstEnd = boundary[first + 1];
-    for (let second = 0; second < polygon.length; second += 1) {
-      if (segmentsProperlyIntersect(
-        firstStart,
-        firstEnd,
-        polygon[second],
-        polygon[(second + 1) % polygon.length],
-      )) return true;
+  boundary.pop();
+  return polygonBoundariesOverlapArea(boundary, polygon);
+}
+
+/** Test remaining positive-area cases for two ordered simple local polygons.
+ *
+ * Vertices strictly inside the other polygon have already been tested. Proper
+ * crossings imply overlap. Collinear overlapping edges imply area only when
+ * both polygon interiors are on the same side, determined by signed winding.
+ * Endpoint crossings and inscribed polygons are handled by testing the open
+ * edge fragments split at the other polygon's vertices, without dense sampling.
+ * Coordinates are east/north degrees after PA and child translation; closure
+ * is implicit. Boundary-only contact remains excluded at GEOMETRY_EPSILON.
+ */
+function polygonBoundariesOverlapArea(
+  first: readonly LocalFootprintPoint[],
+  second: readonly LocalFootprintPoint[],
+): boolean {
+  const sameWinding = signedPolygonArea(first) * signedPolygonArea(second) > 0;
+  for (let i = 0; i < first.length; i += 1) {
+    const a = first[i];
+    const b = first[(i + 1) % first.length];
+    const abTolerance = GEOMETRY_EPSILON * Math.max(1, Math.hypot(b[0] - a[0], b[1] - a[1]));
+    for (let j = 0; j < second.length; j += 1) {
+      const c = second[j];
+      const d = second[(j + 1) % second.length];
+      const cdTolerance = GEOMETRY_EPSILON * Math.max(1, Math.hypot(d[0] - c[0], d[1] - c[1]));
+      const abC = orientation(a, b, c);
+      const abD = orientation(a, b, d);
+      const cdA = orientation(c, d, a);
+      const cdB = orientation(c, d, b);
+      if (oppositeSides(abC, abD, abTolerance) && oppositeSides(cdA, cdB, cdTolerance)) return true;
+      if (Math.abs(abC) > abTolerance || Math.abs(abD) > abTolerance ||
+          Math.abs(cdA) > cdTolerance || Math.abs(cdB) > cdTolerance) continue;
+
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const directionDot = dx * (d[0] - c[0]) + dy * (d[1] - c[1]);
+      if (sameWinding ? directionDot <= 0 : directionDot >= 0) continue;
+      const cDot = (c[0] - a[0]) * dx + (c[1] - a[1]) * dy;
+      const dDot = (d[0] - a[0]) * dx + (d[1] - a[1]) * dy;
+      const overlap = Math.min(dx * dx + dy * dy, Math.max(cDot, dDot)) - Math.max(0, Math.min(cDot, dDot));
+      if (overlap > GEOMETRY_EPSILON) return true;
+    }
+  }
+  return boundaryHasInteriorFragment(first, second) || boundaryHasInteriorFragment(second, first);
+}
+
+/** Compare signed cross products individually at the existing edge tolerance.
+ * Multiplying them before applying epsilon would impose a degree-four cutoff
+ * and miss ordinary crossings of small detectors.
+ */
+function oppositeSides(first: number, second: number, tolerance: number): boolean {
+  return (first > tolerance && second < -tolerance) || (first < -tolerance && second > tolerance);
+}
+
+/** Test exact edge fragments between vertex contacts for strict containment.
+ *
+ * Without a proper crossing, containment is constant on each open fragment.
+ * Midpoints therefore classify topology rather than approximate area. The
+ * fraction buffer is reused per edge; scalar containment avoids point tuples
+ * inside the pair loop. Coordinates and tolerance match local containment.
+ */
+function boundaryHasInteriorFragment(
+  boundary: readonly LocalFootprintPoint[],
+  polygon: readonly LocalFootprintPoint[],
+): boolean {
+  const fractions: number[] = [];
+  for (let index = 0; index < boundary.length; index += 1) {
+    const start = boundary[index];
+    const end = boundary[(index + 1) % boundary.length];
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) continue;
+    fractions.length = 0;
+    fractions.push(0, 1);
+    for (const vertex of polygon) {
+      if (!pointOnSegmentCoordinates(vertex[0], vertex[1], start, end)) continue;
+      const fraction = ((vertex[0] - start[0]) * dx + (vertex[1] - start[1]) * dy) / lengthSquared;
+      if (fraction > 0 && fraction < 1) fractions.push(fraction);
+    }
+    fractions.sort((a, b) => a - b);
+    for (let part = 1; part < fractions.length; part += 1) {
+      if (fractions[part] === fractions[part - 1]) continue;
+      const midpoint = (fractions[part] + fractions[part - 1]) / 2;
+      if (pointInPolygonCoordinates(start[0] + midpoint * dx, start[1] + midpoint * dy, polygon, false)) return true;
     }
   }
   return false;
@@ -473,19 +558,6 @@ function pointOnSegmentCoordinates(
   if (Math.abs(cross) > GEOMETRY_EPSILON * Math.max(1, Math.sqrt(lengthSquared))) return false;
   const dot = px * dx + py * dy;
   return dot >= -GEOMETRY_EPSILON && dot <= lengthSquared + GEOMETRY_EPSILON;
-}
-
-function segmentsProperlyIntersect(
-  a: LocalFootprintPoint,
-  b: LocalFootprintPoint,
-  c: LocalFootprintPoint,
-  d: LocalFootprintPoint,
-): boolean {
-  const abC = orientation(a, b, c);
-  const abD = orientation(a, b, d);
-  const cdA = orientation(c, d, a);
-  const cdB = orientation(c, d, b);
-  return abC * abD < -GEOMETRY_EPSILON && cdA * cdB < -GEOMETRY_EPSILON;
 }
 
 function orientation(a: LocalFootprintPoint, b: LocalFootprintPoint, c: LocalFootprintPoint): number {

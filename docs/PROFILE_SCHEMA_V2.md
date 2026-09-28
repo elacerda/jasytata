@@ -50,12 +50,16 @@ near the poles and preserves RA-zero wrapping, but it is not exact spherical
 geometry. Region intersection and rendered boundaries share this projection;
 no celestial polygon clipping is performed.
 
-**Known G9B blocker:** valid polygons need not contain their local origin, but
-an intersection shortcut currently assumes that origin lies inside the footprint.
-It can return a false positive and count a disjoint footprint as a contributor.
-Sample containment is separate. See the [reproduction and release blocker](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
-Do not interpret intersection/contributor results for such polygons as validated;
-the geometry remains frozen in G9A.
+Valid simple polygons may be concave and need not contain their local origin.
+Intersection tests their physical boundary after PA and component translation,
+using strict containment, proper crossings, coincident edges with interiors on
+the same side, and open edge fragments between vertex contacts. Either winding
+is supported. Contributor/candidate intersection requires positive-area overlap;
+contact only at an edge or vertex is excluded, while point containment remains
+boundary-inclusive. The existing local geometry tolerance is `1e-12`.
+The offset-polygon false-positive blocker is
+[resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive);
+Gate 9B2 remains pending.
 
 ## Survey policies
 
