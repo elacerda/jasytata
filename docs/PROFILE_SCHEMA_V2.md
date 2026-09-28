@@ -143,8 +143,14 @@ RA unwrap, ordering, and boundary details.
 
 Coverage remains a sampled estimate using the existing local-plane geometry
 and cos(DEC) weights. Small gaps or detectors can be missed at coarse resolution;
-a grid with no polygon-interior cell fails explicitly. Exact spherical coverage,
-adaptive refinement, and the G6C coverage-error matrix are not implemented.
+a grid with no polygon-interior cell fails explicitly. Gate 6C validates the
+normal 64-per-axis fixtures against independent fine quadrature within 0.5
+percentage point; this is a tested policy, not a generic default or a guarantee
+for arbitrary caps or unresolved features. A 0.75-cell gap produces 0.78125 pp
+error; strong budget coarsening and near-pole geometry retain explicit limits.
+See [coverage validation](GATE6C_COVERAGE_VALIDATION.md) for measured scale,
+declination, convergence, phase and budget results. Exact spherical coverage
+and adaptive refinement are not implemented.
 
 ### Complete and Efficient policy (Gate 6B)
 
@@ -187,7 +193,9 @@ and `inference.occupancy_tolerance_fraction`; it never applies the compatibility
 `0.12°` exclusion. The 1200 candidate caps reject oversized work before mask
 selection; they are browser-computation safeguards, not scientific thresholds
 or truncation rules. No generic failure in the focused tests requires changing
-them. High-resolution error characterization remains G6C.
+them. Gate 6C verifies a generic small-camera stop against high-resolution
+coverage and marginal gain, with margins comfortably exceeding sampling error;
+decisions exactly at a threshold cannot be guaranteed phase invariant.
 
 ## Bundled T80/S-PLUS pair
 
@@ -222,8 +230,9 @@ proposal metadata. No frozen fixture values change.
 
 Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
 generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
-are operational. Scientific error validation (G6C), profile import/export UI and
-configurable CSV output (Gate 7) remain deferred. Compatibility sampling uses
+are operational. Scientific error validation (G6C) passes for the documented
+resolved local geometries and policies; profile import/export UI and configurable
+CSV output (Gate 7) remain deferred. Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
 90,000-cell cap, minimum eight cells per axis, and historical metric shape.

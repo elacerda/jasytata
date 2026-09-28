@@ -266,7 +266,16 @@ can miss small detectors or thin region features. If no cell belongs to the
 polygon, sampling fails explicitly rather than inventing selected coverage.
 Large fields and near-pole regions retain the existing cosine/wrapped-RA limits.
 There is no adaptive refinement or continuous/spherical coverage proof. Gate 6B
-adds profile-driven selection; high-resolution error validation belongs to G6C.
+adds profile-driven selection. Gate 6C measures coverage against independent
+fine uniform quadrature: normal validation fixtures meet a 0.5-percentage-point
+criterion, with reference refinement changes below 0.05 pp. The 256-fold scale
+experiment has only 0.01081 pp error spread; resolved rotated detector gaps pass,
+while a gap 0.75 of one sample step is missed (0.78125 pp error). Very tight
+budgets and polar geometry remain diagnostic exceptions. See the
+[measured matrix and limitations](GATE6C_COVERAGE_VALIDATION.md) for methodology,
+convergence, phase sensitivity, budget behavior and Complete/Efficient margins.
+This is empirical validation of the local model, not exact geometric coverage
+or an accuracy promise for arbitrary policies and thresholds.
 
 All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" separately counts actual tile rectangles with positive geometric intersection against the polygon; it does not depend on sample-cell hits. Every actual tile centered inside the polygon therefore counts as a contributor, including when a boundary sliver is smaller than the coverage sample pitch.
 
@@ -342,6 +351,7 @@ for that compatibility contract, rather than duplicating values in code. Compati
 paths. Generic inference reads fractional policy and generic sampling reads
 `CoveragePolicy.sampling`; Efficient selection reads `CoveragePolicy.efficient`.
 Legacy tolerance duplicates still need a compatibility-reviewed profile migration;
-T80 sampling compatibility migration and G6C remain deferred. Full import/export
+T80 sampling compatibility migration remains deferred; G6C scientific validation
+is complete within the documented local-model limits. Full import/export
 UI remains Gate 7. All T80 scientific configuration must be sourced from ordinary
 importable profile data by the v0.3.0 release.
