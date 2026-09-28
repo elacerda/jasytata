@@ -4,7 +4,8 @@ Schema v2 separates an instrument's physical geometry from a survey's planning
 and data policies. An instrument profile describes the camera and its footprint;
 a survey profile references an instrument and describes tiling, inference,
 coverage, and export choices. This lets one instrument support multiple survey
-policies without duplicating its geometry.
+policies without duplicating its geometry. For a practical workflow and examples,
+see the [profile authoring guide](PROFILE_AUTHORING_GUIDE.md).
 
 ## Coordinates and footprints
 
@@ -48,6 +49,13 @@ approximation scaled by `max(cos(DEC), 0.01)`. This avoids a singular RA scale
 near the poles and preserves RA-zero wrapping, but it is not exact spherical
 geometry. Region intersection and rendered boundaries share this projection;
 no celestial polygon clipping is performed.
+
+**Known G9B blocker:** valid polygons need not contain their local origin, but
+an intersection shortcut currently assumes that origin lies inside the footprint.
+It can return a false positive and count a disjoint footprint as a contributor.
+Sample containment is separate. See the [reproduction and release blocker](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+Do not interpret intersection/contributor results for such polygons as validated;
+the geometry remains frozen in G9A.
 
 ## Survey policies
 
@@ -102,9 +110,14 @@ plane's RA branch require a smaller region or nearby anchor.
 
 `manual` explicitly rejects automatic region planning with a survey-level
 message. Manual pointings, imported centers, and generic footprint coverage
-remain available. Generic plans select only declared lattice sites; they do not
-infer a basis/phase or introduce a supplemental shifted lattice to close gaps.
-Remaining sampled gaps are reported.
+remain available. Generic plans select only sites of the declared lattice,
+optionally aligned by the inference policy as described below; they do not
+introduce a supplemental shifted lattice to close gaps. Remaining sampled gaps
+are reported. Inference aligns the declared fundamental basis rather than
+discovering an arbitrary one: optional rigid rotation is policy-controlled,
+region-centered phase can be inferred, and fixed anchors remain authoritative.
+See [generic alignment](ALGORITHM.md#generic-existing-grid-alignment-gate-5)
+for missing-tile/harmonic support, evidence limits and explicit failure outcomes.
 
 `InferencePolicy` holds scale-independent tolerances, evidence counts, and the
 rotation allowance. `CoveragePolicy` holds target sampling density, a sample
@@ -235,10 +248,11 @@ is nonrectangular; there is no corresponding private numeric code constant.
 T80 plans retain historical row inference, phase behavior, occupancy exclusion,
 and supplemental overlap-fill, as well as legacy provenance `region_legacy` and
 `region_extended`. New generic plans use `region_lattice` and
-`solution: declared_lattice`, with integer coordinates retained internally in
+`solution: declared_lattice` for declared placement or `extended_existing_grid`
+for successful generic alignment, with integer coordinates retained internally in
 proposal metadata. No frozen fixture values change.
 
-## Remaining migration boundaries
+## Compatibility boundary
 
 Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
 generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
@@ -246,13 +260,13 @@ are operational. Scientific error validation (G6C) passes for the documented
 resolved local geometries and policies. Gate 7A profile JSON import/export,
 Gate 7B1 registry-backed selection/assignment, and Gate 7B2 instrument/survey
 authoring and survey-policy-driven CSV output (Gate 7C) are complete.
-Compatibility sampling uses
-`legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
-and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
-90,000-cell cap, minimum eight cells per axis, and historical metric shape.
-Gate 7A now derives compatibility sampling's nominal pitch from the smaller
-legacy grid extent divided by `target_samples_per_footprint_axis`, and reads its
-budget from `max_samples`. A legacy budget below 64 is rejected by the common
+Compatibility sampling uses `legacySampleLayout`: registered `legacy_splus`
+surveys derive nominal pitch from the smaller legacy grid extent divided by
+`target_samples_per_footprint_axis`, and budget from `max_samples`. Bundled T80
+and the one-argument/inline v1 compatibility adapters retain the frozen nominal
+0.01-degree pitch and 90,000-cell cap. The minimum eight cells per axis and
+historical metric shape remain algorithm rules. A legacy budget below 64 is
+rejected by the common
 validator because the compatibility algorithm requires at least eight cells per
 axis. Compatibility inference derives spacing, maximum phase residual, and
 occupancy tolerances from their declared fractions times the smaller legacy grid
@@ -318,8 +332,10 @@ Import does not implicitly switch the active survey or clear a plan. The active
 survey selects the output planning policy; its `instrument_id` resolves the
 output instrument, with no independent output-instrument selector. Changing the
 active survey invalidates generated proposals. Profiles live only in browser
-memory for the current page session; reload restores the bundled S-PLUS survey
-and T80-South instrument defaults.
+memory for the current page session plus explicit exported JSON files; reload
+restores the bundled S-PLUS survey and T80-South instrument defaults. Bundled,
+imported and authored profiles converge to this same validated `ProfileRegistry`.
+There is no backend, database or account persistence.
 
 Each catalogue dataset has its own instrument assignment and inference
 participation (`auto`, `include`, or `exclude`). The bundled reference catalogue
@@ -329,13 +345,19 @@ multiple instruments are available, an arbitrary catalogue requires an explicit
 assignment before region planning. Assignment changes update dataset metadata,
 leave original CSV rows unchanged, and invalidate generated proposals. `exclude`
 removes a dataset from lattice inference only; its assigned footprint still
-contributes to coverage. A catalogue is optional when the selected survey
-supports automatic tiling.
+contributes to coverage and occupied-center exclusion. For generic inference,
+`auto` requires the active instrument ID; `include` admits an independent
+dataset/instrument group whose centers must still fit the active declared basis.
+Groups are never merged into one cloud. All assigned source catalogues contribute
+coverage independently of these roles and map visibility. Active output survey
+selection does not rewrite source instrument assignments. A catalogue is optional
+when the selected survey supports automatic tiling.
 
 **Export survey JSON** downloads the active registered v2 survey together
 with its linked instrument as `<survey-id>.json`. Validated profile IDs already
 contain only lowercase letters, digits, and hyphens, so no identity mutation is
-needed for browser filename safety. `serializeProfile` revalidates and rebuilds
+needed for browser filename safety. IDs must start with a lowercase letter.
+`serializeProfile` revalidates and rebuilds
 configuration, recursively sorts object keys, retains array ordering and JSON
 numeric values, and emits pretty JSON with a final newline. Reimport preserves
 scientific configuration and deterministic planning/coverage behavior. To import
@@ -428,8 +450,8 @@ anchors, assignments, inference quality, effective sample step, sample count,
 budget-limited flag, actual cell dimensions, catalogue rows, proposals, disabled
 and selected tiles, and polygon/UI state are excluded. Declared fixed anchors
 and footprint position angles remain configuration and are preserved. Declared
-`ExportPolicy` fields are preserved as data; this gate does not implement their
-future configurable CSV output contract. The pre-G7 inline v1 custom rectangle
+`ExportPolicy` fields are preserved as data and drive the runtime pointing CSV
+contract documented below. The pre-G7 inline v1 custom rectangle
 editor is no longer exposed in the active planning UI because it bypassed the
 selected Schema v2 survey policies. Generic Schema v2 instrument authoring is
 available through **Create profile** together with complete survey authoring. Legacy inline APIs remain transitional and do not appear in the registry
@@ -535,5 +557,6 @@ profile-ID branch in export resolution, row construction or CSV serialization.
 The v1 compatibility adapter's historical CSV-shape guard is confined to that
 legacy adapter; registered v2 runtime export does not pass through it.
 
-Gate 8's broad telescope/survey validation matrix and Gate 9's complete authoring
-guide remain deferred.
+See the [Gate 8 validation matrix](GATE8_AGNOSTICISM_VALIDATION.md) and
+[generic profile authoring guide](PROFILE_AUTHORING_GUIDE.md). Gate 9B
+release-candidate audit remains pending; see the [roadmap](V0.3.0_ROADMAP.md).

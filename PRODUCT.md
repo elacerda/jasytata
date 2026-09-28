@@ -1,55 +1,97 @@
 # Product
 
-## Platform
+Jasytata is a browser-based telescope/survey pointing and coverage planner.
+It helps astronomers and survey operators inspect existing coverage, propose
+additional pointings, or start a new project with no initial catalogue.
+S-PLUS/T80-South is the bundled reference/default profile.
 
-Static browser application hosted on GitHub Pages.
+## Product invariants
 
-## Name
+- Static/browser-only operation: React, TypeScript, Vite and Aladin Lite, hosted
+  on GitHub Pages. Catalogue parsing, profile validation, inference, planning,
+  coverage and export run locally. No API backend, database or account persistence
+  exists; external astronomy services supply map imagery.
+- Original source catalogue rows and metadata remain unchanged.
+- Each dataset has its own instrument assignment. Datasets may use different
+  instruments; changing an assignment changes footprint interpretation rather
+  than source rows. Selecting the active output survey does not rewrite them.
+- Source coverage and inference participation are independent. Assigned source
+  footprints contribute coverage even when excluded from inference; map visibility
+  is only a display choice. `auto` uses the active instrument identity for generic
+  inference, `include` admits an independent dataset/instrument group for a
+  declared-lattice fit, and `exclude` removes inference evidence only.
+- The active survey supplies output tiling, inference, coverage and export
+  policy; its instrument reference supplies the output footprint.
+- Proposals remain reversible: preview/cancel, accept, disable/restore and clear.
+  Only enabled accepted proposals enter pointing export.
+- Bundled, imported and browser-authored profiles converge to the same validated
+  `ProfileRegistry`. Profiles persist only in the browser session and explicit
+  JSON files; accepted pointing CSV is a separate deliverable.
+- Coverage is a sampled estimate with visible assumptions and limits.
+- Identical profiles, datasets, region and strategy, with the same accepted state
+  and export options in the same software version, are intended to produce
+  deterministic planning/export. This does not promise bitwise reproducibility
+  across arbitrary future versions.
 
-Jasytata
+## Generic capability
 
-## Description
+Instruments support rectangular, circular, polygonal and compound/mosaic
+footprints. Surveys declare a basis-vector lattice with region-centered or fixed
+placement, or intentionally use manual tiling. Camera footprint PA is independent
+of lattice orientation. Generic inference aligns existing centers to the declared
+fundamental basis, with optional policy-controlled rotation and runtime phase;
+it does not unconstrainedly discover an arbitrary lattice.
 
-Browser-based telescope pointing and coverage planner.
+Complete targets all selected samples. Efficient uses the active survey's
+coverage floor and marginal physical efficiency threshold. Export follows that
+survey's configured columns and representation, independently of input headers.
+Manual surveys support imported/manual pointings and coverage; automatic region
+tiling is intentionally unavailable.
 
-## Stack
+See the [generic workflow and authoring guide](docs/PROFILE_AUTHORING_GUIDE.md),
+[Schema v2 contract](docs/PROFILE_SCHEMA_V2.md) and
+[algorithms](docs/ALGORITHM.md) for the operating details.
 
-React, TypeScript, Vite, and Aladin Lite v3. All Jasytata catalogue parsing, profile validation, coordinate conversion, grid inference, region planning, coverage calculation, and CSV export execute client-side.
+## Bundled T80 compatibility behavior
 
-## Users
+The bundled S-PLUS/T80-South JSON uses the same validators, registry and consumers
+as user profiles, with `legacy_splus` explicitly selecting a compatibility
+algorithm. Its 1.4° square footprint, 120″ effective overlap, historical row-wise
+inference/grouping, supplemental gap-fill and default `RA,DEC,EPOCH=2000` output
+are regression-protected behavior rather than universal product requirements.
+Historical PID-derived `group_id` remains isolated to catalogue/legacy inference;
+PID is not a generic scientific requirement. Generic inference uses dataset and
+instrument identity, and optional export identifier mappings have no planner
+meaning. Concrete observer instructions remain in the
+[T80 guide](docs/T80_SOUTH_USER_GUIDE.md).
 
-Astronomers and survey operators planning additional sky coverage from existing tile catalogues. The bundled S-PLUS/T80-South workflow supplies the initial compatibility case.
+## Scope and limitations
 
-## Product Purpose
+Jasytata is not an observing scheduler. Exposure-time optimization, filter
+sequencing, airmass, Moon constraints, weather, mount constraints, queue scheduling
+and observatory control are out of scope.
 
-Load one or more tile catalogues, inspect their sky footprints, select a polygon, edit new tile centers, and export enabled additions as generic RA/DEC CSV.
+Numerical coverage is sampled, not exact analytic geometry. Sub-pitch geometric
+structure may be unresolved, extreme budget coarsening reduces accuracy, and
+exact threshold decisions can be sampling-sensitive. Geometry uses local
+tangent-plane approximations; large fields and extreme polar regimes do not
+have validated precision. Complete does not invent extra generic lattice sites
+to close gaps, and Efficient does not judge their scientific importance.
+A valid polygon excluding its local origin can currently cause a false-positive
+region intersection/contributor count; the
+[G9B blocker](docs/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive)
+records the reproducible contradiction without changing science in G9A.
 
-## Positioning
+## Validation evidence
 
-The planner consumes instrument geometry and survey policies from validated Schema v2 profiles. S-PLUS/T80-South is the bundled reference profile, available by default and accepted by the same JSON file validation and registry path as user profiles.
+- [Gate 6C measured coverage validation](docs/GATE6C_COVERAGE_VALIDATION.md):
+  normal resolved fixtures meet the 0.5-percentage-point criterion against
+  independent finer quadrature; unresolved gaps, budgets and polar limits remain.
+- [Gate 8 agnosticism validation](docs/GATE8_AGNOSTICISM_VALIDATION.md): T80,
+  small circular FoV, rotated detector mosaic and triangular lattice through
+  registry, planning, coverage, review and export.
+- Historical `frontend/src/data/golden.json` and current
+  `frontend/src/data/planner-contract.json`: frozen compatibility evidence.
 
-## Operating Context
-
-Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial coordinates, tile footprints, local survey geometry, and profile-driven export epoch metadata. Aladin Lite provides interactive sky imagery, catalogue layers, and polygon selection. External astronomy services supply sky survey/HiPS imagery; Jasytata science does not depend on those services.
-
-## Capabilities and Constraints
-
-- Original catalogue rows are immutable and their source metadata remains available for inspection.
-- Proposals remain separate until accepted; editing state lives in browser memory and is not persisted across reloads.
-- Instrument/survey JSON profiles can be imported and exported explicitly; imported profiles remain in session memory, with duplicate IDs rejected.
-- No Jasytata backend, server, database, secrets, or server filesystem is required.
-- The planner uses a documented local tangent approximation and sampled coverage estimates; it is not an exact spherical completeness engine.
-
-## Evidence on Hand
-
-- `frontend/src/data/golden.json`: outputs generated from the former Python scientific reference before its removal and validated against TypeScript.
-- `frontend/public/data/tiles_nc.csv`: representative bundled catalogue.
-- `docs/ALGORITHM.md`: assumptions, thresholds, score ordering, and limitations.
-
-## Product Principles
-
-- Preserve original catalogue rows.
-- Make every generated center and inference decision inspectable.
-- Keep legacy compatibility explicit and regression-tested.
-- Require user acceptance before proposals enter export.
-- Report estimated coverage with its assumptions and limits.
+Gate 9B release-candidate audit remains pending in the
+[roadmap](docs/V0.3.0_ROADMAP.md#gate-9--documentation-migration-and-release-candidate).

@@ -20,7 +20,8 @@ Aplicação pública:
 
 O planejamento, a cobertura e a exportação são executados no navegador. Não é necessário iniciar um servidor. O mapa Aladin Lite e as imagens astronômicas podem acessar serviços externos.
 
-Ao abrir a página, o survey padrão deve aparecer como:
+O perfil de referência S-PLUS/T80-South vem incluído e selecionado por padrão.
+Ao abrir a página, o survey deve aparecer como:
 
 **S-PLUS / T80-South**
 
@@ -119,9 +120,12 @@ Depois de selecionar a região, escolha a estratégia em **Region plan** e cliqu
 
 O Jasytata usa a região e o perfil ativo e, se houver, considera também os tiles dos catálogos carregados para calcular os novos tiles.
 
-**Complete coverage** é a opção padrão e tenta cobrir todos os pontos amostrados da região selecionada. Use-a quando precisar de cobertura amostrada exaustiva.
+**Complete coverage** é a opção padrão e tenta cobrir todos os pontos amostrados da região selecionada. Use-a quando precisar de cobertura amostrada exaustiva. Cobertura é uma
+estimativa numérica no modelo local, não uma prova geométrica exata. Estruturas
+menores que o passo amostral e regiões muito grandes ou polares exigem cuidado;
+veja os [limites científicos](ALGORITHM.md#6-deliberate-limitations).
 
-**Efficient coverage** usa o mesmo planejador e a mesma ordem de candidatos, mas pode parar depois de atingir pelo menos 99,5% de cobertura amostrada se o próximo tile cobrir, como área nova dentro da região, menos de 3% de sua área física. Ela troca pequenas áreas residuais sem cobertura por menos exposições e não avalia a topologia nem a importância científica dessas lacunas.
+**Efficient coverage**, no perfil S-PLUS/T80-South incluído, usa o mesmo planejador e a mesma ordem de candidatos, mas pode parar depois de atingir pelo menos 99,5% de cobertura amostrada se o próximo tile cobrir, como área nova dentro da região, menos de 3% de sua área física. Ela troca pequenas áreas residuais sem cobertura por menos exposições e não avalia a topologia nem a importância científica dessas lacunas.
 
 Após alguns instantes será exibida uma **Proposal preview**.
 
@@ -214,17 +218,19 @@ Quando estiver satisfeito com o planejamento, vá para:
 
 **Export new tiles**
 
-Escolha o formato das coordenadas:
+Confira o formato mostrado em **Coordinates**: ele pertence à política do
+survey ativo. O perfil S-PLUS/T80-South incluído usa **Decimal degrees**, com RA
+e DEC em graus decimais; não há um seletor independente de formato por download.
 
-**Decimal degrees**  
-RA e DEC em graus decimais.
+Para usar **Sexagesimal** (RA em horas e DEC em graus), exporte o perfil com
+**Export survey JSON**, altere `export.coordinate_format` para `"sexagesimal"`
+no JSON e importe uma variante com IDs de instrumento/survey únicos, atualizando
+`survey.instrument_id` para o novo ID do instrumento. Selecione essa variante
+antes de gerar/aceitar os campos: trocar o survey invalida a proposta atual.
+As demais políticas podem ser mantidas para preservar o planejamento T80.
+Veja o [guia de perfis](PROFILE_AUTHORING_GUIDE.md#create-or-import-a-profile).
 
-ou
-
-**Sexagesimal**  
-RA e DEC no formato sexagesimal.
-
-Para o perfil do T80-South, o epoch disponível é:
+Para o perfil do T80-South incluído, o epoch disponível é:
 
 **2000**
 
@@ -316,7 +322,9 @@ Por isso:
 
 **quando terminar o planejamento, sempre baixe o `new_tiles.csv`.**
 
-Não dependa da página aberta como forma de salvar o trabalho.
+Não dependa da página aberta como forma de salvar o trabalho. Se usar uma
+variante de perfil, salve também seu JSON; ele guarda configuração, não a
+proposta nem o catálogo. Não há persistência por conta ou backend.
 
 ---
 
@@ -330,7 +338,7 @@ Antes de usar o arquivo para observação, confira:
 - [ ] Os novos tiles foram revisados visualmente.
 - [ ] A cobertura final indicada é adequada ao objetivo.
 - [ ] Tiles indesejados foram desabilitados.
-- [ ] O formato de coordenadas escolhido é o desejado.
+- [ ] O formato de coordenadas mostrado pela política do survey é o desejado.
 - [ ] O epoch é **2000**.
 - [ ] O arquivo **new_tiles.csv** foi baixado.
 

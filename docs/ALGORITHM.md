@@ -1,6 +1,6 @@
 # Scientific and planning algorithms
 
-This document distinguishes declared local-plane lattices, the compatibility geometry in `SPLUS_LEGACY_GRID_V1`, existing-grid inference, and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `lattice.ts`, `planner.ts`, and `coverage.ts`. `frontend/src/data/golden.json` preserves former Python reference data for coordinates, catalogue semantics, exports, legacy grid geometry, and compatible lattice evidence. `frontend/src/data/planner-contract.json` records reviewed outcomes under the current sampling and coverage contract.
+Jasytata is a browser-based telescope/survey pointing and coverage planner. This document distinguishes declared local-plane lattices, the compatibility geometry in `SPLUS_LEGACY_GRID_V1`, existing-grid inference, and coverage selection. The current implementation is in `frontend/src/science/geometry.ts`, `grid.ts`, `lattice.ts`, `planner.ts`, and `coverage.ts`. `frontend/src/data/golden.json` preserves former Python reference data for coordinates, catalogue semantics, exports, legacy grid geometry, and compatible lattice evidence. `frontend/src/data/planner-contract.json` records reviewed outcomes under the current sampling and coverage contract.
 
 ## 1. Coordinate conventions
 
@@ -8,11 +8,13 @@ This document distinguishes declared local-plane lattices, the compatibility geo
 - Sexagesimal RA is interpreted as hour angle (`HH:MM:SS`); one hour equals 15 degrees.
 - Sexagesimal DEC is interpreted in degrees (`±DD:MM:SS`). TypeScript coordinate helpers preserve the former Astropy parsing and RA normalization behavior.
 - The legacy grid treats RA/DEC as longitude/latitude offsets with a local `cos(dec)` approximation. It does not use a gnomonic or great-circle lattice.
-- A tile is modeled for display and scoring as an axis-aligned 1.4° × 1.4° rectangle in local RA/DEC: ±0.7° in DEC and ±0.7° physical RA, where physical RA separation is `ΔRA × cos(tile_center_DEC)`.
+- Generic instrument footprints are rectangles, circles, polygons or compound/mosaic unions in local `[east,north]` angular degrees. Camera PA and child rotations follow astronomical positive north-toward-east rotation.
+- The bundled T80 compatibility footprint is an axis-aligned 1.4° × 1.4° rectangle: ±0.7° in DEC and ±0.7° physical RA, where physical RA separation is `ΔRA × cos(tile_center_DEC)`. These dimensions are not a generic product assumption.
+- Camera footprint PA and lattice orientation are independent. Basis vectors encode lattice orientation; no separate lattice PA field exists. A PA 30° camera can use an east/north lattice, or a PA 0° camera can use a rotated lattice. See the [practical basis examples](PROFILE_AUTHORING_GUIDE.md#survey-placement-and-lattice-basis).
 
-## 2. `SPLUS_LEGACY_GRID_V1`
+## 2. `SPLUS_LEGACY_GRID_V1` compatibility geometry
 
-The bundled profile supplies the compatibility dimensions and effective overlap. The historical derivation is:
+The explicit `legacy_splus` strategy supplies historical row/grid semantics, not a generic survey-authoring preset. The bundled profile supplies its dimensions and effective overlap. The historical derivation is:
 
 ```text
 tile size                  T = 1.4 deg
@@ -145,8 +147,10 @@ generation-method identity. Groups are never merged into one point cloud. Fits
 rank by most inliers, lowest normalized RMS, most consistent pairs, smallest
 absolute rotation, then lexical group identity and stable numeric phase/orientation
 ties. Dimensionless roundoff allowances resolve numerically equivalent fits.
-Generic grouping does not read CSV `PID` or PID-derived `group_id`; historical
-grouping keeps that coupling until the Gate 7 mapping cleanup.
+Generic grouping does not read CSV `PID` or PID-derived `group_id`. Historical
+catalogue parsing/legacy inference intentionally retains that coupling inside
+`legacy_splus`; it is not a generic scientific requirement. Export identifier
+mappings are independent of source grouping.
 
 Generic occupancy compares every enabled actual pointing with a candidate in
 the same local plane, using `separation/s <= occupancy_tolerance_fraction`.
@@ -158,6 +162,14 @@ lattice. Symmetry-equivalent rotations/assignments are canonically ranked; a
 unique historical integer labeling cannot be recovered from unlabeled centers.
 
 ## 3. Compatibility existing-grid inference
+
+The values below describe the bundled T80 reference. Registered `legacy_splus`
+surveys derive spacing/phase/occupancy tolerances from their policy fractions
+times the smaller legacy grid extent, and consume enabled state and anchor/pair
+minima from the profile. Nonrotating row grouping, two-horizontal-pair evidence,
+median phase residual at most half the maximum tolerance, search topology and
+supplemental gap-fill remain explicit compatibility algorithm rules.
+`allow_rotation` applies to generic inference, not this legacy strategy.
 
 The selected polygon is unwrapped around its local RA center and must span at most 180°. Neighbor pairs are measured in local physical east-west degrees at the pair's mean declination:
 
@@ -252,13 +264,13 @@ not a theoretical area-density estimate. Cell widths are local degrees at the
 bounding-box midpoint DEC. The historical rounded `sample_step_deg` metric
 remains; use the new unrounded metadata to audit small-footprint resolution.
 
-The one-argument `sampleRegion` adapter and `legacySampleLayout` preserve frozen
-v0.2.0 sampling for `legacy_splus` surveys (including linked nonrectangular
-compatibility cameras) and inline v1 `RECT_GRID_V1` profiles. Only this explicit
-compatibility path retains a nominal `0.01°`, a `90_000` cap, and minimum eight
-cells per axis. Its result shape remains unchanged, without generic metadata.
-The bundled T80 sampling policy is declarative on that path pending a reviewed
-compatibility migration; no frozen fixtures or stopping thresholds change here.
+Registered `legacy_splus` surveys use `legacySampleLayout` (including linked
+nonrectangular compatibility cameras), deriving nominal step from the smaller
+legacy grid extent divided by policy density and reading the policy sample cap.
+The bundled T80 policy reproduces `0.01°` and `90_000`; the one-argument
+`sampleRegion` and inline v1 `RECT_GRID_V1` adapters inherit those frozen defaults.
+Minimum eight cells per axis and the metric shape without generic sampling
+metadata remain explicit legacy algorithm rules. These are not generic defaults.
 
 The grid remains a sampled local-plane estimate. The minimum child rule does
 not guarantee resolving gaps narrower than the resulting step; budget coarsening
@@ -277,9 +289,9 @@ convergence, phase sensitivity, budget behavior and Complete/Efficient margins.
 This is empirical validation of the local model, not exact geometric coverage
 or an accuracy promise for arbitrary policies and thresholds.
 
-All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" separately counts actual tile rectangles with positive geometric intersection against the polygon; it does not depend on sample-cell hits. Every actual tile centered inside the polygon therefore counts as a contributor, including when a boundary sliver is smaller than the coverage sample pitch.
+All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" is intended to count actual instrument footprints with positive geometric intersection against the polygon, independently of sample-cell hits, including boundary slivers smaller than the sample pitch. Pointing-center containment alone is not a universal contributor test: a mosaic can have a central gap and a polygon can exclude its local origin. The latter currently exposes the intersection false-positive blocker documented below.
 
-The scientific stages are: actual input footprints → existing coverage; actual input centers → lattice inference; inferred or profile lattice → candidates; actual input centers → spherical candidate occupancy; unoccupied candidates plus uncovered samples → proposals; existing footprints plus enabled proposal footprints → final coverage. The selected-area coverage fraction remains a numerical sample estimate, while contributor membership is a geometric intersection count.
+The scientific stages are: actual input footprints → existing coverage; actual input centers → lattice inference; inferred or profile lattice → candidates; actual input centers → candidate occupancy (generic local-plane, legacy spherical); unoccupied candidates plus uncovered samples → proposals; existing footprints plus enabled proposal footprints → final coverage. The selected-area coverage fraction remains a numerical sample estimate, while contributor membership is a geometric intersection count.
 
 Selection is deterministic greedy maximum incremental gain. Complete coverage is
 the default and targets every sampled polygon cell. It ignores Efficient policy;
@@ -330,28 +342,77 @@ Select Complete when exhaustive sampled coverage is required.
 
 The reported 100% target means every selected sample is covered. It is an estimate based on the sample grid, not an exact continuous-polygon coverage proof; regions exceeding their applicable sample cap use a coarser grid and have correspondingly lower spatial resolution.
 
-Returned coverage metrics include selected polygon area, existing tiles contributing sample coverage, new tile count, already-covered and final coverage fractions, incremental proposal coverage, remaining uncovered fraction and area, redundant proposed footprint fraction, outside-polygon tile area, and sample pitch. Manual enable/disable changes call the coverage endpoint to recompute these figures without replanning. The displayed candidate lattice count comes from the planning response's candidate center list.
+Returned coverage metrics include selected polygon area, existing footprints with positive geometric intersection, new tile count, already-covered and final coverage fractions, incremental proposal coverage, remaining uncovered fraction and area, redundant proposed footprint fraction, outside-polygon tile area, and sample pitch. Manual enable/disable changes call the browser-local coverage function to recompute these figures without replanning. There is no HTTP coverage endpoint. The displayed candidate lattice count comes from the planning response's candidate center list.
 
 ## 5. Export integrity
 
-Original catalogue records retain every source CSV string and arbitrary non-coordinate metadata for display. Generated records contain only ICRS positions, an enabled flag, and generation provenance. Generic export writes currently enabled centers with `RA,DEC,EPOCH`: decimal-degree RA/DEC at eight fractional digits by default, or sexagesimal hour-angle RA and degree DEC at millisecond precision. The EPOCH value comes from the active profile's allowed export labels. It does not change ICRS coordinates or imply a particular equinox. Both representations are covered by golden export tests.
+Original catalogue records retain every source CSV string and arbitrary metadata
+for inspection. Enabled accepted additions are exported according to the active
+survey's validated `export` policy, independently of source headers/instruments.
+RA/DEC labels are configurable; decimal degrees use eight decimals and sexagesimal
+uses RA hours/DEC degrees with millisecond precision. Optional epoch is descriptive
+metadata, not precession. Optional constants and ID/name/group labels follow
+profile policy, not source PID or internal IDs.
+
+Exported PA is declared camera/pointing orientation in degrees east of north,
+never lattice orientation or inferred lattice rotation. Acceptance records an
+explicit top-level output footprint PA when needed; child rotations are detector
+geometry. Missing requested PA fails explicitly; no implicit zero is invented.
+An explicitly declared zero is valid. Columns, constants and accepted-row order
+are deterministic. See the [complete CSV contract](PROFILE_SCHEMA_V2.md#pointing-csv-contract-gate-7c)
+for numbering, epoch choices, escaping and limits. The bundled T80 default remains
+`RA,DEC,EPOCH=2000`; historical decimal and sexagesimal formatting stays protected.
 
 ## 6. Deliberate limitations
 
-Declared lattices and generic footprints support independent orientations in a local plane. Compatibility inference remains designed for the near-axis-aligned T80/S-PLUS mosaic at ordinary survey declinations. It does not use full spherical polygon clipping, infer a rotated lattice, or model exact HEALPix footprints. The coverage score is a reproducible planning estimate and must be checked against the survey's final operational acceptance criteria before treating it as a formal completeness statement. Near the celestial poles, the RA/DEC rectangle approximation is not suitable; selected regions are validated to avoid the exact poles but the recommended operating area remains the southern survey footprint.
+**Known G9B blocker:** polygon footprints that exclude their local origin can
+produce a false-positive footprint/region intersection and contributor count.
+The current shortcut assumes that origin is inside the shape, although Schema v2
+does not require it. Shared candidate filtering also uses this helper; sampled
+coverage containment is separate. See the [exact reproduction](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+G9A documents the contradiction without changing scientific code.
 
-Scientific configuration migration: the bundled instrument/survey objects in
-`frontend/src/profiles/splus-t80-south.json` use the ordinary validators and
-registry loader. Legacy generation reads grid extents and effective overlap from
-those profiles. Compatibility survey `grid_extent_deg` is independent of the
-linked footprint; it preserves the legacy half-tile seed and pitch even when
-a Gate 3 survey is associated with a different camera shape. The bundled
-`[1.4,1.4]` survey grid extents duplicate the instrument dimensions deliberately
-for that compatibility contract, rather than duplicating values in code. Compatibility inference and sampling constants remain in the explicit legacy
-paths. Generic inference reads fractional policy and generic sampling reads
-`CoveragePolicy.sampling`; Efficient selection reads `CoveragePolicy.efficient`.
-Legacy tolerance duplicates still need a compatibility-reviewed profile migration;
-T80 sampling compatibility migration remains deferred; G6C scientific validation
-is complete within the documented local-model limits. Full import/export
-UI remains Gate 7. All T80 scientific configuration must be sourced from ordinary
-importable profile data by the v0.3.0 release.
+- Coverage is a numerical sample estimate, not exact analytic or spherical
+  geometry; 100% means all selected samples are covered.
+- Sub-pitch gaps, thin regions and small detectors may be unresolved. Extreme
+  budget coarsening reduces accuracy; requesting more density while the budget
+  remains limiting cannot restore information.
+- Exact coverage/marginal-efficiency threshold decisions can be sensitive to
+  sampling. Measured ordinary validation margins are not a universal guarantee.
+- Geometry uses local wrapped-RA/cosine tangent approximations rather than full
+  spherical polygon clipping or exact HEALPix footprints. Large extents and RA
+  branch limits may require a smaller region or nearer fixed anchor.
+- Extreme polar regimes are outside validated precision. Exact poles are rejected;
+  finer sampling does not repair the sky model. Gate 6C's ordinary local fixtures
+  through ±50° do not establish a universal declination/extent cutoff.
+- Generic inference is a bounded alignment to a declared fundamental lattice,
+  not arbitrary-lattice discovery. Compatibility inference remains the separate
+  near-axis-aligned T80/S-PLUS row algorithm; it does not infer lattice rotation.
+- Declared generic lattices do not add off-lattice centers to close gaps. Manual
+  surveys intentionally support supplied pointings/coverage without auto-tiling.
+  Browser candidate/proposal/sample limits reject or coarsen work as documented,
+  without silently truncating candidate sets.
+
+The [Gate 6C measured report](GATE6C_COVERAGE_VALIDATION.md) documents accuracy,
+convergence, budgets and polar diagnostics. The
+[Gate 8 matrix](GATE8_AGNOSTICISM_VALIDATION.md) validates T80, small circular FoV,
+rotated detector mosaic and non-orthogonal triangular lattice. Camera PA/lattice
+independence is exercised explicitly. These evidence artifacts retain their
+reproducible fixture results.
+
+Bundled scientific configuration lives in
+`frontend/src/profiles/splus-t80-south.json` and uses the same strict validators
+and registry as imported/authored profiles. Legacy grid extents deliberately
+remain independent of the linked footprint to preserve compatibility; no generic
+width/height-only profile restriction follows. Registered v2 inference, sampling,
+Efficient and export consume their declared policies. Inline v1 adapters inherit
+validated bundled defaults; named compatibility algorithm rules remain isolated.
+
+Planning/export are intended to be deterministic for identical profiles, datasets,
+region, strategy, accepted state and export options in the same software version.
+There is no claim of bitwise reproducibility across arbitrary future versions.
+Jasytata remains browser-only with no API backend or database. It is not an
+observing scheduler: exposure-time optimization, filter sequencing, airmass, Moon
+constraints, weather, mount constraints, queue scheduling and observatory control
+are outside scope. Gate 9B release-candidate audit remains pending in the
+[roadmap](V0.3.0_ROADMAP.md).

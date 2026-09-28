@@ -1,4 +1,35 @@
-# Backendless migration record
+# Migration notes and backendless history
+
+## v0.2.x to v0.3.0
+
+- **Existing T80 users:** the bundled S-PLUS/T80-South profile remains selected by
+  default; catalogue loading, region planning, proposal review and enabled-addition
+  export remain the observer workflow. Scientific compatibility is preserved.
+- **New capability:** generic instruments/surveys, mixed catalogue assignments,
+  a new project with no initial catalogue, JSON profile import/export and browser
+  authoring. See the [generic guide](PROFILE_AUTHORING_GUIDE.md).
+- **Profile format:** new public profile files use Schema v2, one instrument and
+  its associated survey. There is no promised migration of hypothetical publicly
+  released v0.2.x profile files; transitional inline v1 APIs are a compatibility
+  boundary, not the file format.
+- **Backend:** still none. React/TypeScript/Vite runs in the browser, with static
+  GitHub Pages hosting and no database/account persistence.
+- **Source rows:** existing catalogue CSV values are unchanged. Assigning an
+  instrument changes their interpreted footprints, not their source data.
+- **Visible terminology:** **Survey profile**, **Active survey**, **Catalogue
+  instrument**, **Inference participation**, **Complete coverage** and
+  **Efficient coverage** distinguish output policy, source geometry and inference.
+- **Pointing export:** format now belongs to the active survey rather than an
+  independent download setting. The bundled default remains decimal
+  `RA,DEC,EPOCH=2000`; a sexagesimal variant declares that format in its profile.
+  Save/select variants before planning because a survey change clears proposals.
+
+Profiles live only in the browser session and explicit JSON files. Save accepted
+pointings as CSV separately. Consult the [T80 observer guide](T80_SOUTH_USER_GUIDE.md)
+and [Schema v2 contract](PROFILE_SCHEMA_V2.md).
+
+The sections below record the earlier backend removal; they are historical
+provenance, not current backend/Docker deployment instructions.
 
 ## Former architecture
 
@@ -26,7 +57,7 @@ Jasytata is a static React and TypeScript application hosted at <https://elacerd
 
 `frontend/src/data/golden.json` was generated from the former Python scientific reference and the bundled S-PLUS catalogue before the Python implementation was removed. During migration, the Python fixture generator produced compact expected inputs and outputs, and the TypeScript planner, coverage, coordinate, catalogue, profile, and export tests were compared directly against those outputs. The Python generator was intentionally removed with its implementation dependency; golden values are committed and are never regenerated from TypeScript.
 
-The planning contract subsequently changed: nominal coverage pitch is 0.01°, every sampled polygon cell is targeted, small gains remain eligible, and a supplemental lattice closes gaps. `golden.json` therefore remains immutable historical input and compatibility evidence. The current planner and direct-coverage expectations live in `frontend/src/data/planner-contract.json`; they were reviewed against polygon geometry and independent invariants. Planner tests retain the old lattice candidates, inference data, and recovered historical centers where those are still compatible, but do not assert obsolete Python proposal ordering or sampled metrics.
+At that backend migration, the T80 compatibility planning contract changed: nominal coverage pitch became 0.01°, every sampled polygon cell was targeted, small gains remained eligible, and a supplemental lattice closed gaps. These are historical compatibility details, not generic survey defaults; v0.3.0 generic sampling is scale-aware and declared lattices do not add supplemental sites. `golden.json` therefore remains immutable historical input and compatibility evidence. The current planner and direct-coverage expectations live in `frontend/src/data/planner-contract.json`; they were reviewed against polygon geometry and independent invariants. Planner tests retain the old lattice candidates, inference data, and recovered historical centers where those are still compatible, but do not assert obsolete Python proposal ordering or sampled metrics.
 
 The TypeScript suite retains the scientific regression authority and covers:
 

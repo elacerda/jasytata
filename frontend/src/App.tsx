@@ -640,7 +640,7 @@ export default function App() {
               <label><input type="radio" name="coverage-strategy" value="complete" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} />
                 <span><strong>Complete coverage (default)</strong><small>Attempts to cover every sampled point in the selected region.</small></span></label>
               <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
-                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop once sampled coverage reaches at least 99.5% if the next tile adds less than 3% of its physical footprint as new area inside the region.</small></span></label>
+                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the active survey's coverage floor is met and the next tile's new area relative to its physical footprint falls below the survey's marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
             <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
             </fieldset>
             {planningUnavailableReason && <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
