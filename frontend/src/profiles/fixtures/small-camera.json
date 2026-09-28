@@ -1,0 +1,37 @@
+{
+  "instrument": {
+    "schema_version": 2,
+    "id": "small-camera",
+    "display_name": "Small circular camera",
+    "coordinate_frame": "icrs",
+    "footprint": { "type": "circle", "radius_deg": 0.12 }
+  },
+  "survey": {
+    "schema_version": 2,
+    "id": "small-survey",
+    "display_name": "Small oblique survey",
+    "instrument_id": "small-camera",
+    "tiling": {
+      "type": "lattice",
+      "basis_deg": [[0.18, 0.03], [0, 0.21]],
+      "origin": { "type": "fixed_anchor", "ra_deg": 150, "dec_deg": -30 }
+    },
+    "inference": {
+      "enabled": false,
+      "allow_rotation": true,
+      "spacing_tolerance_fraction": 0.02,
+      "phase_tolerance_fraction": 0.04,
+      "occupancy_tolerance_fraction": 0.06,
+      "min_anchor_tiles": 4,
+      "min_neighbor_pairs": 3
+    },
+    "coverage": {
+      "sampling": { "target_samples_per_footprint_axis": 40, "max_samples": 20000 },
+      "efficient": { "min_coverage": 0.95, "min_marginal_efficiency": 0.01 }
+    },
+    "export": {
+      "ra_column": "RA", "dec_column": "DEC", "coordinate_format": "decimal",
+      "epoch": { "column": "EPOCH", "default": "2000", "allowed": ["2000"] }
+    }
+  }
+}

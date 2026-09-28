@@ -31,11 +31,7 @@ export function resolvePlanningProfile(
       origin: { type: "region_center" },
     } };
   }
-  const survey = registry.findSurveyProfile(id);
-  if (!survey) {
-    const profile = resolveProfile(id);
-    return { profile, efficientPolicy: SPLUS_SURVEY_V2.coverage.efficient, tiling: { type: "legacy_splus", grid_extent_deg: [profile.tile_width_deg, profile.tile_height_deg], effective_overlap_arcsec: profile.effective_overlap_arcsec } };
-  }
+  const survey = registry.resolveSurveyProfile(id);
   const instrument = registry.resolveInstrumentProfile(survey.instrument_id);
   const footprint = instrument.footprint;
   const bounds = footprintLocalBounds(footprint);

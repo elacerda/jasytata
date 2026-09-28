@@ -14,6 +14,8 @@ import type {
   TilingModel,
 } from "../types";
 
+import { ProfileError, profileValidation } from "./errors";
+
 const PROFILE_ID = /^[a-z][a-z0-9-]*$/;
 const FRACTION_EPSILON = 1e-12;
 
@@ -26,6 +28,14 @@ function isRecord(value: unknown): value is UnknownRecord {
 function requireRecord(value: unknown, name: string): UnknownRecord {
   if (!isRecord(value)) throw new Error(`${name} must be an object`);
   return value;
+}
+
+function rejectUnknownFields(value: UnknownRecord, allowedFields: readonly string[], name: string): void {
+  const allowed = new Set(allowedFields);
+  const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+  if (unknown.length > 0) {
+    throw new Error(`${name} contains unsupported field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`);
+  }
 }
 
 function requireString(value: unknown, name: string): string {
@@ -45,7 +55,7 @@ function requireFiniteNumber(value: unknown, name: string): number {
 }
 
 function validateIdentity(value: UnknownRecord, expectedVersion: 2): { id: string; display_name: string; description?: string | null } {
-  if (value.schema_version !== expectedVersion) throw new Error(`schema_version must be ${expectedVersion}`);
+  if (value.schema_version !== expectedVersion) throw new ProfileError("unsupported_schema", `Unsupported schema_version: ${String(value.schema_version)}; expected ${expectedVersion}`);
   const id = requireString(value.id, "Profile id");
   if (!PROFILE_ID.test(id)) throw new Error("Invalid profile identifier");
   const display_name = requireNonEmptyString(value.display_name, "Profile display name");
@@ -86,6 +96,7 @@ function segmentsIntersect(a: TangentPlaneOffset, b: TangentPlaneOffset, c: Tang
 }
 
 function validatePolygon(value: UnknownRecord): PolygonFootprint {
+  rejectUnknownFields(value, ["type", "vertices_deg", "position_angle_deg"], "Polygon footprint");
   if (!Array.isArray(value.vertices_deg) || value.vertices_deg.length < 3) throw new Error("Polygon must have at least three vertices");
   const vertices = value.vertices_deg.map((vertex, index) => validateOffset(vertex, `Polygon vertex ${index + 1}`));
   for (let first = 0; first < vertices.length; first += 1) {
@@ -119,6 +130,7 @@ function validateNonCompoundFootprint(value: unknown, name: string): NonCompound
   const footprint = requireRecord(value, name);
   switch (footprint.type) {
     case "rectangle": {
+      rejectUnknownFields(footprint, ["type", "width_deg", "height_deg", "position_angle_deg"], name);
       const width = requireFiniteNumber(footprint.width_deg, "Rectangle width");
       const height = requireFiniteNumber(footprint.height_deg, "Rectangle height");
       if (width <= 0 || width > 180) throw new Error("Rectangle width must be greater than 0 and at most 180 degrees");
@@ -127,6 +139,7 @@ function validateNonCompoundFootprint(value: unknown, name: string): NonCompound
       return { type: "rectangle", width_deg: width, height_deg: height, ...(positionAngle !== undefined ? { position_angle_deg: positionAngle } : {}) };
     }
     case "circle": {
+      rejectUnknownFields(footprint, ["type", "radius_deg"], name);
       const radius = requireFiniteNumber(footprint.radius_deg, "Circle radius");
       if (radius <= 0 || radius > 90) throw new Error("Circle radius must be greater than 0 and at most 90 degrees");
       return { type: "circle", radius_deg: radius };
@@ -140,6 +153,7 @@ function validateNonCompoundFootprint(value: unknown, name: string): NonCompound
 
 function validateCompoundComponent(value: unknown, index: number): CompoundFootprintComponent {
   const component = requireRecord(value, `Compound component ${index + 1}`);
+  rejectUnknownFields(component, ["offset_deg", "rotation_deg", "footprint"], `Compound component ${index + 1}`);
   const offset = validateOffset(component.offset_deg, `Compound component ${index + 1} offset`);
   const rotation = validateOptionalAngle(component.rotation_deg, `Compound component ${index + 1} rotation`);
   return {
@@ -152,6 +166,7 @@ function validateCompoundComponent(value: unknown, index: number): CompoundFootp
 function validateFootprint(value: unknown): Footprint {
   const footprint = requireRecord(value, "Instrument footprint");
   if (footprint.type !== "compound") return validateNonCompoundFootprint(footprint, "Instrument footprint");
+  rejectUnknownFields(footprint, ["type", "components", "position_angle_deg"], "Compound footprint");
   if (!Array.isArray(footprint.components) || footprint.components.length === 0) throw new Error("Compound footprint must have at least one component");
   const positionAngle = validateOptionalAngle(footprint.position_angle_deg, "Compound position angle");
   const result: CompoundFootprint = {
@@ -175,14 +190,16 @@ function validateFootprint(value: unknown): Footprint {
 export function validateInstrumentProfileV2(profile: unknown): InstrumentProfileV2 {
   const value = requireRecord(profile, "Instrument profile");
   const identity = validateIdentity(value, 2);
+  rejectUnknownFields(value, ["schema_version", "id", "display_name", "description", "coordinate_frame", "footprint"], "Instrument profile");
   if (value.coordinate_frame !== "icrs") throw new Error("Instrument coordinate_frame must be icrs");
-  return { schema_version: 2, ...identity, coordinate_frame: "icrs", footprint: validateFootprint(value.footprint) };
+  return { schema_version: 2, ...identity, coordinate_frame: "icrs", footprint: profileValidation("invalid_geometry", () => validateFootprint(value.footprint)) };
 }
 
 function validateTiling(value: unknown): TilingModel {
   const tiling = requireRecord(value, "Tiling model");
   switch (tiling.type) {
     case "legacy_splus": {
+      rejectUnknownFields(tiling, ["type", "effective_overlap_arcsec", "grid_extent_deg"], "Legacy tiling");
       const overlap = requireFiniteNumber(tiling.effective_overlap_arcsec, "Legacy effective overlap");
       if (overlap < 0) throw new Error("Legacy effective overlap must be non-negative");
       if (!Array.isArray(tiling.grid_extent_deg) || tiling.grid_extent_deg.length !== 2) {
@@ -195,8 +212,13 @@ function validateTiling(value: unknown): TilingModel {
       return { type: "legacy_splus", grid_extent_deg: [width, height], effective_overlap_arcsec: overlap };
     }
     case "manual":
+      rejectUnknownFields(tiling, ["type"], "Manual tiling");
       return { type: "manual" };
     case "lattice": {
+      if ("position_angle_deg" in tiling || "origin_policy" in tiling) {
+        throw new Error("Lattice uses basis_deg and origin only; remove position_angle_deg and origin_policy");
+      }
+      rejectUnknownFields(tiling, ["type", "basis_deg", "origin"], "Lattice tiling");
       if (!Array.isArray(tiling.basis_deg) || tiling.basis_deg.length !== 2) throw new Error("Lattice requires two basis vectors");
       const first = validateOffset(tiling.basis_deg[0], "First lattice basis vector");
       const second = validateOffset(tiling.basis_deg[1], "Second lattice basis vector");
@@ -209,13 +231,13 @@ function validateTiling(value: unknown): TilingModel {
       if (!Number.isFinite(normalizedDeterminant) || Math.abs(normalizedDeterminant) <= FRACTION_EPSILON) {
         throw new Error("Lattice basis vectors must not be collinear or degenerate");
       }
-      if ("position_angle_deg" in tiling || "origin_policy" in tiling) {
-        throw new Error("Lattice uses basis_deg and origin only; remove position_angle_deg and origin_policy");
-      }
       const placement = requireRecord(tiling.origin, "Lattice origin");
       let origin: LatticeOrigin;
-      if (placement.type === "region_center") origin = { type: "region_center" };
-      else if (placement.type === "fixed_anchor") {
+      if (placement.type === "region_center") {
+        rejectUnknownFields(placement, ["type"], "Region-center lattice origin");
+        origin = { type: "region_center" };
+      } else if (placement.type === "fixed_anchor") {
+        rejectUnknownFields(placement, ["type", "ra_deg", "dec_deg"], "Fixed-anchor lattice origin");
         const ra = requireFiniteNumber(placement.ra_deg, "Lattice anchor RA");
         const dec = requireFiniteNumber(placement.dec_deg, "Lattice anchor DEC");
         if (ra < 0 || ra >= 360 || Math.abs(dec) >= 90) {
@@ -232,6 +254,10 @@ function validateTiling(value: unknown): TilingModel {
 
 function validateInference(value: unknown): InferencePolicy {
   const policy = requireRecord(value, "Inference policy");
+  rejectUnknownFields(policy, [
+    "enabled", "allow_rotation", "spacing_tolerance_fraction", "phase_tolerance_fraction",
+    "occupancy_tolerance_fraction", "min_anchor_tiles", "min_neighbor_pairs",
+  ], "Inference policy");
   if (typeof policy.enabled !== "boolean") throw new Error("Inference enabled must be a boolean");
   if (typeof policy.allow_rotation !== "boolean") throw new Error("Inference allow_rotation must be a boolean");
   const spacing = requireFiniteNumber(policy.spacing_tolerance_fraction, "Inference spacing tolerance fraction");
@@ -253,7 +279,9 @@ function validateInference(value: unknown): InferencePolicy {
 
 function validateCoverage(value: unknown): CoveragePolicy {
   const policy = requireRecord(value, "Coverage policy");
+  rejectUnknownFields(policy, ["sampling", "efficient"], "Coverage policy");
   const sampling = requireRecord(policy.sampling, "Coverage sampling policy");
+  rejectUnknownFields(sampling, ["target_samples_per_footprint_axis", "max_samples"], "Coverage sampling policy");
   const targetSamples = requireFiniteNumber(sampling.target_samples_per_footprint_axis, "Target samples per footprint axis");
   const maxSamples = requireFiniteNumber(sampling.max_samples, "Maximum coverage samples");
   if (!Number.isSafeInteger(targetSamples) || targetSamples <= 0) throw new Error("Target samples per footprint axis must be a positive integer");
@@ -261,6 +289,7 @@ function validateCoverage(value: unknown): CoveragePolicy {
   let efficient: CoveragePolicy["efficient"];
   if (policy.efficient !== undefined) {
     const efficientValue = requireRecord(policy.efficient, "Efficient coverage policy");
+    rejectUnknownFields(efficientValue, ["min_coverage", "min_marginal_efficiency"], "Efficient coverage policy");
     const minCoverage = requireFiniteNumber(efficientValue.min_coverage, "Efficient minimum coverage");
     const minEfficiency = requireFiniteNumber(efficientValue.min_marginal_efficiency, "Efficient minimum marginal efficiency");
     if (minCoverage < 0 || minCoverage > 1) throw new Error("Efficient minimum coverage must be in [0, 1]");
@@ -276,6 +305,7 @@ function validateColumn(value: unknown, name: string): string {
 
 function validateExport(value: unknown): ExportPolicy {
   const policy = requireRecord(value, "Export policy");
+  rejectUnknownFields(policy, ["ra_column", "dec_column", "coordinate_format", "epoch", "position_angle_column", "constant_fields"], "Export policy");
   const ra = validateColumn(policy.ra_column, "RA output column");
   const dec = validateColumn(policy.dec_column, "DEC output column");
   if (ra === dec) throw new Error("Export output column names must be unique");
@@ -284,6 +314,7 @@ function validateExport(value: unknown): ExportPolicy {
   let epoch: ExportPolicy["epoch"];
   if (policy.epoch !== undefined) {
     const epochValue = requireRecord(policy.epoch, "Export epoch policy");
+    rejectUnknownFields(epochValue, ["column", "default", "allowed"], "Export epoch policy");
     const column = validateColumn(epochValue.column, "Epoch output column");
     const defaultValue = requireNonEmptyString(epochValue.default, "Default export epoch");
     if (!Array.isArray(epochValue.allowed) || epochValue.allowed.length === 0) throw new Error("Allowed export epochs must be a non-empty array");
@@ -334,11 +365,18 @@ function validateExport(value: unknown): ExportPolicy {
 export function validateSurveyProfileV2(profile: unknown): SurveyProfileV2 {
   const value = requireRecord(profile, "Survey profile");
   const identity = validateIdentity(value, 2);
+  rejectUnknownFields(value, ["schema_version", "id", "display_name", "description", "instrument_id", "tiling", "inference", "coverage", "export"], "Survey profile");
   const instrumentId = requireString(value.instrument_id, "Survey instrument_id");
   if (!PROFILE_ID.test(instrumentId)) throw new Error("Invalid instrument identifier");
-  return {
+  const result: SurveyProfileV2 = {
     schema_version: 2, ...identity, instrument_id: instrumentId,
-    tiling: validateTiling(value.tiling), inference: validateInference(value.inference),
-    coverage: validateCoverage(value.coverage), export: validateExport(value.export),
+    tiling: profileValidation("invalid_tiling", () => validateTiling(value.tiling)),
+    inference: profileValidation("invalid_policy", () => validateInference(value.inference)),
+    coverage: profileValidation("invalid_policy", () => validateCoverage(value.coverage)),
+    export: profileValidation("invalid_policy", () => validateExport(value.export)),
   };
+  if (result.tiling.type === "legacy_splus" && result.coverage.sampling.max_samples < 64) {
+    throw new ProfileError("invalid_policy", "Legacy coverage sampling requires max_samples of at least 64 for its eight-by-eight minimum");
+  }
+  return result;
 }

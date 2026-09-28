@@ -1,4 +1,6 @@
 import type { TilingProfile } from "../types";
+import { profileRegistry } from "./registry";
+import { resolvePlanningProfile } from "./planning";
 import { adaptT80SplusV2ToV1, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "./v2";
 
 /** Bundled and validated default S-PLUS / T80-South observing profile. */
@@ -10,15 +12,14 @@ export const DEFAULT_PROFILE: TilingProfile = adaptT80SplusV2ToV1(T80_SOUTH_INST
  * @throws If the profile is not installed.
  */
 export function loadProfile(id = DEFAULT_PROFILE.id): TilingProfile {
-  if (id !== DEFAULT_PROFILE.id) throw new Error(`Profile ${id} is not installed`);
-  return { ...DEFAULT_PROFILE, export_epoch_options: [...DEFAULT_PROFILE.export_epoch_options] };
+  return resolvePlanningProfile(id).profile;
 }
 
-/** List the bundled observing profiles in identifier order.
+/** List registered observing profiles in identifier order.
  * @returns Independent profile values with geometry in degrees and overlap in arcseconds.
  */
 export function listProfiles(): TilingProfile[] {
-  return [loadProfile()];
+  return profileRegistry.listSurveyProfiles().map((survey) => loadProfile(survey.id));
 }
 
 /** Validate a complete ICRS profile and the session-only custom-profile contract.
@@ -58,3 +59,6 @@ export function resolveProfile(id: string, inline?: TilingProfile): TilingProfil
 export * from "./schema-v2";
 export * from "./v2";
 export * from "./registry";
+
+export * from "./document";
+export * from "./errors";

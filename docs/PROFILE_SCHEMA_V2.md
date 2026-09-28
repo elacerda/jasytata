@@ -114,6 +114,17 @@ selection, including Schema v2 `legacy_splus`. `ExportPolicy` describes
 coordinate columns and format, optional epoch and position-angle columns, and
 constant output fields.
 
+### Versioned field validation (Gate 7A)
+
+Each Schema v2 document contains only `instrument` and `survey`; each profile
+and nested scientific policy accepts only its declared fields. With
+`schema_version: 2`, an unrecognized key in the document, instrument, footprint
+(including compound children), survey, tiling and origin, inference, coverage,
+Efficient, or export objects is a validation error. Unknown keys are not
+discarded or treated as extensions. The declared `export.constant_fields`
+object is intentionally free-form because its keys are output column names;
+that behavior applies only inside that object.
+
 ### Coverage sampling policy (Gate 6A)
 
 Both `sampling.target_samples_per_footprint_axis` and `sampling.max_samples`
@@ -211,7 +222,7 @@ The bundled configuration is stored in
 `frontend/src/profiles/splus-t80-south.json`, with `instrument` and `survey`
 objects validated through the same Schema v2 validators and registry used for
 ordinary profiles. Each object can be registered as user-supplied profile data;
-Gate 7 still owns the import/export UI. The legacy tiling model declares
+Gate 7A supplies the JSON import/export UI. The legacy tiling model declares
 `grid_extent_deg: [1.4,1.4]` and `effective_overlap_arcsec: 120`. Grid extents and
 overlap are consumed from survey profile data by `SPLUS_LEGACY_GRID_V1`; `adaptT80SplusV2ToV1` provides the transitional
 historical default shape without duplicating those values.
@@ -231,14 +242,109 @@ proposal metadata. No frozen fixture values change.
 Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
 generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
 are operational. Scientific error validation (G6C) passes for the documented
-resolved local geometries and policies; profile import/export UI and configurable
-CSV output (Gate 7) remain deferred. Compatibility sampling uses
+resolved local geometries and policies; profile JSON import/export is complete in Gate 7A. The visual editor (Gate 7B)
+and configurable CSV output (Gate 7C) remain deferred. Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
 90,000-cell cap, minimum eight cells per axis, and historical metric shape.
-Sampling policy fields remain declarative for those paths. Compatibility
-inference/sample constants still duplicate profile policy values. Efficient
-thresholds are consumed from survey data. Remaining compatibility values must migrate
-by release so all T80 scientific configuration is consumed from ordinary
-importable profile data. The local cosine/wrapped-RA approximation remains;
+Gate 7A now derives compatibility sampling's nominal pitch from the smaller
+legacy grid extent divided by `target_samples_per_footprint_axis`, and reads its
+budget from `max_samples`. A legacy budget below 64 is rejected by the common
+validator because the compatibility algorithm requires at least eight cells per
+axis. Compatibility inference derives spacing, maximum phase residual, and
+occupancy tolerances from their declared fractions times the smaller legacy grid
+extent. Median phase residual must be at most half the declared maximum phase
+tolerance, preserving the historical two-threshold rule. Enabled state and
+anchor/pair minima are consumed from the survey. T80 reproduces exactly 0.05°,
+0.1°, 0.12°, 0.01°, and 90,000 cells; no private duplicates of those parameters
+remain. Inline v1 calls inherit the validated bundled defaults to preserve their
+frozen contract. The minimum eight samples per axis, row grouping, nonrotating
+row-wise compatibility inference, search topology, supplemental overlap-fill,
+and numerical safeguards remain named algorithm rules. `allow_rotation` is used
+by generic lattice inference; legacy_splus remains a nonrotating compatibility
+algorithm. Efficient thresholds are consumed from survey data. The local cosine/wrapped-RA approximation remains;
 large regions and near-pole planning do not become exact spherical geometry.
+
+## Gate 7A JSON file lifecycle
+
+The user-facing file contract is the existing bundled structure:
+
+```json
+{
+  "instrument": { "schema_version": 2, "id": "camera-id", "display_name": "Camera", "coordinate_frame": "icrs", "footprint": {} },
+  "survey": { "schema_version": 2, "id": "survey-id", "display_name": "Survey", "instrument_id": "camera-id", "tiling": {}, "inference": {}, "coverage": {}, "export": {} }
+}
+```
+
+The empty policy/geometry objects above are placeholders, not a valid profile.
+A complete non-T80 example is
+`frontend/src/profiles/fixtures/small-camera.json`: a 0.12° circular camera,
+oblique lattice, fixed ICRS anchor, and its own inference/sampling/Efficient
+policies. The instrument and survey remain separate objects; one file contains
+exactly one associated pair, with no new packaging or root-level version.
+Both members must explicitly declare numeric `schema_version: 2`. Missing,
+string-valued, older, and future versions fail; the loader never guesses a
+version or substitutes a default instrument.
+
+`parseProfileJson(text)` parses JSON and calls `validateProfileDocument`, which
+uses `validateInstrumentProfileV2` and `validateSurveyProfileV2` for structural
+and scientific normalization and verifies the instrument reference. The same
+validation handles the build-time bundled JSON object. Unknown fields in every
+declared object are rejected; the free-form `export.constant_fields` map is the
+only exception. The format defines no general extension mechanism. Known invalid
+values are rejected without coercion, including geometry,
+degenerate basis vectors, fixed anchors, inference fractions, coverage sampling,
+Efficient thresholds, and export policy. `ProfileError` supplies small diagnostic
+categories and human-readable explanations for JSON syntax, unsupported version,
+structure, geometry, tiling, policy, references, and duplicate IDs.
+
+`ProfileRegistry.registerProfileDocument` validates the entire pair and checks
+both IDs before inserting either member. IDs remain unique **within each kind**;
+ordinary import rejects any existing instrument or survey ID, even when its
+configuration is identical. It never overwrites bundled T80. Browser import also
+rejects a survey ID occupied by the active legacy inline custom draft; selecting
+a registered profile releases that inline identity. The ID `custom` remains valid
+for an imported v2 survey when no inline draft occupies it. Conflicts and
+invalid data leave the registry unchanged. Registry lookup is exact, listing
+is sorted by ID, and registered/returned data is defensively copied. Direct
+survey registration still requires an already registered instrument. The file
+format's pair reference must resolve to that file's instrument.
+
+In the Tile profile panel, **Import profile** opens a JSON file chooser and
+shows success or a useful validation error. Successful imports appear in the
+survey selector and the existing catalogue instrument selector; selection uses
+the same registry as planning, inference, coverage, and map footprints. Import
+does not implicitly switch the active survey or clear a plan. Changing the active
+survey uses the existing plan-reset behavior. Profiles live only in browser
+memory for the current page session. No backend, database, profile localStorage,
+or network import is involved; reloading restores bundled defaults.
+
+**Export profile JSON** downloads the selected registered v2 survey together
+with its linked instrument as `<survey-id>.json`. Validated profile IDs already
+contain only lowercase letters, digits, and hyphens, so no identity mutation is
+needed for browser filename safety. `serializeProfile` revalidates and rebuilds
+configuration, recursively sorts object keys, retains array ordering and JSON
+numeric values, and emits pretty JSON with a final newline. Reimport preserves
+scientific configuration and deterministic planning/coverage behavior. To import
+an exported T80 file into a session already containing T80, duplicate rejection
+is expected; equivalence tests use a fresh isolated registry.
+
+Only declarative configuration is exported. Inferred rotation/phase, runtime
+anchors, assignments, inference quality, effective sample step, sample count,
+budget-limited flag, actual cell dimensions, catalogue rows, proposals, disabled
+and selected tiles, and polygon/UI state are excluded. Declared fixed anchors
+and footprint position angles remain configuration and are preserved. Declared
+`ExportPolicy` fields are preserved as data; this gate does not implement their
+future configurable CSV output contract. The pre-existing inline v1 custom
+rectangle draft remains available; it has no v2 registry document and its JSON
+export button stays disabled rather than inventing an implicit schema migration.
+
+S-PLUS/T80 is the bundled reference profile, available by default for observer
+convenience. Its file and user imports share the document validators, registry
+representation, and scientific consumers. The legacy UI-shape adapter no longer
+restricts scientific use by T80 profile ID. Unknown registered survey IDs fail
+explicitly, including in isolated registries; they cannot fall back to private
+bundled data. Strategy identity (`legacy_splus`) selects compatibility algorithms,
+not instrument or survey names. See the focused tests in
+`frontend/src/profiles/document.test.ts` and browser controls in
+`frontend/src/App.profile-files.test.tsx`.

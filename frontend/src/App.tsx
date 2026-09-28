@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { buildRegionPlanRequest, downloadCatalogue, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue, validateCustomProfile } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadProfileJson, uploadProfileFile, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue, validateCustomProfile } from "./api";
 import { createDataset } from "./datasets";
-import { profileRegistry } from "./profiles";
+import { loadProfile, profileRegistry } from "./profiles";
 import type {
   CenterInput,
   CatalogueDataset,
@@ -59,7 +59,8 @@ export default function App() {
     }
   });
   const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
-  const instrumentProfiles = useMemo(() => profileRegistry.listInstrumentProfiles(), []);
+  const [instrumentProfiles, setInstrumentProfiles] = useState(() => profileRegistry.listInstrumentProfiles());
+  const [surveyProfiles, setSurveyProfiles] = useState(() => profileRegistry.listSurveyProfiles());
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
   const [profile, setProfile] = useState<TilingProfile | null>(null);
   const [defaultProfile, setDefaultProfile] = useState<TilingProfile | null>(null);
@@ -87,6 +88,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [debugRequestJson, setDebugRequestJson] = useState("");
+  const profileFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLElement>(null);
   const proposalBatchRef = useRef(0);
@@ -152,7 +154,7 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    void (profile.id === "custom"
+    void (profile.algorithm === "RECT_GRID_V1"
       ? measureCoverage(regionPolygon, originalTiles, proposals, profile.id, profile)
       : measureCoverage(regionPolygon, originalTiles, proposals, profile.id))
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
@@ -222,6 +224,16 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  async function handleProfileUpload(file?: File) {
+    if (!file) return;
+    await runBusy(() => uploadProfileFile(file, profileRegistry, profile?.algorithm === "RECT_GRID_V1" ? profile.id : undefined), (document) => {
+      setInstrumentProfiles(profileRegistry.listInstrumentProfiles());
+      setSurveyProfiles(profileRegistry.listSurveyProfiles());
+      setNotice(`Imported profile: ${document.survey.display_name}. Select it in Profile to use it.`);
+    });
+    if (profileFileInputRef.current) profileFileInputRef.current.value = "";
+  }
+
   async function applyColumnMapping() {
     if (!columnMapping || !columnMapping.raColumn || !columnMapping.decColumn) return;
     await runBusy(
@@ -270,12 +282,12 @@ export default function App() {
     const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
-      setDebugRequestJson(JSON.stringify(profile?.id === "custom"
+      setDebugRequestJson(JSON.stringify(profile?.algorithm === "RECT_GRID_V1"
         ? buildRegionPlanRequest(regionPolygon, planningTiles, profile.id, profile, coverageStrategy)
         : buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id, undefined, coverageStrategy)));
     }
     await runBusy(
-      () => profile?.id === "custom"
+      () => profile?.algorithm === "RECT_GRID_V1"
         ? planRegion(regionPolygon, planningTiles, profile.id, profile, coverageStrategy)
         : planRegion(regionPolygon, planningTiles, profile?.id, undefined, coverageStrategy),
       (result: RegionPlanResponse) => {
@@ -363,6 +375,10 @@ export default function App() {
 
   function createCustomDraft() {
     if (!profile) return;
+    if (profileRegistry.findSurveyProfile("custom")) {
+      setError('The imported survey ID "custom" is in use. Custom rectangle drafts require that session ID.');
+      return;
+    }
     setGeometryDraft({
       width: String(profile.tile_width_deg),
       height: String(profile.tile_height_deg),
@@ -431,7 +447,7 @@ export default function App() {
   async function exportFile() {
     if (!profile || !enabledProposals.length) return;
     await runBusy(
-      () => profile.id === "custom"
+      () => profile.algorithm === "RECT_GRID_V1"
         ? downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat, profile)
         : downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat),
       () => setNotice("new_tiles.csv downloaded."),
@@ -527,16 +543,24 @@ export default function App() {
           </section>
 
           <section className="panel-section tile-profile-section" aria-label="Tile profile">
-            <SectionHeading title="Tile profile" trailing={profile?.id === "custom" ? "CUSTOM" : "VALIDATED PRESET"} />
+            <SectionHeading title="Tile profile" trailing={profile?.algorithm === "RECT_GRID_V1" ? "CUSTOM" : "VALIDATED PROFILE"} />
             <label className="field-label" htmlFor="tile-profile-select">Profile</label>
             <select id="tile-profile-select" className="profile-select" value={profile?.id ?? ""} disabled={!profile || busy}
               onChange={(event) => {
-                if (event.target.value === defaultProfile?.id && defaultProfile) activateProfile(defaultProfile);
+                activateProfile(loadProfile(event.target.value));
               }}>
               {!profile && <option value="">Loading profile…</option>}
-              {defaultProfile && <option value={defaultProfile.id}>{defaultProfile.display_name}</option>}
-              {profile?.id === "custom" && <option value="custom">Custom</option>}
+              {surveyProfiles.map((survey) => <option key={survey.id} value={survey.id}>{survey.display_name}</option>)}
+              {profile?.algorithm === "RECT_GRID_V1" && <option value="custom">Custom</option>}
             </select>
+            <input ref={profileFileInputRef} type="file" accept=".json,application/json" aria-label="Profile JSON file" hidden
+              onChange={(event) => void handleProfileUpload(event.target.files?.[0])} />
+            <div className="profile-actions">
+              <button className="button button-outline" onClick={() => profileFileInputRef.current?.click()} disabled={busy}>Import profile</button>
+              <button className="button button-outline" onClick={() => profile && void runBusy(() => downloadProfileJson(profile.id), () => setNotice(`Profile ${profile.display_name} exported as JSON.`))}
+                disabled={!profile || profile.algorithm === "RECT_GRID_V1" || busy}>Export profile JSON</button>
+            </div>
+            <p className="fine-print">Schema v2 JSON · profiles stay in this session. Export to keep a copy.</p>
             {geometryDraft ? <>
               <p className="profile-draft-label">Custom draft · active: {profile?.display_name}</p>
               <div className="profile-geometry">
@@ -555,8 +579,8 @@ export default function App() {
                 <span>Height <strong>{profile?.tile_height_deg.toFixed(3) ?? "…"} deg</strong></span>
                 <span>Overlap <strong>{profile?.effective_overlap_arcsec ?? "…"} arcsec</strong></span>
               </div>
-              <button className="button button-outline button-full" onClick={createCustomDraft} disabled={!profile || busy}>{profile?.id === "custom" ? "Edit custom profile" : "Create custom profile"}</button>
-              {profile?.id === "custom" && <button className="text-button profile-reset" onClick={() => defaultProfile && activateProfile(defaultProfile)} disabled={!defaultProfile || busy}>Reset to S-PLUS</button>}
+              <button className="button button-outline button-full" onClick={createCustomDraft} disabled={!profile || busy}>{profile?.algorithm === "RECT_GRID_V1" ? "Edit custom profile" : "Create custom profile"}</button>
+              {profile?.algorithm === "RECT_GRID_V1" && <button className="text-button profile-reset" onClick={() => defaultProfile && activateProfile(defaultProfile)} disabled={!defaultProfile || busy}>Reset to S-PLUS</button>}
             </>}
           </section>
 

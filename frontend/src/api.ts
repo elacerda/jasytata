@@ -9,7 +9,7 @@ import type {
   TileRecord,
   TilingProfile,
 } from "./types";
-import { loadProfile, listProfiles, validateProfile } from "./profiles";
+import { loadProfile, listProfiles, validateProfile, parseProfileJson, serializeProfile, profileRegistry, type ProfileRegistry, type ProfileDocument, ProfileError } from "./profiles";
 import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
 import { buildExportCsv } from "./science/export";
@@ -151,4 +151,41 @@ export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileR
  */
 export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile): Promise<PlanMetrics> {
   return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile);
+}
+
+/** Read and atomically register a browser-selected Schema v2 profile file.
+ * @param file - User-selected JSON file; its bytes are read only in the browser.
+ * @param registry - Session registry, injectable for isolated tests.
+ * @param occupiedInlineId - Optional ID held by an active legacy inline draft;
+ *   ordinary file import must not create a conflicting active identity.
+ * @returns Validated instrument/survey configuration registered as defensive copies.
+ * @throws For non-JSON filenames, read failures, invalid data, or duplicate IDs.
+ *   No registry entries are added unless the entire document passes.
+ */
+export async function uploadProfileFile(file: File, registry: ProfileRegistry = profileRegistry, occupiedInlineId?: string): Promise<ProfileDocument> {
+  if (!file.name.toLowerCase().endsWith(".json")) throw new Error("Choose a .json profile file");
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+  const document = parseProfileJson(text);
+  if (document.survey.id === occupiedInlineId) {
+    throw new ProfileError("duplicate_id", `Survey profile ID "${document.survey.id}" is already used by the active custom draft`);
+  }
+  return registry.registerProfileDocument(document);
+}
+
+/** Download a registered survey and instrument using the canonical serializer.
+ * @param id - Exact registered survey ID; Schema v2 IDs are safe filename stems.
+ * @param registry - Session registry, injectable for isolated tests.
+ * @returns Resolves after triggering the local JSON download; no storage is written.
+ * @throws If the profile is unknown or serialization fails.
+ */
+export async function downloadProfileJson(id: string, registry: ProfileRegistry = profileRegistry): Promise<void> {
+  const blob = new Blob([serializeProfile(registry.resolveProfileDocument(id))], { type: "application/json; charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }

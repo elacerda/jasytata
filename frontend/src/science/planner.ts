@@ -1,9 +1,9 @@
-import type { CenterInput, CoveragePolicy, CoverageStrategy, Footprint, GenericLatticeTiling, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
-import { DEFAULT_PROFILE } from "../profiles";
+import type { CenterInput, CoveragePolicy, CoverageStrategy, Footprint, GenericLatticeTiling, InferencePolicy, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
-import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
+import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, sampleLegacyRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
 import { generateLatticeCandidates, latticePlanningOrigin } from "./lattice";
@@ -11,8 +11,20 @@ import { inferSurveyLattice, latticeInferenceSearchRadius, latticeSiteOccupied }
 import { skyToLocalOffset } from "./footprint-engine";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 
-const INFERENCE_TOLERANCE_DEG = 0.05;
-const OCCUPIED_CENTER_TOLERANCE_DEG = 0.12;
+interface LegacyInferenceSettings {
+  policy: InferencePolicy;
+  spacingDeg: number;
+  phaseDeg: number;
+  occupancyDeg: number;
+}
+
+/** Convert declarative fractions against legacy seed extent, without ID dispatch. */
+function legacyInferenceSettings(profile: TilingProfile, policy: InferencePolicy): LegacyInferenceSettings {
+  const scale = Math.min(profile.tile_width_deg, profile.tile_height_deg);
+  return { policy, spacingDeg: scale * policy.spacing_tolerance_fraction,
+    phaseDeg: scale * policy.phase_tolerance_fraction,
+    occupancyDeg: scale * policy.occupancy_tolerance_fraction };
+}
 const MAX_CANDIDATES = 1200;
 const AUTOMATIC_COVERAGE_TARGET = 1;
 
@@ -70,12 +82,12 @@ export function tilesNearRegion(tiles: readonly TileRecord[], bounds: RegionBoun
   });
 }
 
-function groupAnchorRows(tiles: readonly TileRecord[]): TileRecord[][] {
+function groupAnchorRows(tiles: readonly TileRecord[], toleranceDeg: number): TileRecord[][] {
   const rows: TileRecord[][] = [];
   const sorted = [...tiles].sort((a, b) => a.dec_deg - b.dec_deg || a.ra_deg - b.ra_deg || a.id.localeCompare(b.id));
   for (const tile of sorted) {
     const rowCenter = rows.length ? median(rows[rows.length - 1].map((item) => item.dec_deg)) : null;
-    if (rowCenter === null || tile.dec_deg - rowCenter > INFERENCE_TOLERANCE_DEG) rows.push([tile]);
+    if (rowCenter === null || tile.dec_deg - rowCenter > toleranceDeg) rows.push([tile]);
     else rows[rows.length - 1].push(tile);
   }
   return rows;
@@ -91,8 +103,8 @@ function modularDistance(value: number, phase: number): number {
   return Math.abs(modulo(value - phase + 0.5, 1) - 0.5);
 }
 
-function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _centerDec: number, profile: TilingProfile): Lattice | null {
-  if (tiles.length < 3) return null;
+function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _centerDec: number, profile: TilingProfile, settings: LegacyInferenceSettings): Lattice | null {
+  if (!settings.policy.enabled || tiles.length < settings.policy.min_anchor_tiles) return null;
   const points = [...tiles].sort((a, b) => a.dec_deg - b.dec_deg ||
     wrappedRaDelta(a.ra_deg, centerRa) - wrappedRaDelta(b.ra_deg, centerRa) || a.id.localeCompare(b.id));
   const horizontalSteps: number[] = [];
@@ -106,14 +118,14 @@ function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _cent
     for (let second = first + 1; second < points.length; second += 1) {
       const right = points[second];
       const dy = Math.abs(right.dec_deg - left.dec_deg);
-      if (dy > profileDecSpacing + INFERENCE_TOLERANCE_DEG) break;
+      if (dy > profileDecSpacing + settings.spacingDeg) break;
       const meanDec = (left.dec_deg + right.dec_deg) / 2;
       const dx = Math.abs(wrappedRaDelta(right.ra_deg, left.ra_deg)) * Math.cos(radians(meanDec));
       if (dx > 1.6 * profileRaSpacing) continue;
       let compatible = false;
-      if (dy <= INFERENCE_TOLERANCE_DEG && Math.abs(dx - profileRaSpacing) <= INFERENCE_TOLERANCE_DEG) {
+      if (dy <= settings.spacingDeg && Math.abs(dx - profileRaSpacing) <= settings.spacingDeg) {
         horizontalSteps.push(dx); compatible = true;
-      } else if (Math.abs(dy - profileDecSpacing) <= INFERENCE_TOLERANCE_DEG && dx <= 0.75 * profileRaSpacing) {
+      } else if (Math.abs(dy - profileDecSpacing) <= settings.spacingDeg && dx <= 0.75 * profileRaSpacing) {
         verticalSteps.push(dy); compatible = true;
       }
       if (compatible) {
@@ -124,13 +136,13 @@ function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _cent
     }
   }
   const anchorIds = [...new Set(pairIds.flat())].sort();
-  if (pairIds.length < 2 || anchorIds.length < 3 || horizontalSteps.length < 2) return null;
+  if (pairIds.length < settings.policy.min_neighbor_pairs || anchorIds.length < settings.policy.min_anchor_tiles || horizontalSteps.length < settings.policy.min_neighbor_pairs) return null;
   const inferredDecSpacing = verticalSteps.length ? median(verticalSteps) : profileDecSpacing;
   const inferredRaSpacing = median(horizontalSteps);
-  if (Math.abs(inferredDecSpacing - profileDecSpacing) > INFERENCE_TOLERANCE_DEG ||
-    Math.abs(inferredRaSpacing - profileRaSpacing) > INFERENCE_TOLERANCE_DEG) return null;
+  if (Math.abs(inferredDecSpacing - profileDecSpacing) > settings.spacingDeg ||
+    Math.abs(inferredRaSpacing - profileRaSpacing) > settings.spacingDeg) return null;
   const anchorSet = new Set(anchorIds);
-  const rowGroups = groupAnchorRows(tiles.filter((tile) => anchorSet.has(tile.id)));
+  const rowGroups = groupAnchorRows(tiles.filter((tile) => anchorSet.has(tile.id)), settings.spacingDeg);
   const rowDecDeg = new Map<number, number>();
   const rowIndices = new Map<number, TileRecord[]>();
   let rowIndex = 0;
@@ -150,7 +162,7 @@ function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _cent
       const left = ordered[index]; const right = ordered[index + 1];
       localSteps.push(Math.abs(wrappedRaDelta(right.ra_deg, left.ra_deg)) * Math.cos(radians((left.dec_deg + right.dec_deg) / 2)));
     }
-    const compatibleSteps = localSteps.filter((step) => Math.abs(step - profileRaSpacing) <= INFERENCE_TOLERANCE_DEG);
+    const compatibleSteps = localSteps.filter((step) => Math.abs(step - profileRaSpacing) <= settings.spacingDeg);
     const rowSpacing = compatibleSteps.length ? median(compatibleSteps) : inferredRaSpacing;
     rowRaSpacings.set(row, rowSpacing);
     const fractions: number[] = [];
@@ -163,7 +175,7 @@ function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _cent
     rowPhases.set(row, rowPhase);
     phaseResiduals.push(...fractions.map((fraction) => modularDistance(fraction, rowPhase) * rowSpacing));
   }
-  if (median(phaseResiduals) > INFERENCE_TOLERANCE_DEG || Math.max(...phaseResiduals) > 2 * INFERENCE_TOLERANCE_DEG) return null;
+  if (median(phaseResiduals) > settings.phaseDeg / 2 || Math.max(...phaseResiduals) > settings.phaseDeg) return null;
   return {
     decSpacingDeg: inferredDecSpacing, raSpacingDeg: inferredRaSpacing,
     rowDecDeg, rowRaSpacingDeg: rowRaSpacings, rowRaPhaseFraction: rowPhases,
@@ -185,7 +197,7 @@ function compareLattices(left: Lattice, right: Lattice, profile: TilingProfile):
 }
 
 function inferenceTileGroups(tiles: readonly TileRecord[], profile: TilingProfile, registry: ProfileRegistry): InferenceTileGroup[] {
-  const activeInstrumentId = registry.findSurveyProfile(profile.id)?.instrument_id;
+  const activeInstrumentId = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findSurveyProfile(profile.id)?.instrument_id;
   const sourceProfileCache = new Map<string, TilingProfile | null>();
   const sourceProfileFor = (instrumentProfileId: string): TilingProfile | null => {
     if (sourceProfileCache.has(instrumentProfileId)) return sourceProfileCache.get(instrumentProfileId)!;
@@ -240,7 +252,7 @@ function inferenceTileGroups(tiles: readonly TileRecord[], profile: TilingProfil
   return [...groups.values()].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
 }
 
-function inferLattice(tiles: readonly TileRecord[], centerRa: number, centerDec: number, profile: TilingProfile): Lattice | null {
+function inferLattice(tiles: readonly TileRecord[], centerRa: number, centerDec: number, profile: TilingProfile, settings: LegacyInferenceSettings): Lattice | null {
   const groups = new Map<string, TileRecord[]>();
   for (const tile of tiles) {
     const group = tile.source === "original"
@@ -252,7 +264,7 @@ function inferLattice(tiles: readonly TileRecord[], centerRa: number, centerDec:
   if (groups.size > 1) groups.set("all-visible-pointings", [...tiles]);
   let best: Lattice | null = null;
   for (const groupTiles of groups.values()) {
-    const lattice = inferLatticeGroup(groupTiles, centerRa, centerDec, profile);
+    const lattice = inferLatticeGroup(groupTiles, centerRa, centerDec, profile, settings);
     if (lattice && (!best || compareLattices(lattice, best, profile) > 0)) best = lattice;
   }
   return best;
@@ -494,14 +506,16 @@ function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array
   return useful;
 }
 
-/** Legacy compatibility: remove centers within 0.12° of actual input pointings.
+/** Legacy compatibility: exclude occupied candidate centers with a configured tolerance.
  * @param centers - Candidate ICRS [RA, DEC] positions in decimal degrees.
  * @param tiles - All enabled actual catalogue and accepted proposal centers.
+ * @param toleranceDeg - Angular occupancy exclusion radius in degrees; standalone
+ *   compatibility calls default to the validated bundled policy (historically 0.12°).
  * @returns Unique, sorted unoccupied centers in decimal degrees.
  */
-export function excludeOccupied(centers: readonly Center[], tiles: readonly TileRecord[]): Center[] {
+export function excludeOccupied(centers: readonly Center[], tiles: readonly TileRecord[], toleranceDeg = legacyInferenceSettings(DEFAULT_PROFILE, SPLUS_SURVEY_V2.inference).occupancyDeg): Center[] {
   return uniqueSortedCenters(centers).filter(([ra, dec]) =>
-    !tiles.some((tile) => angularSeparationDeg(ra, dec, tile.ra_deg, tile.dec_deg) < OCCUPIED_CENTER_TOLERANCE_DEG));
+    !tiles.some((tile) => angularSeparationDeg(ra, dec, tile.ra_deg, tile.dec_deg) < toleranceDeg));
 }
 
 /** Plan from a declared survey tiling strategy, preserving legacy inference separately.
@@ -546,6 +560,10 @@ function planLegacyRegion(
   efficientPolicy: CoveragePolicy["efficient"],
 ): RegionPlanResponse {
   const outputFootprint = outputFootprintForProfile(profile, registry);
+  // Inline v1 custom rectangles retain the frozen bundled compatibility defaults;
+  // every registered v2 survey supplies its own inference and sampling policies.
+  const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findSurveyProfile(profile.id);
+  const settings = legacyInferenceSettings(survey ? profile : DEFAULT_PROFILE, survey?.inference ?? SPLUS_SURVEY_V2.inference);
   if (profile.effective_overlap_arcsec / 3600 >= Math.min(profile.tile_width_deg, profile.tile_height_deg)) {
     throw new Error("Legacy overlap must be smaller than the footprint dimensions");
   }
@@ -559,7 +577,7 @@ function planLegacyRegion(
   for (const group of inferenceTileGroups(activeTiles, profile, registry)) {
     const nearby = tilesNearRegion(group.tiles, bounds, centerRa, centerDec, group.profile);
     localTiles.push(...nearby);
-    const candidate = inferLattice(nearby, centerRa, centerDec, group.profile);
+    const candidate = inferLattice(nearby, centerRa, centerDec, group.profile, settings);
     if (candidate && (!lattice || compareLattices(candidate, lattice, profile) > 0)) {
       lattice = candidate;
       latticeTiles = nearby;
@@ -583,11 +601,13 @@ function planLegacyRegion(
     rawCandidates = latticeCandidates(bounds, lattice, profile);
     anchors = lattice.anchorIds;
     diagnostics.push(`Extended the local grid using ${lattice.pairCount} compatible neighbor pairs and ${anchors.length} anchor tiles.`);
-    diagnostics.push(`Median DEC spacing ${lattice.decSpacingDeg.toFixed(4)} deg and inferred physical RA spacing ${lattice.raSpacingDeg.toFixed(4)} deg; compatibility tolerance is ${INFERENCE_TOLERANCE_DEG.toFixed(2)} deg.`);
+    diagnostics.push(`Median DEC spacing ${lattice.decSpacingDeg.toFixed(4)} deg and inferred physical RA spacing ${lattice.raSpacingDeg.toFixed(4)} deg; compatibility tolerance is ${settings.spacingDeg.toFixed(2)} deg.`);
   }
   if (rawCandidates.length > MAX_CANDIDATES) throw new Error(`This region produces ${rawCandidates.length} lattice candidates; reduce the selected area to at most ${MAX_CANDIDATES}.`);
-  const uniqueCandidates = excludeOccupied(rawCandidates, activeTiles);
-  const grid = sampleRegion(polygon);
+  const uniqueCandidates = excludeOccupied(rawCandidates, activeTiles, settings.occupancyDeg);
+  const grid = survey?.tiling.type === "legacy_splus"
+    ? sampleLegacyRegion(polygon, survey.tiling.grid_extent_deg, survey.coverage)
+    : sampleRegion(polygon);
   const existingMask = coveredMask(grid, activeTiles, profile, registry);
   const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry);
   const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, outputFootprint);

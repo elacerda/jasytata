@@ -26,7 +26,7 @@ Load one or more tile catalogues, inspect their sky footprints, select a polygon
 
 ## Positioning
 
-The planner extends a locally inferred S-PLUS tile lattice where catalogue evidence supports it and preserves a documented fallback for legacy tile geometry.
+The planner consumes instrument geometry and survey policies from validated Schema v2 profiles. S-PLUS/T80-South is the bundled reference profile, available by default and accepted by the same JSON file validation and registry path as user profiles.
 
 ## Operating Context
 
@@ -36,6 +36,7 @@ Users work with RA/DEC catalogue CSV files, arbitrary source metadata, celestial
 
 - Original catalogue rows are immutable and their source metadata remains available for inspection.
 - Proposals remain separate until accepted; editing state lives in browser memory and is not persisted across reloads.
+- Instrument/survey JSON profiles can be imported and exported explicitly; imported profiles remain in session memory, with duplicate IDs rejected.
 - No Jasytata backend, server, database, secrets, or server filesystem is required.
 - The planner uses a documented local tangent approximation and sampled coverage estimates; it is not an exact spherical completeness engine.
 

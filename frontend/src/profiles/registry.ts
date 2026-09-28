@@ -1,6 +1,9 @@
 import type { InstrumentProfileV2, SurveyProfileV2 } from "../types";
 import { validateInstrumentProfileV2, validateSurveyProfileV2 } from "./schema-v2";
-import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "./v2";
+import { BUNDLED_PROFILE_DOCUMENT } from "./v2";
+
+import { validateProfileDocument, type ProfileDocument } from "./document";
+import { ProfileError } from "./errors";
 
 /** Browser-memory registry for validated instrument and survey profiles.
  *
@@ -20,7 +23,7 @@ export class ProfileRegistry {
   registerInstrumentProfile(profile: unknown): InstrumentProfileV2 {
     const validated = validateInstrumentProfileV2(profile);
     if (this.instruments.has(validated.id)) {
-      throw new Error(`Instrument profile ID "${validated.id}" is already registered`);
+      throw new ProfileError("duplicate_id", `Instrument profile ID "${validated.id}" is already registered`);
     }
     const stored = structuredClone(validated);
     this.instruments.set(stored.id, stored);
@@ -35,14 +38,43 @@ export class ProfileRegistry {
   registerSurveyProfile(profile: unknown): SurveyProfileV2 {
     const validated = validateSurveyProfileV2(profile);
     if (!this.instruments.has(validated.instrument_id)) {
-      throw new Error(`Unknown instrument profile ID "${validated.instrument_id}" referenced by survey profile "${validated.id}"`);
+      throw new ProfileError("unresolved_reference", `Unknown instrument profile ID "${validated.instrument_id}" referenced by survey profile "${validated.id}"`);
     }
     if (this.surveys.has(validated.id)) {
-      throw new Error(`Survey profile ID "${validated.id}" is already registered`);
+      throw new ProfileError("duplicate_id", `Survey profile ID "${validated.id}" is already registered`);
     }
     const stored = structuredClone(validated);
     this.surveys.set(stored.id, stored);
     return structuredClone(stored);
+  }
+
+  /** Register an entire instrument/survey document atomically.
+   * @param document - Untrusted established profile document.
+   * @returns Defensive copies of both registered profiles.
+   * @throws ProfileError for validation or any duplicate ID; no state changes on failure.
+   */
+  registerProfileDocument(document: unknown): ProfileDocument {
+    const validated = validateProfileDocument(document);
+    if (this.instruments.has(validated.instrument.id)) {
+      throw new ProfileError("duplicate_id", `Instrument profile ID "${validated.instrument.id}" is already registered`);
+    }
+    if (this.surveys.has(validated.survey.id)) {
+      throw new ProfileError("duplicate_id", `Survey profile ID "${validated.survey.id}" is already registered`);
+    }
+    const stored = structuredClone(validated);
+    this.instruments.set(stored.instrument.id, stored.instrument);
+    this.surveys.set(stored.survey.id, stored.survey);
+    return structuredClone(stored);
+  }
+
+  /** Resolve a survey and its instrument for canonical configuration export.
+   * @param id - Exact registered survey ID.
+   * @returns Fresh configuration copies without planning or catalogue state.
+   * @throws If the survey or its instrument is unknown.
+   */
+  resolveProfileDocument(id: string): ProfileDocument {
+    const survey = this.resolveSurveyProfile(id);
+    return { instrument: this.resolveInstrumentProfile(survey.instrument_id), survey };
   }
 
   /** Resolve an instrument profile by its stable ID.
@@ -100,8 +132,7 @@ export class ProfileRegistry {
  */
 export function createBundledProfileRegistry(): ProfileRegistry {
   const registry = new ProfileRegistry();
-  registry.registerInstrumentProfile(T80_SOUTH_INSTRUMENT_V2);
-  registry.registerSurveyProfile(SPLUS_SURVEY_V2);
+  registry.registerProfileDocument(BUNDLED_PROFILE_DOCUMENT);
   return registry;
 }
 

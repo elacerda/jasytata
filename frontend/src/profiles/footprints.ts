@@ -15,7 +15,8 @@ export function outputFootprintForProfile(
   profile: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
 ): Footprint {
-  const survey = registry.findSurveyProfile(profile.id);
+  // An explicit v1 bridge is geometry, independent of any equal registry ID.
+  const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findSurveyProfile(profile.id);
   if (survey) return registry.resolveInstrumentProfile(survey.instrument_id).footprint;
   return { type: "rectangle", width_deg: profile.tile_width_deg, height_deg: profile.tile_height_deg };
 }
