@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRegionPlanRequest, downloadCatalogue, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue } from "./api";
+import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/registry";
+import { parseProfileJson, serializeProfile } from "./profiles/document";
+import golden from "./data/golden.json";
 import type { TileRecord } from "./types";
 
 const proposal: TileRecord = {
@@ -71,13 +74,36 @@ describe("local facade and download", () => {
       expect(this.download).toBe("new_tiles.csv");
       expect(this.href).toBe("blob:jasytata-test");
     });
-    await downloadCatalogue([proposal], "splus-t80-south", "2000", "decimal");
+    await downloadCatalogue([proposal], "splus-t80-south");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(create).toHaveBeenCalledOnce();
     expect(click).toHaveBeenCalledOnce();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:jasytata-test");
   });
+  it("downloads imported T80 sexagesimal policy byte-for-byte like the frozen observer fixture", async () => {
+    const document = createBundledProfileRegistry().resolveProfileDocument("splus-t80-south");
+    document.survey.export.coordinate_format = "sexagesimal";
+    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJson(serializeProfile(document)));
+    let downloaded: Blob | undefined;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:t80"; }) });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await downloadCatalogue([proposal], document.survey.id, undefined, registry);
+    const csv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
+    });
+    expect(csv).toBe(golden.exports.sexagesimal);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  it("fails explicitly for an unresolved survey and creates no fallback download", async () => {
+    const create = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    await expect(downloadCatalogue([proposal], "missing-survey")).rejects.toThrow(/Unknown survey/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("local numerical facade", () => {

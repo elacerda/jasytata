@@ -305,7 +305,7 @@ function validateColumn(value: unknown, name: string): string {
 
 function validateExport(value: unknown): ExportPolicy {
   const policy = requireRecord(value, "Export policy");
-  rejectUnknownFields(policy, ["ra_column", "dec_column", "coordinate_format", "epoch", "position_angle_column", "constant_fields"], "Export policy");
+  rejectUnknownFields(policy, ["ra_column", "dec_column", "coordinate_format", "epoch", "position_angle_column", "identifiers", "constant_fields"], "Export policy");
   const ra = validateColumn(policy.ra_column, "RA output column");
   const dec = validateColumn(policy.dec_column, "DEC output column");
   if (ra === dec) throw new Error("Export output column names must be unique");
@@ -329,6 +329,21 @@ function validateExport(value: unknown): ExportPolicy {
     positionAngleColumn = validateColumn(policy.position_angle_column, "Position angle output column");
     columns.push(positionAngleColumn);
   }
+  let identifiers: ExportPolicy["identifiers"];
+  if (policy.identifiers !== undefined) {
+    const mapping = requireRecord(policy.identifiers, "Export identifiers");
+    const keys = ["id_column", "name_column", "group_column"] as const;
+    rejectUnknownFields(mapping, keys, "Export identifiers");
+    if (!Object.keys(mapping).length) throw new Error("Export identifiers must configure at least one column");
+    identifiers = {};
+    for (const key of keys) {
+      if (mapping[key] !== undefined) {
+        identifiers[key] = validateColumn(mapping[key], `Identifier ${key}`);
+        columns.push(identifiers[key]);
+      }
+    }
+    if (!Object.keys(identifiers).length) throw new Error("Export identifiers must configure at least one column");
+  }
   const constantEntries: Array<[string, string | number | boolean]> = [];
   if (policy.constant_fields !== undefined) {
     const constants = requireRecord(policy.constant_fields, "Export constant fields");
@@ -347,6 +362,7 @@ function validateExport(value: unknown): ExportPolicy {
     ra_column: ra, dec_column: dec, coordinate_format: policy.coordinate_format,
     ...(epoch ? { epoch } : {}),
     ...(positionAngleColumn !== undefined ? { position_angle_column: positionAngleColumn } : {}),
+    ...(identifiers !== undefined ? { identifiers } : {}),
     ...(policy.constant_fields !== undefined ? { constant_fields: constantFields } : {}),
   };
 }

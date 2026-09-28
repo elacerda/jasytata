@@ -2,7 +2,6 @@ import type {
   CenterInput,
   CatalogueResponse,
   CoverageStrategy,
-  CoordinateFormat,
   PlanMetrics,
   RegionPlanResponse,
   SkyPolygon,
@@ -90,23 +89,22 @@ export async function proposeCenters(
   return makeCenterProposals(centers, generationMethod);
 }
 
-/** Serialize an ICRS CSV locally and trigger a browser download.
- *
- * @param proposedTiles - Accepted enabled proposal positions.
- * @param profileId - Active observing profile.
- * @param epoch - Profile-approved descriptive catalogue epoch.
- * @param coordinateFormat - Decimal degrees or sexagesimal RA/DEC.
- * @param profile - Inline canonical profile for custom geometry.
- * @returns A promise that resolves after the browser download is triggered.
+/** Resolve the governing survey, serialize its policy and download locally.
+ * @param proposedTiles - Accepted proposals in acceptance order; disabled rows are omitted.
+ * @param surveyId - Exact active Schema v2 survey ID, never a source instrument ID.
+ * @param epoch - Optional allowed descriptive epoch; the policy supplies its default.
+ * @param registry - Validated session registry, injectable for isolated tests.
+ * @returns Resolves after triggering new_tiles.csv in the browser.
+ * @throws For unresolved/invalid surveys or export rows. No backend or fallback is used.
  */
 export async function downloadCatalogue(
   proposedTiles: TileRecord[],
-  profileId: string,
-  epoch: string,
-  coordinateFormat: CoordinateFormat,
-  profile?: TilingProfile,
+  surveyId: string,
+  epoch?: string,
+  registry: ProfileRegistry = profileRegistry,
 ): Promise<void> {
-  const blob = new Blob([buildExportCsv(proposedTiles, profileId, epoch, coordinateFormat, profile)], { type: "text/csv; charset=utf-8" });
+  const survey = registry.resolveSurveyProfile(surveyId);
+  const blob = new Blob([buildExportCsv(proposedTiles, survey, epoch)], { type: "text/csv; charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

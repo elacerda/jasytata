@@ -6,6 +6,7 @@ import type { RegionPlanResponse } from "./types";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { parseProfileJson, serializeProfile } from "./profiles/document";
 import { planRegion as planRegionLocal } from "./science/planner";
+import { readCsv } from "./science/catalogue";
 import smallJson from "./profiles/fixtures/small-camera.json";
 
 const session = vi.hoisted(() => ({ registry: null as ProfileRegistry | null }));
@@ -93,6 +94,19 @@ function blobText(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsText(blob);
   });
+}
+
+/** Capture the real browser download without network or filesystem output. */
+function captureCsvDownloads() {
+  const blobs: Blob[] = [];
+  vi.stubGlobal("URL", class extends URL {
+    static createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return "blob:pointings"; });
+    static revokeObjectURL = vi.fn();
+  });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    expect(this.download).toBe("new_tiles.csv");
+  });
+  return { blobs, click };
 }
 
 describe("minimal browser profile file controls", () => {
@@ -471,4 +485,97 @@ describe("minimal browser profile file controls", () => {
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:profile-test"));
     expect(document.querySelector('a[download]')).toBeNull();
   });
+  it("authors distinctive export policy, registers/selects it, plans/accepts without a catalogue and downloads deterministically", async () => {
+    const user = userEvent.setup();
+    const downloads = captureCsvDownloads();
+    apiSession.planRegion.mockImplementation(async (polygon, existing, id, inline, strategy) => planRegionLocal(polygon, existing, id, inline, strategy, session.registry!));
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    await user.type(screen.getByRole("textbox", { name: "Instrument ID" }), "export-camera");
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Export camera");
+    const angle = screen.getByRole("textbox", { name: "position angle (°)" });
+    await user.clear(angle); await user.type(angle, "23.5");
+    await user.click(screen.getByRole("button", { name: "Continue to survey" }));
+    await user.type(screen.getByRole("textbox", { name: "Survey ID" }), "export-survey");
+    await user.type(screen.getByRole("textbox", { name: "Survey display name" }), "Export survey");
+    for (const [label, value] of [["RA output column", "ALPHA_J2000"], ["DEC output column", "DELTA_J2000"],
+      ["Position angle output column · optional", "CAMERA_PA"], ["ID output column · optional", "TARGET"],
+      ["NAME output column · optional", "LABEL"], ["GROUP output column · optional", "COHORT"]]) {
+      const field = screen.getByRole("textbox", { name: label }); await user.clear(field); await user.type(field, value);
+    }
+    await user.selectOptions(screen.getByRole("combobox", { name: "Export coordinate format" }), "sexagesimal");
+    await user.type(screen.getByRole("textbox", { name: "New constant column" }), "PROJECT");
+    await user.click(screen.getByRole("button", { name: "Add constant field" }));
+    await user.type(screen.getByRole("textbox", { name: "Constant PROJECT value" }), 'pilot,"one"');
+    await user.click(screen.getByRole("button", { name: "Add profile" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), "export-survey");
+    expect(screen.queryByRole("combobox", { name: "Export epoch" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    const plan = await apiSession.planRegion.mock.results[0].value as RegionPlanResponse;
+    expect(plan.tiles.length).toBeGreaterThan(0);
+    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.anything(), [], "export-survey", undefined, "complete");
+    expect(plan.tiles.every((tile) => tile.original_values === null && !Object.hasOwn(tile.metadata, "PID"))).toBe(true);
+    await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
+    await waitFor(() => expect(downloads.blobs).toHaveLength(1));
+    const csv = await blobText(downloads.blobs[0]); const rows = readCsv(csv);
+    expect(rows[0]).toEqual(["ALPHA_J2000", "DELTA_J2000", "CAMERA_PA", "TARGET", "LABEL", "COHORT", "PROJECT"]);
+    expect(rows).toHaveLength(plan.tiles.length + 1);
+    expect(rows[1][0]).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+    expect(rows.slice(1).every((row) => row[2] === "23.50000000" && row[5] === "export-survey" && row[6] === 'pilot,"one"')).toBe(true);
+    expect(rows[1].slice(3, 5)).toEqual(["PROPOSED_0001", "PROPOSED_0001"]);
+    expect(csv).not.toContain("proposal-1-");
+    await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
+    expect(await blobText(downloads.blobs[1])).toBe(csv);
+    const registered = session.registry!.resolveProfileDocument("export-survey");
+    expect(parseProfileJson(serializeProfile(registered)).survey.export).toEqual(registered.survey.export);
+  });
+
+  it("imports export policy and uses active output survey across mixed source instruments without exporting or changing source rows", async () => {
+    const user = userEvent.setup(); const downloads = captureCsvDownloads();
+    const document = { ...smallJson, survey: { ...smallJson.survey, export: {
+      ra_column: "longitude", dec_column: "latitude", coordinate_format: "decimal",
+      epoch: { column: "EQUINOX", default: "J2016", allowed: ["J2000", "J2016"] },
+      constant_fields: { release: 7, calibrated: true, project: 'a,"b"\nc' },
+    } } };
+    render(<App />);
+    await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(document)));
+    await screen.findByText(/Imported survey profile:/);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), "small-survey");
+    const input = screen.getByLabelText("Choose catalogue CSV");
+    await user.upload(input, csvFile("RA,DEC,PID,NAME\n150,-30,arbitrary,Source A\n", "alpha.csv"));
+    await user.upload(input, csvFile("ra_deg,dec_deg,quality\n151,-31,untouched\n", "beta.csv"));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Catalogue instrument for alpha.csv" }), "t80-south");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Catalogue instrument for beta.csv" }), "small-camera");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    const sources = apiSession.planRegion.mock.lastCall![1]; const snapshot = structuredClone(sources);
+    expect(sources.map((tile: { instrument_profile_id: string }) => tile.instrument_profile_id)).toEqual(["t80-south", "small-camera"]);
+    await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
+    const csv = await blobText(downloads.blobs[0]);
+    expect(readCsv(csv)).toEqual([["longitude", "latitude", "EQUINOX", "calibrated", "project", "release"],
+      ["150.00000000", "-30.00000000", "J2016", "true", 'a,"b"\nc', "7"]]);
+    expect(csv).not.toMatch(/PID|quality|arbitrary|Source A|151\.00000000/);
+    expect(sources).toEqual(snapshot);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Export epoch" }), "J2000");
+    await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
+    expect(readCsv(await blobText(downloads.blobs[1]))[1][2]).toBe("J2000");
+  });
+
+  it("reports a useful missing-PA export error and creates no download", async () => {
+    const user = userEvent.setup(); const downloads = captureCsvDownloads(); render(<App />);
+    const document = { ...smallJson, survey: { ...smallJson.survey, export: { ...smallJson.survey.export, position_angle_column: "camera_pa" } } };
+    await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(document)));
+    await screen.findByText(/Imported survey profile:/);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), "small-survey");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
+    await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("no declared camera position angle required by 'camera_pa'");
+    expect(downloads.click).not.toHaveBeenCalled(); expect(downloads.blobs).toEqual([]);
+  });
+
 });

@@ -5,7 +5,7 @@ import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./catal
 import { formatDecDegrees, formatRaDegrees, normalizeRa, parseDecDegrees, parseRaDegrees, type RaUnit } from "./coordinates";
 import { buildExportCsv } from "./export";
 import { polygonBounds } from "./geometry";
-import { loadProfile, validateProfile } from "../profiles";
+import { SPLUS_SURVEY_V2, loadProfile, validateProfile } from "../profiles";
 import type { CatalogueResponse, TilingProfile } from "../types";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -99,16 +99,16 @@ describe("v0.2.0 T80-South compatibility: catalogue and profile references", () 
 describe("v0.2.0 T80-South compatibility: decimal and sexagesimal exports", () => {
   const proposal = { id: "proposal-1", name: "", ra_deg: 150.5, dec_deg: -24.25, source: "proposed" as const, enabled: true, generation_method: "manual" as const, original_values: null, metadata: {} };
   it("matches exact CRLF, fields, digits and sexagesimal formatting", () => {
-    expect(buildExportCsv([proposal], "splus-t80-south", undefined, "decimal")).toBe(golden.exports.decimal);
-    expect(buildExportCsv([proposal], "splus-t80-south", undefined, "sexagesimal")).toBe(golden.exports.sexagesimal);
+    expect(buildExportCsv([proposal], SPLUS_SURVEY_V2)).toBe(golden.exports.decimal);
+    expect(buildExportCsv([proposal], { ...SPLUS_SURVEY_V2, export: { ...SPLUS_SURVEY_V2.export, coordinate_format: "sexagesimal" } })).toBe(golden.exports.sexagesimal);
     const loaded = parseCatalogueCsv(bytes(golden.exports.decimal));
     expect(loaded.tiles[0].metadata).toEqual({ EPOCH: "2000" });
     expect(loaded.tiles[0].ra_deg).toBe(150.5);
   });
   it("rejects invalid epoch, source and empty active set", () => {
-    expect(() => buildExportCsv([proposal], "splus-t80-south", "2050")).toThrow(/not allowed/);
-    expect(() => buildExportCsv([{ ...proposal, enabled: false }])).toThrow(/Enable at least one/);
-    expect(() => buildExportCsv([{ ...proposal, source: "original" }])).toThrow(/only proposed/);
+    expect(() => buildExportCsv([proposal], SPLUS_SURVEY_V2, "2050")).toThrow(/not allowed/);
+    expect(() => buildExportCsv([{ ...proposal, enabled: false }], SPLUS_SURVEY_V2)).toThrow(/Enable at least one/);
+    expect(() => buildExportCsv([{ ...proposal, source: "original" }], SPLUS_SURVEY_V2)).toThrow(/only proposed/);
   });
 });
 

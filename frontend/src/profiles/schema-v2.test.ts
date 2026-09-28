@@ -185,6 +185,20 @@ describe("Profile Schema v2", () => {
     expect(() => validateSurveyProfileV2(surveyWithExport({ ...baseline, ra_column: "  " }))).toThrow(/non-empty/);
   });
 
+  it("strictly validates optional identifier mappings and all header collisions", () => {
+    const baseline = SPLUS_SURVEY_V2.export;
+    for (const identifiers of [{}, { id_column: "" }, { name_column: "  " }, { group_column: 1 }, { pid: "PID" }]) {
+      expect(() => validateSurveyProfileV2(surveyWithExport({ ...baseline, identifiers }))).toThrow();
+    }
+    for (const identifiers of [{ id_column: "RA" }, { name_column: "EPOCH" }, { id_column: "target", group_column: "target" }]) {
+      expect(() => validateSurveyProfileV2(surveyWithExport({ ...baseline, identifiers }))).toThrow(/unique/);
+    }
+    expect(() => validateSurveyProfileV2(surveyWithExport({ ...baseline, identifiers: { id_column: "target" }, position_angle_column: "target" }))).toThrow(/unique/);
+    expect(() => validateSurveyProfileV2(surveyWithExport({ ...baseline, identifiers: { group_column: "project" }, constant_fields: { project: true } }))).toThrow(/unique/);
+    const identifiers = { id_column: "target", name_column: "label", group_column: "project" };
+    expect(validateSurveyProfileV2(surveyWithExport({ ...baseline, identifiers })).export.identifiers).toEqual(identifiers);
+  });
+
   it("rejects schema versions other than 2", () => {
     expect(() => validateInstrumentProfileV2({ ...T80_SOUTH_INSTRUMENT_V2, schema_version: 1 })).toThrow(/schema_version/);
     expect(() => validateSurveyProfileV2({ ...SPLUS_SURVEY_V2, schema_version: 3 })).toThrow(/schema_version/);

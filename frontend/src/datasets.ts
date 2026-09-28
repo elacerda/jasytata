@@ -54,6 +54,7 @@ export function createDataset(
       id: `${id}:${tile.id}`,
       dataset_id: id,
       dataset_name: result.filename,
+      // Namespace the legacy inference group without merging independent uploads.
       group_id: `${id}:${tile.group_id ?? "catalogue"}`,
     })),
   };

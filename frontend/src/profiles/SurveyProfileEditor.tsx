@@ -83,7 +83,7 @@ export function SurveyProfileEditor({ instrument, onBack, onCancel, onRegister }
     <NumericField key={path.join(".")} label={label} path={path} value={value} inputValues={numberInputs} onChange={updateNumber} />
   );
   const text = (label: string, value: string, onChange: (value: string) => void) => (
-    <label className="instrument-editor-field"><span>{label}</span>
+    <label key={label} className="instrument-editor-field"><span>{label}</span>
       <input type="text" aria-label={label} value={value} onChange={(event) => onChange(event.currentTarget.value)} />
     </label>
   );
@@ -235,7 +235,7 @@ export function SurveyProfileEditor({ instrument, onBack, onCancel, onRegister }
       </section>
       <section className="instrument-editor-section" aria-labelledby="survey-export-heading">
         <h3 id="survey-export-heading">Export policy</h3>
-        <p className="instrument-editor-help">These fields are saved in profile JSON. Current pointing CSV downloads still use the existing output format.</p>
+        <p className="instrument-editor-help">The active survey uses this policy for pointing CSV downloads. PA requires an explicitly declared camera orientation; lattice rotation is independent.</p>
         <div className="instrument-editor-grid">
           {text("RA output column", exportPolicy.ra_column, (value) => setSurveyDraft((current) => replacePath(current, ["export", "ra_column"], value)))}
           {text("DEC output column", exportPolicy.dec_column, (value) => setSurveyDraft((current) => replacePath(current, ["export", "dec_column"], value)))}
@@ -256,6 +256,19 @@ export function SurveyProfileEditor({ instrument, onBack, onCancel, onRegister }
           </label>
         </div>}
         {text("Position angle output column · optional", exportPolicy.position_angle_column ?? "", (value) => setSurveyDraft((current) => replacePath(current, ["export", "position_angle_column"], value === "" ? undefined : value)))}
+        <h4>Generated identifiers · optional</h4>
+        <p className="instrument-editor-help">ID uses acceptance order (PROPOSED_0001); name uses the proposal name or ID; group uses the survey ID. Source PID and runtime IDs are never copied.</p>
+        <div className="instrument-editor-grid">
+          {(["id", "name", "group"] as const).map((semantic) => text(`${semantic.toUpperCase()} output column · optional`, exportPolicy.identifiers?.[`${semantic}_column`] ?? "", (value) => {
+            setSurveyDraft((current) => {
+              const identifiers = { ...current.export.identifiers };
+              if (value === "") delete identifiers[`${semantic}_column`]; else identifiers[`${semantic}_column`] = value;
+              const policy = { ...current.export };
+              if (Object.keys(identifiers).length) policy.identifiers = identifiers; else delete policy.identifiers;
+              return { ...current, export: policy };
+            });
+          }))}
+        </div>
         <h4>Constant fields</h4>
         <p className="instrument-editor-help">Add column keys with string, finite number or boolean values. Remove a key to replace its name.</p>
         {Object.entries(exportPolicy.constant_fields ?? {}).map(([column, value]) => <div className="survey-editor-constant" key={column}>

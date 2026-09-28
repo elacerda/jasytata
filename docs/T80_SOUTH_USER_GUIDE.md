@@ -250,6 +250,13 @@ RA,DEC,EPOCH
 
 Esse é o arquivo que deve ser guardado para uso posterior no planejamento da observação.
 
+O preset S-PLUS/T80-South fornece automaticamente as colunas `RA,DEC,EPOCH`,
+coordenadas decimais e epoch `2000`. Não é necessário configurar campos de
+exportação. O painel mostra o formato definido pelo survey ativo; uma variante
+de perfil com `coordinate_format: "sexagesimal"` usa o mesmo formato sexagesimal
+histórico (RA em horas e DEC em graus). O formato agora pertence ao perfil,
+em vez de ser uma escolha independente em cada download.
+
 ---
 
 # 10. Adicionando apenas um campo

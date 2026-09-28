@@ -15,6 +15,9 @@ export interface TileRecord {
   ra_deg: number;
   /** Canonical declination in ICRS decimal degrees, in [-90, 90]. */
   dec_deg: number;
+  /** Declared camera PA in astronomical degrees east of north.
+   * Absent when no orientation is declared; never inferred from lattice rotation. */
+  position_angle_deg?: number;
   source: TileSource;
   /** Whether this proposed tile participates in the active solution. */
   enabled?: boolean;
@@ -25,6 +28,7 @@ export interface TileRecord {
   instrument_profile_id?: string | null;
   /** Dataset inference role, copied onto source tiles for scientific planning. */
   inference_role?: InferenceRole;
+  /** Historical source grouping used only by legacy S-PLUS inference, never generic export. */
   group_id?: string | null;
   ra_column?: string | null;
   dec_column?: string | null;
@@ -250,6 +254,12 @@ export interface ExportPolicy {
     allowed: string[];
   };
   position_angle_column?: string;
+  /** Optional labels for generated observer identifiers, independent of runtime IDs and source metadata. */
+  identifiers?: {
+    id_column?: string;
+    name_column?: string;
+    group_column?: string;
+  };
   constant_fields?: Record<string, string | number | boolean>;
 }
 

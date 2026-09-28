@@ -97,6 +97,7 @@ describe("complete Schema v2 profile authoring", () => {
     await user.click(screen.getByRole("checkbox", { name: "Include epoch policy" }));
     await edit(user, "Epoch output column", "equinox"); await edit(user, "Default export epoch", "J2016"); await edit(user, "Allowed export epochs", "J2000\nJ2016");
     await edit(user, "Position angle output column · optional", "pa");
+    for (const semantic of ["ID", "NAME", "GROUP"]) await edit(user, `${semantic} output column · optional`, semantic.toLowerCase());
     for (const key of ["release", "exposure", "calibrated", "__proto__"]) {
       await edit(user, "New constant column", key); await user.click(screen.getByRole("button", { name: "Add constant field" }));
     }
@@ -116,7 +117,7 @@ describe("complete Schema v2 profile authoring", () => {
     expect(parsed.survey.tiling).toEqual({ type: "lattice", basis_deg: [[0.8, 0.6], [-0.6, 0.8]], origin: { type: "fixed_anchor", ra_deg: 150.25, dec_deg: -30.125 } });
     expect(parsed.survey.inference).toEqual({ enabled: true, allow_rotation: true, spacing_tolerance_fraction: 0.17, phase_tolerance_fraction: 0.23, occupancy_tolerance_fraction: 0.11, min_anchor_tiles: 4, min_neighbor_pairs: 3 });
     expect(parsed.survey.coverage).toEqual({ sampling: { target_samples_per_footprint_axis: 12, max_samples: 4321 }, efficient: { min_coverage: 0.82, min_marginal_efficiency: 0.27 } });
-    expect(parsed.survey.export).toEqual({ ra_column: "right_ascension", dec_column: "declination", coordinate_format: "sexagesimal", epoch: { column: "equinox", default: "J2016", allowed: ["J2000", "J2016"] }, position_angle_column: "pa", constant_fields: Object.fromEntries([["release", "pilot"], ["exposure", 123.5], ["calibrated", true], ["__proto__", "ordinary metadata"]]) });
+    expect(parsed.survey.export).toEqual({ ra_column: "right_ascension", dec_column: "declination", coordinate_format: "sexagesimal", epoch: { column: "equinox", default: "J2016", allowed: ["J2000", "J2016"] }, position_angle_column: "pa", identifiers: { id_column: "id", name_column: "name", group_column: "group" }, constant_fields: Object.fromEntries([["release", "pilot"], ["exposure", 123.5], ["calibrated", true], ["__proto__", "ordinary metadata"]]) });
     const authored = await registerDraft(user, register);
     expect(authored).toEqual(parsed);
     const imported = new ProfileRegistry(); imported.registerProfileDocument(parseProfileJson(json));
@@ -132,6 +133,22 @@ describe("complete Schema v2 profile authoring", () => {
     expect(Object.keys(parsed)).toEqual(["instrument", "survey"]);
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:authoring"));
   }, 20000);
+
+  it("authors each identifier column, rejects collisions and removes an empty optional mapping", async () => {
+    const user = userEvent.setup(); const register = vi.fn<(document: ProfileDocument) => void>();
+    render(<InstrumentProfileEditor onCancel={vi.fn()} onRegister={register} />); await openSurvey(user);
+    await edit(user, "ID output column · optional", "RA");
+    expect(screen.getByRole("alert")).toHaveTextContent("unique");
+    expect(screen.getByRole("button", { name: "Add profile" })).toBeDisabled();
+    await edit(user, "ID output column · optional", "target");
+    await edit(user, "NAME output column · optional", "target");
+    expect(screen.getByRole("alert")).toHaveTextContent("unique");
+    await edit(user, "NAME output column · optional", "label");
+    await edit(user, "GROUP output column · optional", "project");
+    expect(screen.getByRole("status")).toHaveTextContent("Profile valid");
+    for (const semantic of ["ID", "NAME", "GROUP"]) await edit(user, `${semantic} output column · optional`, "");
+    expect((await registerDraft(user, register)).survey.export).not.toHaveProperty("identifiers");
+  });
 
   it("keeps region-center origin free of anchors and optional Efficient/epoch policies absent", async () => {
     const user = userEvent.setup(); const register = vi.fn<(document: ProfileDocument) => void>();

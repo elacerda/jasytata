@@ -73,6 +73,8 @@ export function parseCatalogueCsv(contents: Uint8Array, filename = "catalogue.cs
       tiles.push({
         id: `original-${i}`, name: row.NAME ?? `Row ${i}`,
         ra_deg: parseRaDegrees(row[raColumn], raUnit), dec_deg: parseDecDegrees(row[decColumn!]),
+        // Retain historical PID grouping solely for frozen legacy_splus inference.
+        // Generic inference/export ignore this compatibility field and all source headers.
         source: "original", enabled: true, dataset_id: filename, group_id: `${filename}:${row.PID ?? ""}`,
         ra_column: raColumn, dec_column: decColumn, generation_method: null,
         original_values: row, metadata,

@@ -212,7 +212,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
         expect.objectContaining({ generation_method: "manual" }),
         expect.objectContaining({ generation_method: "imported_centers" }),
       ]),
-      "splus-t80-south", "2000", "decimal",
+      "splus-t80-south", undefined,
     );
   });
 
@@ -282,7 +282,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", "2000", "decimal",
+      "splus-t80-south", undefined,
     );
   });
 
@@ -346,7 +346,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledOnce();
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", "2000", "decimal",
+      "splus-t80-south", undefined,
     );
 
     await user.click(screen.getByRole("button", { name: "Clear proposal" }));
@@ -490,7 +490,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.downloadCatalogue).not.toHaveBeenCalled();
   });
 
-  it("uses the profile epoch and selected sexagesimal representation", async () => {
+  it("uses the governing survey policy without a coordinate-format override", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: /load reference/i }));
@@ -498,11 +498,12 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
     expect((screen.getByRole("combobox", { name: "Export epoch" }) as HTMLSelectElement).value).toBe("2000");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Export coordinates" }), "sexagesimal");
+    expect(screen.queryByRole("combobox", { name: "Export coordinates" })).toBeNull();
+    expect(screen.getByText("Coordinates: Decimal degrees (survey policy)")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ enabled: true })]),
-      "splus-t80-south", "2000", "sexagesimal",
+      "splus-t80-south", undefined,
     );
     await user.click(screen.getByRole("button", { name: "Disable all" }));
     expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
@@ -608,7 +609,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", "2000", "decimal",
+      "splus-t80-south", undefined,
     );
   });
 

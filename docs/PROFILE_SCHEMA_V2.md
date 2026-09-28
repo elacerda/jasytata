@@ -112,7 +112,8 @@ cap, and optional Efficient stopping thresholds. Gate 6A consumes `sampling`
 for generic lattice/manual coverage; Gate 6B consumes `efficient` for automatic
 selection, including Schema v2 `legacy_splus`. `ExportPolicy` describes
 coordinate columns and format, optional epoch and position-angle columns, and
-constant output fields.
+constant output fields and optional generated identifier column mappings. Gate 7C
+consumes this same validated policy for all pointing CSV downloads.
 
 ### Versioned field validation (Gate 7A)
 
@@ -244,7 +245,7 @@ generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
 are operational. Scientific error validation (G6C) passes for the documented
 resolved local geometries and policies. Gate 7A profile JSON import/export,
 Gate 7B1 registry-backed selection/assignment, and Gate 7B2 instrument/survey
-authoring are complete. Configurable CSV output (Gate 7C) remains deferred.
+authoring and survey-policy-driven CSV output (Gate 7C) are complete.
 Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
@@ -380,8 +381,9 @@ column/default/allowed values, optional position-angle column and free-form
 `constant_fields`. Constant entries support string, finite number and boolean
 values; add/remove keys and edit typed values. Existing keys are never silently
 overwritten by another add. All column collisions and policy validity use the
-shared validator. These declarations are preserved in JSON; runtime pointing CSV
-mapping remains Gate 7C work.
+shared validator. Optional generated ID/name/group output labels use the same
+validation. These declarations are preserved in JSON and drive runtime pointing
+CSV immediately after registration and survey selection.
 
 Numeric text that is temporarily incomplete stays in UI-only buffers shared
 with the instrument editor; empty text does not become zero and values are not
@@ -442,3 +444,96 @@ bundled data. Strategy identity (`legacy_splus`) selects compatibility algorithm
 not instrument or survey names. See the focused tests in
 `frontend/src/profiles/document.test.ts` and browser controls in
 `frontend/src/App.profile-files.test.tsx`.
+
+
+## Pointing CSV contract (Gate 7C)
+
+The governing `SurveyProfileV2.export` policy is authoritative for bundled,
+imported and browser-authored profiles. The download API resolves that survey by
+its exact registry ID and validates the policy again before serialization. Unknown
+surveys and invalid policies fail explicitly; there is no S-PLUS fallback. Dataset
+instruments and arbitrary source headers never select output format. The workspace
+shows the policy's coordinate representation rather than keeping a second format
+setting in React state.
+
+`TileRecord.ra_deg` and `dec_deg` remain canonical ICRS decimal degrees, with RA
+in `[0,360)` and DEC in `[-90,90]`. Formatting never modifies them. Output labels
+`ra_column` and `dec_column` are arbitrary non-empty strings, with no inferred
+scientific meaning. `coordinate_format: "decimal"` uses degrees with eight decimal
+places and a locale-independent `.` separator. `"sexagesimal"` reuses the trusted
+RA-hour/DEC-degree helpers with three decimal places in seconds. Historical sign
+conventions remain: negative DEC (including negative zero) has `-`, nonnegative
+DEC has no prefix. Rounding near RA 360° may produce `24:00:00.000`, equivalent to
+0h and accepted by the existing coordinate parser. No precession is performed.
+
+Absent `epoch` omits the column. When present, `epoch.column` names the output,
+`epoch.default` supplies the descriptive value for every row, and the browser may
+select only from `epoch.allowed`. A singleton allowed list defines a constant
+epoch. Epoch is never read from a source row or interpreted as a coordinate
+transformation. The bundled T80 policy supplies `EPOCH=2000`.
+
+Absent `position_angle_column` omits PA. When requested, the pointing must carry
+finite `position_angle_deg`: astronomical degrees east of north, matching the
+footprint engine. On acceptance the browser copies an explicitly declared
+**top-level** output instrument footprint PA when the proposal has no declared PA.
+This records the camera orientation already used for that proposal's footprint;
+it is independent of lattice basis orientation and inferred rotation. Compound
+child rotations remain detector geometry, not camera PA. Circles have no declared
+orientation. An absent footprint angle is not promoted to an export default of
+zero: a requested PA with no declared value fails with a useful UI error before
+creating a download. An explicitly declared zero is valid. PA uses eight decimal
+places, with no angle normalization or invented value.
+
+Optional `export.identifiers` adds these declarative output labels:
+
+```json
+{ "id_column": "TARGET", "name_column": "LABEL", "group_column": "COHORT" }
+```
+
+Each member is optional, but a present mapping must configure at least one
+non-empty column. Generated IDs are `PROPOSED_0001`, `PROPOSED_0002`, etc. from the
+complete accepted input sequence, before disabled rows are omitted. Names use the
+proposal's declared non-empty name, or the generated ID. Group uses the governing
+survey ID as an observer-facing output cohort. These values have no planner
+meaning. Runtime proposal IDs, source `PID`, and legacy `group_id` are never used
+as exported identifiers. Clearing proposals starts a new export sequence; exports
+are not intended to maintain identifiers across independent browser sessions.
+
+Columns are ordered explicitly: RA, DEC, optional epoch, optional PA, optional
+ID, name, group in that semantic order, then `constant_fields` keys sorted by
+Unicode code-unit order. This order is independent of JSON/JavaScript insertion
+order and locale. Strict validation rejects unknown mapping fields, invalid
+formats, empty labels and any duplicate between coordinates, epoch, PA,
+identifiers and constants. Constants allow string, finite number and boolean
+values; every row receives the same values, serialized consistently via `String`
+(number decimal point, `true`/`false` for booleans). All header and data cells use
+CSV escaping: comma, quote, CR or LF causes quotation, and embedded quotes double.
+Row separators are CRLF with a final CRLF. Repeated exports of identical accepted
+state and policy are byte-for-byte identical.
+
+The browser retains the existing `new_tiles.csv` filename and **enabled accepted
+proposals only** workflow. No full-catalogue export exists in this browser version;
+source rows are rejected by the pointing exporter and remain immutable for
+inspection/planning. Mixed datasets keep their own instruments for coverage and
+inference, but accepted additions always use the active output survey policy.
+No catalogue is required to plan, accept and export. An empty/all-disabled proposal
+set keeps the download button disabled; the serializer also rejects it rather
+than creating misleading rows. The existing 500-proposal export limit remains.
+
+### Remaining PID/group compatibility boundary
+
+`science/catalogue.ts` retains `NAME` as an inspection label and constructs a
+historical PID-derived `group_id` solely for frozen S-PLUS inference.
+`datasets.ts` namespaces that legacy group by upload to preserve independent
+catalogues. Only `science/planner.ts`'s `inferLattice`, reached through
+`planLegacyRegion` for the declared `legacy_splus` compatibility strategy, consumes
+those source groups. Generic `science/lattice-inference.ts` groups by dataset and
+instrument identity and ignores PID/group labels. Generic export rejects source
+rows and consumes neither PID nor legacy group identity. Test fixtures retain PID
+where they freeze T80 behavior or prove generic independence. There is no T80
+profile-ID branch in export resolution, row construction or CSV serialization.
+The v1 compatibility adapter's historical CSV-shape guard is confined to that
+legacy adapter; registered v2 runtime export does not pass through it.
+
+Gate 8's broad telescope/survey validation matrix and Gate 9's complete authoring
+guide remain deferred.

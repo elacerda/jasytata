@@ -12,7 +12,6 @@ import type {
   CenterInput,
   CatalogueDataset,
   CatalogueResponse,
-  CoordinateFormat,
   CoverageStrategy,
   InferenceDiagnostics,
   PlanMetrics,
@@ -20,7 +19,6 @@ import type {
   RegionPlanResponse,
   SurveyProfileV2,
   TileRecord,
-  TilingProfile,
 } from "./types";
 
 interface ProposalPreview {
@@ -85,8 +83,7 @@ export default function App() {
   const [importText, setImportText] = useState("");
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
-  const [exportEpoch, setExportEpoch] = useState(DEFAULT_PROFILE.export_epoch_default);
-  const [coordinateFormat, setCoordinateFormat] = useState<CoordinateFormat>("decimal");
+  const [exportEpoch, setExportEpoch] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -364,11 +361,14 @@ export default function App() {
   }
 
   function acceptPreview() {
-    if (!pending) return;
+    if (!pending || !activeInstrument) return;
+    const declaredPa = activeInstrument.footprint.type === "circle" ? undefined : activeInstrument.footprint.position_angle_deg;
     const batch = ++proposalBatchRef.current;
     const proposalsToAdd = pending.tiles.map((tile) => ({
       ...tile,
       id: `proposal-${batch}-${tile.id}`,
+      // Camera orientation is declared independently of the lattice basis/inferred rotation.
+      ...(tile.position_angle_deg !== undefined ? {} : declaredPa !== undefined ? { position_angle_deg: declaredPa } : {}),
       source: "proposed" as const,
       enabled: true,
     }));
@@ -400,12 +400,11 @@ export default function App() {
 
   function activateSurvey(surveyId: string) {
     let nextSurvey: SurveyProfileV2;
-    let nextProfile: TilingProfile;
     let nextInstrumentName: string;
     try {
       nextSurvey = profileRegistry.resolveSurveyProfile(surveyId);
       nextInstrumentName = profileRegistry.resolveInstrumentProfile(nextSurvey.instrument_id).display_name;
-      nextProfile = loadProfile(surveyId);
+      loadProfile(surveyId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The selected survey or its instrument could not be resolved.");
       return;
@@ -416,7 +415,7 @@ export default function App() {
     }
     regionRevisionRef.current += 1;
     setActiveSurveyId(surveyId);
-    setExportEpoch(nextProfile.export_epoch_default);
+    setExportEpoch(undefined);
     setProposals([]);
     setPending(null);
     setProposalContext(null);
@@ -454,9 +453,12 @@ export default function App() {
   }
 
   async function exportFile() {
-    if (!profile || !activeSurvey || !activeInstrument || !enabledProposals.length) return;
+    if (!activeSurvey || !activeInstrument) {
+      setError(activeResolution.error ?? "Resolve a valid survey and export policy before downloading.");
+      return;
+    }
     await runBusy(
-      () => downloadCatalogue(enabledProposals, activeSurveyId, exportEpoch, coordinateFormat),
+      () => downloadCatalogue(proposals, activeSurveyId, exportEpoch),
       () => setNotice("new_tiles.csv downloaded."),
     );
   }
@@ -891,20 +893,15 @@ export default function App() {
             <SectionHeading title="Export new tiles" />
             <p className="panel-copy">{proposals.length} generated · {enabledProposals.length} enabled · {proposals.length - enabledProposals.length} disabled</p>
             <div className="export-fields">
-              <label className="field-label">Coordinates
-                <select aria-label="Export coordinates" value={coordinateFormat} onChange={(event) => setCoordinateFormat(event.target.value as CoordinateFormat)}>
-                  <option value="decimal">Decimal degrees</option>
-                  <option value="sexagesimal">Sexagesimal</option>
+              <p className="field-label">Coordinates: {activeSurvey?.export.coordinate_format === "sexagesimal" ? "Sexagesimal hours / degrees" : "Decimal degrees"} (survey policy)</p>
+              {activeSurvey?.export.epoch && <label className="field-label">{activeSurvey.export.epoch.column}
+                <select aria-label="Export epoch" value={exportEpoch ?? activeSurvey.export.epoch.default} onChange={(event) => setExportEpoch(event.target.value)}>
+                  {activeSurvey.export.epoch.allowed.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
-              </label>
-              <label className="field-label">Epoch
-                <select aria-label="Export epoch" value={exportEpoch} onChange={(event) => setExportEpoch(event.target.value)}>
-                  {profile?.export_epoch_options.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              </label>
+              </label>}
             </div>
             <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !profile || !activeSurvey || !activeInstrument || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <p className="fine-print">{activeSurvey?.display_name ?? "Active survey unavailable"} · ICRS RA/DEC · EPOCH {exportEpoch || "not configured"}. Export contains enabled proposals only.</p>
+            <p className="fine-print">{activeSurvey?.display_name ?? "Active survey unavailable"} · ICRS {activeSurvey?.export.ra_column}/{activeSurvey?.export.dec_column}{activeSurvey?.export.epoch ? ` · ${activeSurvey.export.epoch.column} ${exportEpoch ?? activeSurvey.export.epoch.default}` : " · no epoch column"}. Export contains enabled proposals only.</p>
           </section>
         </aside>
       </section>
