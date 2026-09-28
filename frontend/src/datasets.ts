@@ -1,6 +1,5 @@
 import type { CatalogueDataset, CatalogueResponse } from "./types";
-import { profileRegistry } from "./profiles";
-import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
+import { profileRegistry, type ProfileRegistry } from "./profiles";
 
 const BASE_HUES = [188, 270, 115, 325, 215, 70, 155, 295];
 
@@ -21,15 +20,26 @@ export function datasetColor(index: number): string {
  * @param result - Catalogue parsed in the browser.
  * @param index - Zero-based insertion order for deterministic color selection.
  * @param id - Stable session identifier for this upload.
- * @param instrumentProfileId - Optional explicit instrument override. The bundled
- *   reference association wins only when no override is supplied; otherwise the
- *   only currently bundled instrument, T80-South, is the import default.
+ * @param instrumentProfileId - Optional explicit instrument override. A profile
+ *   declared by the catalogue wins when no override is supplied. If the registry
+ *   has one instrument, it remains the convenient default; multiple available
+ *   instruments require an explicit choice.
+ * @param registry - Session registry used to validate the instrument association.
  * @returns Independent dataset with source origins and collision-free row IDs.
  * @throws If the selected instrument profile is not registered.
  */
-export function createDataset(result: CatalogueResponse, index: number, id: string, instrumentProfileId?: string): CatalogueDataset {
-  const associatedInstrumentId = instrumentProfileId ?? result.instrument_profile_id ?? T80_SOUTH_INSTRUMENT_V2.id;
-  profileRegistry.resolveInstrumentProfile(associatedInstrumentId);
+export function createDataset(
+  result: CatalogueResponse,
+  index: number,
+  id: string,
+  instrumentProfileId?: string,
+  registry: ProfileRegistry = profileRegistry,
+): CatalogueDataset {
+  const registeredInstruments = registry.listInstrumentProfiles();
+  const associatedInstrumentId = instrumentProfileId
+    ?? result.instrument_profile_id
+    ?? (registeredInstruments.length === 1 ? registeredInstruments[0].id : null);
+  if (associatedInstrumentId) registry.resolveInstrumentProfile(associatedInstrumentId);
   return {
     id,
     filename: result.filename,

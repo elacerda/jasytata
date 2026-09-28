@@ -55,7 +55,8 @@ function dataset(id: string, filename: string, visible = true, instrumentProfile
   const tile: TileRecord = {
     id: `${id}:1`, name: filename, ra_deg: 150, dec_deg: -30,
     source: "original", generation_method: null,
-    dataset_id: id, dataset_name: filename, original_values: { ra: "150", dec: "-30" },
+    dataset_id: id, dataset_name: filename, instrument_profile_id: instrumentProfileId,
+    inference_role: "auto", original_values: { ra: "150", dec: "-30" },
     metadata: { quality: "good" },
   };
   return { id, filename, color: id === "a" ? "cyan" : "violet", ra_column: "ra",

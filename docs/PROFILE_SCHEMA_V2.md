@@ -242,8 +242,10 @@ proposal metadata. No frozen fixture values change.
 Declared tiling, generic footprints, generic existing-grid inference (Gate 5),
 generic scale-aware sampling (Gate 6A), and profile-driven selection (Gate 6B)
 are operational. Scientific error validation (G6C) passes for the documented
-resolved local geometries and policies; profile JSON import/export is complete in Gate 7A. The visual editor (Gate 7B)
-and configurable CSV output (Gate 7C) remain deferred. Compatibility sampling uses
+resolved local geometries and policies. Gate 7A profile JSON import/export and
+Gate 7B1 registry-backed selection/assignment are complete. Schema v2 profile
+authoring (Gate 7B2) and configurable CSV output (Gate 7C) remain deferred.
+Compatibility sampling uses
 `legacySampleLayout` through the one-argument sampling adapter: `legacy_splus`
 and inline v1 `RECT_GRID_V1` retain the frozen nominal 0.01-degree pitch,
 90,000-cell cap, minimum eight cells per axis, and historical metric shape.
@@ -265,7 +267,7 @@ by generic lattice inference; legacy_splus remains a nonrotating compatibility
 algorithm. Efficient thresholds are consumed from survey data. The local cosine/wrapped-RA approximation remains;
 large regions and near-pole planning do not become exact spherical geometry.
 
-## Gate 7A JSON file lifecycle
+## Profile JSON lifecycle and selection
 
 The user-facing file contract is the existing bundled structure:
 
@@ -301,25 +303,35 @@ structure, geometry, tiling, policy, references, and duplicate IDs.
 `ProfileRegistry.registerProfileDocument` validates the entire pair and checks
 both IDs before inserting either member. IDs remain unique **within each kind**;
 ordinary import rejects any existing instrument or survey ID, even when its
-configuration is identical. It never overwrites bundled T80. Browser import also
-rejects a survey ID occupied by the active legacy inline custom draft; selecting
-a registered profile releases that inline identity. The ID `custom` remains valid
-for an imported v2 survey when no inline draft occupies it. Conflicts and
+configuration is identical. It never overwrites bundled T80. Conflicts and
 invalid data leave the registry unchanged. Registry lookup is exact, listing
 is sorted by ID, and registered/returned data is defensively copied. Direct
 survey registration still requires an already registered instrument. The file
 format's pair reference must resolve to that file's instrument.
 
-In the Tile profile panel, **Import profile** opens a JSON file chooser and
-shows success or a useful validation error. Successful imports appear in the
-survey selector and the existing catalogue instrument selector; selection uses
-the same registry as planning, inference, coverage, and map footprints. Import
-does not implicitly switch the active survey or clear a plan. Changing the active
-survey uses the existing plan-reset behavior. Profiles live only in browser
-memory for the current page session. No backend, database, profile localStorage,
-or network import is involved; reloading restores bundled defaults.
+In the Survey profile panel, **Import profile** opens a JSON file chooser and
+shows success or a useful validation error. Successful imports appear immediately
+in the active survey selector and catalogue instrument selectors through the
+same `ProfileRegistry` used by planning, inference, coverage, and map footprints.
+Import does not implicitly switch the active survey or clear a plan. The active
+survey selects the output planning policy; its `instrument_id` resolves the
+output instrument, with no independent output-instrument selector. Changing the
+active survey invalidates generated proposals. Profiles live only in browser
+memory for the current page session; reload restores the bundled S-PLUS survey
+and T80-South instrument defaults.
 
-**Export profile JSON** downloads the selected registered v2 survey together
+Each catalogue dataset has its own instrument assignment and inference
+participation (`auto`, `include`, or `exclude`). The bundled reference catalogue
+keeps its T80-South association. When only one instrument is registered, an
+arbitrary catalogue retains that unique-instrument convenience default. Once
+multiple instruments are available, an arbitrary catalogue requires an explicit
+assignment before region planning. Assignment changes update dataset metadata,
+leave original CSV rows unchanged, and invalidate generated proposals. `exclude`
+removes a dataset from lattice inference only; its assigned footprint still
+contributes to coverage. A catalogue is optional when the selected survey
+supports automatic tiling.
+
+**Export survey JSON** downloads the active registered v2 survey together
 with its linked instrument as `<survey-id>.json`. Validated profile IDs already
 contain only lowercase letters, digits, and hyphens, so no identity mutation is
 needed for browser filename safety. `serializeProfile` revalidates and rebuilds
@@ -335,9 +347,11 @@ budget-limited flag, actual cell dimensions, catalogue rows, proposals, disabled
 and selected tiles, and polygon/UI state are excluded. Declared fixed anchors
 and footprint position angles remain configuration and are preserved. Declared
 `ExportPolicy` fields are preserved as data; this gate does not implement their
-future configurable CSV output contract. The pre-existing inline v1 custom
-rectangle draft remains available; it has no v2 registry document and its JSON
-export button stays disabled rather than inventing an implicit schema migration.
+future configurable CSV output contract. The pre-G7 inline v1 custom rectangle
+editor is no longer exposed in the active planning UI because it bypassed the
+selected Schema v2 survey policies. Rectangle authoring will return as part of
+the generic Schema v2 authoring work in Gate 7B2; legacy inline APIs remain
+transitional and do not appear in the registry selector.
 
 S-PLUS/T80 is the bundled reference profile, available by default for observer
 convenience. Its file and user imports share the document validators, registry

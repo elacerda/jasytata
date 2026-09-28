@@ -2,11 +2,13 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type { RegionPlanResponse } from "./types";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { parseProfileJson, serializeProfile } from "./profiles/document";
 import smallJson from "./profiles/fixtures/small-camera.json";
 
 const session = vi.hoisted(() => ({ registry: null as ProfileRegistry | null }));
+const apiSession = vi.hoisted(() => ({ planRegion: vi.fn() }));
 vi.mock("./profiles", async (importOriginal) => {
   const original = await importOriginal<typeof import("./profiles")>();
   const { resolvePlanningProfile } = await import("./profiles/planning");
@@ -18,13 +20,70 @@ vi.mock("./profiles", async (importOriginal) => {
   });
   return { ...original, profileRegistry: registry, loadProfile: (id = original.DEFAULT_PROFILE.id) => resolvePlanningProfile(id, undefined, registry).profile };
 });
-vi.mock("./AladinMap", () => ({ default: () => <div aria-label="Sky map" /> }));
+vi.mock("./api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./api")>();
+  return { ...original, planRegion: apiSession.planRegion };
+});
+vi.mock("./AladinMap", async () => {
+  const React = await import("react");
+  return {
+    default: (props: { onRegionSelect: (polygon: { vertices: Array<{ ra_deg: number; dec_deg: number }> }) => void }) =>
+      React.createElement("div", { "aria-label": "Sky map" }, React.createElement("button", {
+        onClick: () => props.onRegionSelect({ vertices: [
+          { ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 },
+          { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 },
+        ] }),
+      }, "Mock select region")),
+  };
+});
+
+const regionPlan: RegionPlanResponse = {
+  coverage_strategy: "complete",
+  solution: "profile_fallback",
+  generation_method: "region_lattice",
+  tiles: [{
+    id: "preview-1", name: "PROPOSED_0001", ra_deg: 150, dec_deg: -30,
+    source: "proposed", generation_method: "region_lattice", original_values: null, metadata: {},
+  }],
+  candidate_centers: [{ ra_deg: 150, dec_deg: -30 }],
+  inference: { nearby_tile_count: 0, anchor_tile_ids: [], compatible_neighbor_pairs: 0, dec_spacing_deg: null, ra_spacing_deg: null },
+  diagnostics: [],
+  metrics: {
+    existing_tiles_contributing: 0, new_tiles: 1, selected_region_area_deg2: 1,
+    already_covered_fraction: 0, selected_region_coverage: 1, incremental_coverage: 1,
+    remaining_uncovered_fraction: 0, remaining_uncovered_area_deg2: 0,
+    redundant_coverage: 0, outside_region_coverage_deg2: 0, sample_step_deg: 0.01,
+  },
+};
 
 function jsonFile(text: string, name = "profile.json"): File {
   const file = new File([text], name, { type: "application/json" });
   Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(text).buffer });
   return file;
 }
+
+function csvFile(text: string, name: string): File {
+  const file = new File([text], name, { type: "text/csv" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(text).buffer });
+  return file;
+}
+
+const mosaicJson = {
+  instrument: {
+    ...smallJson.instrument,
+    id: "mosaic-camera",
+    display_name: "Two field mosaic camera",
+    footprint: { type: "compound" as const, components: [
+      { offset_deg: [-0.12, 0], footprint: { type: "rectangle" as const, width_deg: 0.2, height_deg: 0.12 } },
+      { offset_deg: [0.12, 0], footprint: { type: "rectangle" as const, width_deg: 0.2, height_deg: 0.12 } },
+    ] },
+  },
+  survey: { ...smallJson.survey, id: "mosaic-survey", display_name: "Mosaic survey", instrument_id: "mosaic-camera" },
+};
+const manualJson = {
+  instrument: { ...smallJson.instrument, id: "manual-camera", display_name: "Manual camera" },
+  survey: { ...smallJson.survey, id: "manual-survey", display_name: "Manual survey", instrument_id: "manual-camera", tiling: { type: "manual" as const } },
+};
 
 function blobText(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -36,39 +95,217 @@ function blobText(blob: Blob): Promise<string> {
 }
 
 describe("minimal browser profile file controls", () => {
-  beforeEach(() => { session.registry = createBundledProfileRegistry(); });
+  beforeEach(() => {
+    session.registry = createBundledProfileRegistry();
+    apiSession.planRegion.mockReset().mockResolvedValue(regionPlan);
+  });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it("imports a file, shows success and selector entries, and activates the registered survey", async () => {
+  it("imports a survey, plans with it immediately, and keeps catalogue geometry separate", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south"));
     const input = screen.getByLabelText("Profile JSON file");
     const click = vi.spyOn(input, "click");
     await user.click(screen.getByRole("button", { name: "Import profile" }));
     expect(click).toHaveBeenCalledOnce();
     await user.upload(input, jsonFile(JSON.stringify(smallJson)));
-    expect(await screen.findByRole("status")).toHaveTextContent("Imported profile: Small oblique survey");
-    const selector = screen.getByRole("combobox", { name: "Profile" });
+    expect(await screen.findByRole("status")).toHaveTextContent("Imported survey profile: Small oblique survey");
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
     expect(within(selector).getByRole("option", { name: "Small oblique survey" })).toBeTruthy();
     expect(session.registry!.listInstrumentProfiles().map(({ id }) => id)).toContain("small-camera");
     await user.selectOptions(selector, "small-survey");
     expect(selector).toHaveValue("small-survey");
-    expect(screen.getByRole("button", { name: "Export profile JSON" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Export survey JSON" })).toBeEnabled();
+    expect(screen.getByText("Small circular camera")).toBeTruthy();
+    expect(screen.getByText("Circle · radius 0.12°")).toBeTruthy();
+    expect(screen.getByText("Lattice · fixed anchor 150° RA, -30° DEC")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(input).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalled());
+    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.objectContaining({ vertices: expect.any(Array) }), [], "small-survey", undefined, "complete");
+    expect(await screen.findByText("No catalogue is loaded; the active survey supplies the grid for this new project.")).toBeTruthy();
+
+    await user.selectOptions(selector, "splus-t80-south");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    expect(screen.getByText("T80-South camera")).toBeTruthy();
     fetchMock.mockResolvedValue(new Response("RA,DEC\n150,-30\n"));
     await user.click(screen.getByRole("button", { name: /load reference/i }));
-    const instrumentSelector = await screen.findByRole("combobox", { name: "Instrument profile for tiles_nc.csv" });
-    expect(within(instrumentSelector).getByRole("option", { name: "Small circular camera" })).toBeTruthy();
+    const instrumentSelector = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    expect(instrumentSelector).toHaveValue("t80-south");
+    expect(within(instrumentSelector).getByRole("option", { name: /Small circular camera/ })).toBeTruthy();
+  });
+
+  it("orders registry-backed survey choices deterministically by ID", async () => {
+    const user = userEvent.setup();
+    const alpha = {
+      instrument: { ...smallJson.instrument, id: "alpha-camera", display_name: "Alpha camera" },
+      survey: { ...smallJson.survey, id: "alpha-survey", display_name: "Alpha survey", instrument_id: "alpha-camera" },
+    };
+    const zeta = {
+      instrument: { ...smallJson.instrument, id: "zeta-camera", display_name: "Zeta camera" },
+      survey: { ...smallJson.survey, id: "zeta-survey", display_name: "Zeta survey", instrument_id: "zeta-camera" },
+    };
+    render(<App />);
+    const input = screen.getByLabelText("Profile JSON file");
+    await user.upload(input, jsonFile(JSON.stringify(zeta)));
+    await screen.findByText(/Imported survey profile: Zeta survey/);
+    await user.upload(input, jsonFile(JSON.stringify(alpha)));
+    await screen.findByText(/Imported survey profile: Alpha survey/);
+
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
+    expect(Array.from((selector as HTMLSelectElement).options, (option) => option.value)).toEqual([
+      "alpha-survey", "splus-t80-south", "zeta-survey",
+    ]);
+    expect(selector).toHaveValue("splus-t80-south");
+    await user.selectOptions(selector, "alpha-survey");
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("Alpha camera")).toBeTruthy();
+  });
+
+  it("clears accepted proposals when the active survey changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const input = screen.getByLabelText("Profile JSON file");
+    await user.upload(input, jsonFile(JSON.stringify(smallJson)));
+    await screen.findByText(/Imported survey profile:/);
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
+    await user.selectOptions(selector, "small-survey");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByText("Proposal preview");
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    expect(screen.getByText("PROPOSED_0001")).toBeTruthy();
+    expect(screen.getByText("1 generated · 1 enabled · 0 disabled")).toBeTruthy();
+
+    await user.selectOptions(selector, "splus-t80-south");
+
+    expect(screen.queryByText("PROPOSED_0001")).toBeNull();
+    expect(screen.getByText("0 generated · 0 enabled · 0 disabled")).toBeTruthy();
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+  });
+
+  it("keeps assignments independent across catalogues and invalidates previews after science changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const profileInput = screen.getByLabelText("Profile JSON file");
+    await user.upload(profileInput, jsonFile(JSON.stringify(smallJson)));
+    await screen.findByText(/Imported survey profile:/);
+    await user.upload(profileInput, jsonFile(JSON.stringify(mosaicJson)));
+    await screen.findByText(/Imported survey profile: Mosaic survey/);
+
+    const surveySelector = screen.getByRole("combobox", { name: "Active survey" });
+    await user.selectOptions(surveySelector, "mosaic-survey");
+    expect(screen.getByText("Mosaic · 2 components")).toBeTruthy();
+    expect(screen.getByText("Lattice · fixed anchor 150° RA, -30° DEC")).toBeTruthy();
+
+    const catalogueInput = screen.getByLabelText("Choose catalogue CSV");
+    await user.upload(catalogueInput, csvFile("RA,DEC\n150,-30\n", "alpha.csv"));
+    await user.upload(catalogueInput, csvFile("RA,DEC\n151,-30\n", "beta.csv"));
+    const instruments = screen.getAllByRole("combobox", { name: /Catalogue instrument for/ });
+    const roles = screen.getAllByRole("combobox", { name: /Inference participation for/ });
+    expect(instruments).toHaveLength(2);
+    expect(instruments.map((control) => (control as HTMLSelectElement).value)).toEqual(["", ""]);
+    expect(screen.getAllByRole("alert").some((alert) => alert.textContent?.includes("Assign a registered instrument profile"))).toBe(true);
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+
+    await user.selectOptions(instruments[0], "small-camera");
+    await user.selectOptions(instruments[1], "mosaic-camera");
+    await user.selectOptions(roles[0], "include");
+    expect(roles[0]).toHaveValue("include");
+    await user.selectOptions(roles[0], "exclude");
+    expect(roles[0]).toHaveValue("exclude");
+    await user.selectOptions(roles[0], "auto");
+    expect(roles[0]).toHaveValue("auto");
+    await user.selectOptions(roles[0], "exclude");
+
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalled());
+    const firstTiles = apiSession.planRegion.mock.lastCall?.[1] as Array<{
+      dataset_name?: string; instrument_profile_id?: string | null; inference_role?: string; original_values: Record<string, string> | null;
+    }>;
+    expect(firstTiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dataset_name: "alpha.csv", instrument_profile_id: "small-camera", inference_role: "exclude" }),
+      expect.objectContaining({ dataset_name: "beta.csv", instrument_profile_id: "mosaic-camera", inference_role: "auto" }),
+    ]));
+    const sourceRowsBeforeReassignment = firstTiles.map((tile) => tile.original_values);
+    expect(screen.getByRole("button", { name: "Accept proposal" })).toBeEnabled();
+
+    await user.selectOptions(roles[0], "include");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalledTimes(2));
+    const includedTiles = apiSession.planRegion.mock.lastCall?.[1] as typeof firstTiles;
+    expect(includedTiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dataset_name: "alpha.csv", inference_role: "include" }),
+    ]));
+
+    await user.selectOptions(roles[0], "exclude");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalledTimes(3));
+    const excludedTiles = apiSession.planRegion.mock.lastCall?.[1] as typeof firstTiles;
+    expect(excludedTiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dataset_name: "alpha.csv", inference_role: "exclude" }),
+    ]));
+
+    await user.selectOptions(instruments[0], "mosaic-camera");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    expect(instruments[1]).toHaveValue("mosaic-camera");
+    expect(roles[0]).toHaveValue("exclude");
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalledTimes(4));
+    const reassignedTiles = apiSession.planRegion.mock.lastCall?.[1] as typeof firstTiles;
+    expect(reassignedTiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dataset_name: "alpha.csv", instrument_profile_id: "mosaic-camera", inference_role: "exclude" }),
+      expect.objectContaining({ dataset_name: "beta.csv", instrument_profile_id: "mosaic-camera", inference_role: "auto" }),
+    ]));
+    expect(reassignedTiles.map((tile) => tile.original_values)).toEqual(sourceRowsBeforeReassignment);
+
+    await user.selectOptions(instruments[1], "small-camera");
+    expect(instruments[0]).toHaveValue("mosaic-camera");
+    expect(instruments[1]).toHaveValue("small-camera");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalledTimes(5));
+    await user.selectOptions(surveySelector, "small-survey");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    expect(surveySelector).toHaveValue("small-survey");
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("Small circular camera")).toBeTruthy();
+    expect(instruments[0]).toHaveValue("mosaic-camera");
+    expect(instruments[1]).toHaveValue("small-camera");
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalledTimes(6));
+    expect(apiSession.planRegion.mock.lastCall?.[2]).toBe("small-survey");
+    const outputChangeTiles = apiSession.planRegion.mock.lastCall?.[1] as typeof firstTiles;
+    expect(outputChangeTiles.map((tile) => tile.instrument_profile_id)).toEqual(["mosaic-camera", "small-camera"]);
+  });
+
+  it("shows manual tiling as unavailable for automatic region planning", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const input = screen.getByLabelText("Profile JSON file");
+    await user.upload(input, jsonFile(JSON.stringify(manualJson)));
+    await screen.findByRole("status");
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
+    await user.selectOptions(selector, "manual-survey");
+    expect(screen.getByText("Manual coverage")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("does not support automatic region planning");
+    expect(apiSession.planRegion).not.toHaveBeenCalled();
   });
 
   it("reports malformed/scientifically invalid files and duplicate IDs without partial imports", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south"));
     const input = screen.getByLabelText("Profile JSON file");
     await user.upload(input, jsonFile("{"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Malformed profile JSON");
@@ -81,27 +318,20 @@ describe("minimal browser profile file controls", () => {
     expect(session.registry!.listSurveyProfiles()).toHaveLength(1);
   });
 
-  it("rejects a file conflicting with the active inline draft and permits that ID in a fresh session", async () => {
+  it("treats a survey called custom as an ordinary registry entry", async () => {
     const user = userEvent.setup();
     const customId = { ...smallJson, survey: { ...smallJson.survey, id: "custom" } };
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south"));
-    await user.click(screen.getByRole("button", { name: "Create custom profile" }));
-    await user.click(screen.getByRole("button", { name: "Apply" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("custom"));
     await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(customId)));
-    expect(await screen.findByRole("alert")).toHaveTextContent("already used by the active custom draft");
-    expect(session.registry!.listInstrumentProfiles()).toHaveLength(1);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Profile" }), "splus-t80-south");
-    await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(customId)));
-    await screen.findByText(/Imported profile:/);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Profile" }), "custom");
-    expect(screen.getByRole("button", { name: "Export profile JSON" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Create custom profile" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent('imported survey ID "custom" is in use');
+    await screen.findByRole("status");
+    const selector = screen.getByRole("combobox", { name: "Active survey" });
+    expect(within(selector).getByRole("option", { name: "Small oblique survey" })).toBeTruthy();
+    await user.selectOptions(selector, "custom");
+    expect(selector).toHaveValue("custom");
+    expect(screen.getByText("Small circular camera")).toBeTruthy();
   });
 
-  it("downloads the active profile as canonical JSON with a deterministic safe filename", async () => {
+  it("downloads the selected survey and instrument as canonical JSON", async () => {
     const user = userEvent.setup();
     let downloaded: Blob | undefined;
     vi.stubGlobal("URL", class extends URL {
@@ -113,11 +343,11 @@ describe("minimal browser profile file controls", () => {
       expect(this.href).toBe("blob:profile-test");
     });
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south"));
     await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(smallJson)));
-    await screen.findByText(/Imported profile:/);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Profile" }), "small-survey");
-    await user.click(screen.getByRole("button", { name: "Export profile JSON" }));
+    await screen.findByText(/Imported survey profile:/);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), "small-survey");
+    await user.click(screen.getByRole("button", { name: "Export survey JSON" }));
     expect(click).toHaveBeenCalledOnce();
     expect(downloaded!.type).toBe("application/json; charset=utf-8");
     const text = await blobText(downloaded!);

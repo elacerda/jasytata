@@ -9,14 +9,12 @@ const apiMocks = vi.hoisted(() => ({
     polygon, existing_tiles: existingTiles, profile_id: profileId, ...(profile ? { profile } : {}),
   })),
   downloadCatalogue: vi.fn(),
-  loadDefaultProfile: vi.fn(),
   loadReferenceCatalogue: vi.fn(),
   measureCoverage: vi.fn(),
   parseCenters: vi.fn(),
   planRegion: vi.fn(),
   proposeCenters: vi.fn(),
   uploadCatalogue: vi.fn(),
-  validateCustomProfile: vi.fn(),
 }));
 
 vi.mock("./api", () => apiMocks);
@@ -152,11 +150,6 @@ function makePlan(count: number): RegionPlanResponse {
 describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    apiMocks.loadDefaultProfile.mockResolvedValue({
-      id: "splus-t80-south", display_name: "S-PLUS / T80-South", tile_width_deg: 1.4,
-      tile_height_deg: 1.4, effective_overlap_arcsec: 120, coordinate_frame: "icrs",
-      export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "SPLUS_LEGACY_GRID_V1",
-    });
     apiMocks.loadReferenceCatalogue.mockResolvedValue(catalogue);
     apiMocks.planRegion.mockResolvedValue(makePlan(2));
     apiMocks.proposeCenters.mockImplementation(async (centers: CenterInput[], method: string) =>
@@ -173,24 +166,16 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     );
     apiMocks.downloadCatalogue.mockResolvedValue(undefined);
     apiMocks.measureCoverage.mockResolvedValue(makePlan(2).metrics);
-    apiMocks.validateCustomProfile.mockImplementation(async (profile: unknown) => profile);
   });
 
   afterEach(() => cleanup());
 
-  it("shows local profile geometry, protects the preset, and copies it into a custom draft", async () => {
-    const user = userEvent.setup();
+  it("starts with the bundled survey and resolves its output instrument", async () => {
     render(<App />);
-    expect(await screen.findByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
-    expect(screen.getAllByText("1.400 deg")).toHaveLength(2);
-    expect(screen.getByText("120 arcsec")).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Tile width" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Create custom profile" }));
-    expect(screen.getByRole("textbox", { name: "Tile width" })).toHaveValue("1.4");
-    expect(screen.getByRole("textbox", { name: "Tile height" })).toHaveValue("1.4");
-    expect(screen.getByRole("textbox", { name: "Tile overlap" })).toHaveValue("120");
-    expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
-    expect(apiMocks.validateCustomProfile).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south");
+    expect(screen.getByText("T80-South camera")).toBeTruthy();
+    expect(screen.getByText("Rectangle 1.4° × 1.4°")).toBeTruthy();
+    expect(screen.getByText("Legacy S-PLUS grid")).toBeTruthy();
   });
 
   it("allows manual and imported proposals with an optional empty catalogue", async () => {
@@ -200,9 +185,9 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     ]);
     render(<App />);
 
-    expect(await screen.findByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
+    expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south");
     expect(screen.getByText("OPTIONAL")).toBeTruthy();
-    expect(screen.getByText(/Load an existing catalogue to extend a project, or start a new plan from the active tile profile/)).toBeTruthy();
+    expect(screen.getByText(/Load catalogues to extend a project, or start a new plan with the active survey/)).toBeTruthy();
     expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("0");
 
     await user.click(screen.getByRole("button", { name: /single tile/i }));
@@ -236,11 +221,12 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: /load reference/i }));
-    const instrument = await screen.findByRole("combobox", { name: "Instrument profile for tiles_nc.csv" });
-    const inferenceRole = screen.getByRole("combobox", { name: "Inference role for tiles_nc.csv" });
+    const instrument = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    const inferenceRole = screen.getByRole("combobox", { name: "Inference participation for tiles_nc.csv" });
 
     expect(instrument).toHaveValue("t80-south");
     expect(inferenceRole).toHaveValue("auto");
+    expect(screen.getByText(/Exclude removes a catalogue only from lattice inference; its assigned footprint still contributes to coverage/)).toBeTruthy();
     await user.selectOptions(inferenceRole, "exclude");
     expect(inferenceRole).toHaveValue("exclude");
   });
@@ -271,7 +257,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     });
     render(<App />);
 
-    expect(await screen.findByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
+    expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south");
     const selectArea = screen.getByRole("button", { name: /select area/i });
     expect(selectArea).toBeEnabled();
     await user.click(selectArea);
@@ -321,72 +307,6 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.planRegion.mock.lastCall?.[4]).toBe("efficient");
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
     expect(screen.getByText("Efficient coverage", { selector: ".accepted-section .strategy-result" })).toBeTruthy();
-  });
-
-  it("uses server supplied geometry in the profile readout", async () => {
-    apiMocks.loadDefaultProfile.mockResolvedValueOnce({
-      id: "rect-survey", display_name: "Rectangular survey", tile_width_deg: 2.25,
-      tile_height_deg: 1.75, effective_overlap_arcsec: 90, coordinate_frame: "icrs",
-      export_epoch_default: "2000", export_epoch_options: ["2000"], algorithm: "RECT_GRID_V1",
-    });
-    render(<App />);
-    expect(await screen.findByText("2.250 deg")).toBeTruthy();
-    expect(screen.getByText("1.750 deg")).toBeTruthy();
-    expect(screen.getByText("90 arcsec")).toBeTruthy();
-  });
-
-  it("applies all custom dimensions and clears old plan state while preserving catalogue and polygon", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(screen.getByRole("button", { name: /load reference/i }));
-    await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    await user.click(screen.getByRole("button", { name: "Generate plan" }));
-    expect(await screen.findByText("Existing grid extended")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /accept proposal/i }));
-    expect(screen.getByTestId("map-layer-state").textContent).toContain("2:true");
-    await user.click(screen.getByRole("button", { name: "Create custom profile" }));
-    await user.clear(screen.getByRole("textbox", { name: "Tile width" }));
-    await user.type(screen.getByRole("textbox", { name: "Tile width" }), "2.25");
-    await user.clear(screen.getByRole("textbox", { name: "Tile height" }));
-    await user.type(screen.getByRole("textbox", { name: "Tile height" }), "1.75");
-    await user.clear(screen.getByRole("textbox", { name: "Tile overlap" }));
-    await user.type(screen.getByRole("textbox", { name: "Tile overlap" }), "90");
-    await user.click(screen.getByRole("button", { name: "Apply" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("custom"));
-    expect(apiMocks.validateCustomProfile).toHaveBeenCalledWith(expect.objectContaining({
-      tile_width_deg: 2.25, tile_height_deg: 1.75, effective_overlap_arcsec: 90, algorithm: "RECT_GRID_V1",
-    }));
-    expect(screen.getByTestId("map-layer-state").textContent).toBe("0:true:true:false:false");
-    expect(screen.getByText("1", { selector: ".summary-number" })).toBeTruthy();
-    expect(screen.getByText(/4 vertices · finalized/)).toBeTruthy();
-    const callsBeforeGenerate = apiMocks.planRegion.mock.calls.length;
-    expect(callsBeforeGenerate).toBe(1);
-    await user.click(screen.getByRole("button", { name: "Generate plan" }));
-    expect(apiMocks.planRegion).toHaveBeenCalledTimes(2);
-    expect(apiMocks.planRegion.mock.lastCall?.[3]).toEqual(expect.objectContaining({
-      tile_width_deg: 2.25, tile_height_deg: 1.75, effective_overlap_arcsec: 90,
-    }));
-    await user.click(screen.getByRole("button", { name: "Reset to S-PLUS" }));
-    expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
-    expect(screen.getAllByText("1.400 deg")).toHaveLength(2);
-    expect(screen.getByText("120 arcsec")).toBeTruthy();
-    expect(screen.getByTestId("map-layer-state").textContent).toBe("0:true:true:false:false");
-  });
-
-  it.each([
-    ["Tile width", "0", "tile_width_deg: Input should be greater than 0"],
-    ["Tile height", "-1", "tile_height_deg: Input should be greater than 0"],
-    ["Tile overlap", "6000", "Effective overlap must be smaller than both tile dimensions"],
-  ])("shows local validation for invalid %s", async (label, value, message) => {
-    const user = userEvent.setup();
-    apiMocks.validateCustomProfile.mockRejectedValueOnce(new Error(message));
-    render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create custom profile" }));
-    await user.clear(screen.getByRole("textbox", { name: label }));
-    await user.type(screen.getByRole("textbox", { name: label }), value);
-    await user.click(screen.getByRole("button", { name: "Apply" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(message);
-    expect(screen.getByRole("combobox", { name: "Profile" })).toHaveValue("splus-t80-south");
   });
 
   it("plans a polygon, reversibly edits proposals, and exports enabled tiles", async () => {

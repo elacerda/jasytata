@@ -54,8 +54,8 @@ export interface CatalogueDataset {
   color: string;
   ra_column: string;
   dec_column: string;
-  /** Instrument geometry for this dataset; no survey profile is required. */
-  instrument_profile_id: string;
+  /** Registry instrument geometry for this dataset; null while explicit assignment is required. */
+  instrument_profile_id: string | null;
   /** Coverage always participates; this role only controls lattice inference. */
   inference_role: InferenceRole;
   tiles: TileRecord[];

@@ -106,8 +106,22 @@ describe("Gate 2 dataset and instrument separation", () => {
     expect(result.instrument_profile_id).toBe("t80-south");
     expect(dataset.instrument_profile_id).toBe("t80-south");
     expect(dataset.inference_role).toBe("auto");
-    expect(profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id)).toEqual(T80_SOUTH_INSTRUMENT_V2);
+    expect(profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id!)).toEqual(T80_SOUTH_INSTRUMENT_V2);
     expect("survey_profile_id" in dataset).toBe(false);
+  });
+
+  it("keeps the single-instrument convenience default but requires a choice when imports make it ambiguous", () => {
+    const source = sourceTile("uploaded-row", 359.8, 0, "t80-south");
+    source.original_values = { RA: "359.8", DEC: "0" };
+    delete source.instrument_profile_id;
+    const result: CatalogueResponse = { filename: "arbitrary.csv", row_count: 1, tiles: [source], warnings: [] };
+    const singleInstrument = createDataset(result, 0, "single", undefined, createBundledProfileRegistry());
+    const multipleInstruments = createDataset(result, 0, "ambiguous", undefined, twoInstrumentRegistry());
+
+    expect(singleInstrument.instrument_profile_id).toBe("t80-south");
+    expect(multipleInstruments.instrument_profile_id).toBeNull();
+    expect(source.instrument_profile_id).toBeUndefined();
+    expect(source.original_values).toEqual({ RA: "359.8", DEC: "0" });
   });
 
   it("preserves T80 coverage and lattice results with automatic dataset association", () => {
@@ -264,6 +278,23 @@ describe("Gate 2 dataset and instrument separation", () => {
 
     expect([...coveredMask(grid, sources, activeOutput, registry)]).toEqual([1, 1, 1, 1, 1, 1, 0, 0, 1]);
     expect([...coveredMask(grid, [proposal], activeOutput, registry)]).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 0]);
+
+    const uploadedRow = sourceTile("unassigned-row", 359.99, 0, "t80-south");
+    uploadedRow.original_values = { RA: "359.99", DEC: "0" };
+    delete uploadedRow.instrument_profile_id;
+    const response: CatalogueResponse = { filename: "arbitrary.csv", row_count: 1, tiles: [uploadedRow], warnings: [] };
+    const circleAssignment = createDataset(response, 0, "circle-data", "circle-camera", registry);
+    const mosaicAssignment = createDataset(response, 1, "mosaic-data", "mosaic-camera", registry);
+    const assignedTiles = (dataset: ReturnType<typeof createDataset>) => dataset.tiles.map((tile) => ({
+      ...tile, instrument_profile_id: dataset.instrument_profile_id, inference_role: dataset.inference_role,
+    }));
+    const circleCoverage = coveredMask(grid, assignedTiles(circleAssignment), activeOutput, registry);
+    const mosaicCoverage = coveredMask(grid, assignedTiles(mosaicAssignment), activeOutput, registry);
+    expect([...circleCoverage]).not.toEqual([...mosaicCoverage]);
+    expect(circleAssignment.instrument_profile_id).toBe("circle-camera");
+    expect(mosaicAssignment.instrument_profile_id).toBe("mosaic-camera");
+    expect(uploadedRow.instrument_profile_id).toBeUndefined();
+    expect(uploadedRow.original_values).toEqual({ RA: "359.99", DEC: "0" });
 
     const proposalRegion: SkyPolygon = { vertices: [
       { ra_deg: 0.98, dec_deg: -0.05 }, { ra_deg: 1.08, dec_deg: -0.05 },

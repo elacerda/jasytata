@@ -2,19 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { buildRegionPlanRequest, downloadCatalogue, downloadProfileJson, uploadProfileFile, loadDefaultProfile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue, validateCustomProfile } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadProfileJson, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
-import { loadProfile, profileRegistry } from "./profiles";
+import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
 import type {
   CenterInput,
   CatalogueDataset,
   CatalogueResponse,
   CoordinateFormat,
   CoverageStrategy,
+  Footprint,
   InferenceDiagnostics,
   PlanMetrics,
   SkyPolygon,
   RegionPlanResponse,
+  SurveyProfileV2,
   TileRecord,
   TilingProfile,
 } from "./types";
@@ -37,17 +39,35 @@ interface ColumnMapping {
   raUnit: "auto" | "degrees" | "hours";
 }
 
-interface GeometryDraft {
-  width: string;
-  height: string;
-  overlap: string;
-}
-
 const EMPTY_CENTERS: CenterInput[] = [];
 const EMPTY_IDS: string[] = [];
 type ThemeMode = "light" | "dark";
 
 const THEME_STORAGE_KEY = "jasytata-theme";
+
+function formatDegrees(value: number): string {
+  return `${value.toFixed(3).replace(/\.?0+$/, "")}°`;
+}
+
+function footprintSummary(footprint: Footprint): string {
+  switch (footprint.type) {
+    case "rectangle":
+      return `Rectangle ${formatDegrees(footprint.width_deg)} × ${formatDegrees(footprint.height_deg)}`;
+    case "circle":
+      return `Circle · radius ${formatDegrees(footprint.radius_deg)}`;
+    case "polygon":
+      return `Polygon · ${footprint.vertices_deg.length} vertices`;
+    case "compound":
+      return `Mosaic · ${footprint.components.length} components`;
+  }
+}
+
+function tilingSummary(tiling: SurveyProfileV2["tiling"]): string {
+  if (tiling.type === "legacy_splus") return "Legacy S-PLUS grid";
+  if (tiling.type === "manual") return "Manual coverage";
+  if (tiling.origin.type === "region_center") return "Lattice · region centered";
+  return `Lattice · fixed anchor ${formatDegrees(tiling.origin.ra_deg)} RA, ${formatDegrees(tiling.origin.dec_deg)} DEC`;
+}
 
 /** Render the stateless catalogue, sky planning, proposal, and export workspace. */
 export default function App() {
@@ -62,10 +82,7 @@ export default function App() {
   const [instrumentProfiles, setInstrumentProfiles] = useState(() => profileRegistry.listInstrumentProfiles());
   const [surveyProfiles, setSurveyProfiles] = useState(() => profileRegistry.listSurveyProfiles());
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
-  const [profile, setProfile] = useState<TilingProfile | null>(null);
-  const [defaultProfile, setDefaultProfile] = useState<TilingProfile | null>(null);
-  const [geometryDraft, setGeometryDraft] = useState<GeometryDraft | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
+  const [activeSurveyId, setActiveSurveyId] = useState(DEFAULT_PROFILE.id);
   const [coverageStrategy, setCoverageStrategy] = useState<CoverageStrategy>("complete");
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
@@ -82,7 +99,7 @@ export default function App() {
   });
   const [importText, setImportText] = useState("");
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
-  const [exportEpoch, setExportEpoch] = useState("");
+  const [exportEpoch, setExportEpoch] = useState(DEFAULT_PROFILE.export_epoch_default);
   const [coordinateFormat, setCoordinateFormat] = useState<CoordinateFormat>("decimal");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +110,48 @@ export default function App() {
   const importRef = useRef<HTMLElement>(null);
   const proposalBatchRef = useRef(0);
   const regionRevisionRef = useRef(0);
+
+  const activeResolution = useMemo(() => {
+    try {
+      if (!surveyProfiles.some((survey) => survey.id === activeSurveyId)) {
+        throw new Error(`Unknown survey profile ID "${activeSurveyId}".`);
+      }
+      const survey = profileRegistry.resolveSurveyProfile(activeSurveyId);
+      if (!instrumentProfiles.some((instrument) => instrument.id === survey.instrument_id)) {
+        throw new Error(`Unknown instrument profile ID "${survey.instrument_id}".`);
+      }
+      const instrument = profileRegistry.resolveInstrumentProfile(survey.instrument_id);
+      const profile = loadProfile(activeSurveyId);
+      return { survey, instrument, profile, error: null as string | null };
+    } catch (caught) {
+      return {
+        survey: null,
+        instrument: null,
+        profile: null,
+        error: caught instanceof Error ? caught.message : "The active survey profile could not be resolved.",
+      };
+    }
+  }, [activeSurveyId, instrumentProfiles, surveyProfiles]);
+  const activeSurvey = activeResolution.survey;
+  const activeInstrument = activeResolution.instrument;
+  const profile = activeResolution.profile;
+  const unresolvedDataset = useMemo(() => datasets.find((dataset) => {
+    if (!dataset.instrument_profile_id) return true;
+    if (!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id)) return true;
+    try {
+      profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id);
+      return false;
+    } catch {
+      return true;
+    }
+  }) ?? null, [datasets, instrumentProfiles]);
+  const planningUnavailableReason = activeResolution.error
+    ?? (unresolvedDataset
+      ? unresolvedDataset.instrument_profile_id
+        ? `Catalogue “${unresolvedDataset.filename}” references an unavailable instrument. Choose a registered instrument profile before planning.`
+        : `Choose an instrument profile for “${unresolvedDataset.filename}” before planning.`
+      : null)
+    ?? (activeSurvey?.tiling.type === "manual" ? "This survey uses manual coverage and does not support automatic region planning." : null);
 
   const hasCatalogue = datasets.length > 0;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
@@ -139,30 +198,18 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    void loadDefaultProfile().then((loaded) => {
-      setDefaultProfile(loaded);
-      setProfile(loaded);
-      setExportEpoch(loaded.export_epoch_default);
-    }).catch((caught: unknown) => {
-      setError(caught instanceof Error ? caught.message : "Could not load observing profile.");
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!regionPolygon || !profile || !proposals.length) {
+    if (!regionPolygon || !profile || !proposals.length || unresolvedDataset || activeResolution.error) {
       setActiveMetrics(null);
       return;
     }
     let cancelled = false;
-    void (profile.algorithm === "RECT_GRID_V1"
-      ? measureCoverage(regionPolygon, originalTiles, proposals, profile.id, profile)
-      : measureCoverage(regionPolygon, originalTiles, proposals, profile.id))
+    void measureCoverage(regionPolygon, originalTiles, proposals, activeSurveyId)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
       });
     return () => { cancelled = true; };
-  }, [regionPolygon, profile, proposals, originalTiles]);
+  }, [regionPolygon, activeSurveyId, profile, proposals, originalTiles, unresolvedDataset, activeResolution.error]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -204,10 +251,14 @@ export default function App() {
   }
 
   function updateDatasetSettings(datasetId: string, patch: Partial<Pick<CatalogueDataset, "instrument_profile_id" | "inference_role">>) {
+    const current = datasets.find((dataset) => dataset.id === datasetId);
+    if (!current || Object.entries(patch).every(([key, value]) => current[key as "instrument_profile_id" | "inference_role"] === value)) return;
     regionRevisionRef.current += 1;
     setDatasets((previous) => previous.map((dataset) => dataset.id === datasetId ? { ...dataset, ...patch } : dataset));
+    setProposals([]);
     setPending(null);
     setProposalContext(null);
+    setActiveMetrics(null);
     setSelectedTileId(null);
     setDebugRequestJson("");
     setNotice("Catalogue planning settings updated. Generate a new plan for the selected polygon.");
@@ -226,10 +277,10 @@ export default function App() {
 
   async function handleProfileUpload(file?: File) {
     if (!file) return;
-    await runBusy(() => uploadProfileFile(file, profileRegistry, profile?.algorithm === "RECT_GRID_V1" ? profile.id : undefined), (document) => {
+    await runBusy(() => uploadProfileFile(file, profileRegistry), (document) => {
       setInstrumentProfiles(profileRegistry.listInstrumentProfiles());
       setSurveyProfiles(profileRegistry.listSurveyProfiles());
-      setNotice(`Imported profile: ${document.survey.display_name}. Select it in Profile to use it.`);
+      setNotice(`Imported survey profile: ${document.survey.display_name}. Choose it as the active survey to plan with it.`);
     });
     if (profileFileInputRef.current) profileFileInputRef.current.value = "";
   }
@@ -278,18 +329,18 @@ export default function App() {
   }
 
   async function handlePlanRegion() {
-    if (!regionPolygon) return;
+    if (!regionPolygon || !activeSurvey || !activeInstrument || !profile) return;
+    if (planningUnavailableReason) {
+      setError(planningUnavailableReason);
+      return;
+    }
     const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
-      setDebugRequestJson(JSON.stringify(profile?.algorithm === "RECT_GRID_V1"
-        ? buildRegionPlanRequest(regionPolygon, planningTiles, profile.id, profile, coverageStrategy)
-        : buildRegionPlanRequest(regionPolygon, planningTiles, profile?.id, undefined, coverageStrategy)));
+      setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy)));
     }
     await runBusy(
-      () => profile?.algorithm === "RECT_GRID_V1"
-        ? planRegion(regionPolygon, planningTiles, profile.id, profile, coverageStrategy)
-        : planRegion(regionPolygon, planningTiles, profile?.id, undefined, coverageStrategy),
+      () => planRegion(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
@@ -352,70 +403,33 @@ export default function App() {
     setNotice("Current proposal cleared. Selected polygon and catalogues remain.");
   }
 
-  function activateProfile(nextProfile: TilingProfile) {
-    if (profile === nextProfile) {
-      setGeometryDraft(null);
-      setProfileError(null);
+  function activateSurvey(surveyId: string) {
+    let nextSurvey: SurveyProfileV2;
+    let nextProfile: TilingProfile;
+    let nextInstrumentName: string;
+    try {
+      nextSurvey = profileRegistry.resolveSurveyProfile(surveyId);
+      nextInstrumentName = profileRegistry.resolveInstrumentProfile(nextSurvey.instrument_id).display_name;
+      nextProfile = loadProfile(surveyId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The selected survey or its instrument could not be resolved.");
+      return;
+    }
+    if (surveyId === activeSurveyId) {
+      setError(null);
       return;
     }
     regionRevisionRef.current += 1;
-    setProfile(nextProfile);
+    setActiveSurveyId(surveyId);
     setExportEpoch(nextProfile.export_epoch_default);
-    setGeometryDraft(null);
-    setProfileError(null);
     setProposals([]);
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
     setSelectedTileId(null);
     setDebugRequestJson("");
-    setNotice(`Active tile profile: ${nextProfile.display_name}. Generate plan again for the selected polygon.`);
+    setNotice(`Active survey: ${nextSurvey.display_name}. Output instrument: ${nextInstrumentName}. Generate a new plan for the selected polygon.`);
     setError(null);
-  }
-
-  function createCustomDraft() {
-    if (!profile) return;
-    if (profileRegistry.findSurveyProfile("custom")) {
-      setError('The imported survey ID "custom" is in use. Custom rectangle drafts require that session ID.');
-      return;
-    }
-    setGeometryDraft({
-      width: String(profile.tile_width_deg),
-      height: String(profile.tile_height_deg),
-      overlap: String(profile.effective_overlap_arcsec),
-    });
-    setProfileError(null);
-  }
-
-  async function applyCustomProfile() {
-    if (!profile || !geometryDraft) return;
-    const width = Number(geometryDraft.width);
-    const height = Number(geometryDraft.height);
-    const overlap = Number(geometryDraft.overlap);
-    if ([geometryDraft.width, geometryDraft.height, geometryDraft.overlap].some((value) => !value.trim())
-      || ![width, height, overlap].every(Number.isFinite)) {
-      setProfileError("Enter finite numbers for width, height, and overlap.");
-      return;
-    }
-    const candidate: TilingProfile = {
-      ...profile,
-      id: "custom",
-      display_name: "Custom",
-      description: "Ad hoc tile geometry for this session",
-      tile_width_deg: width,
-      tile_height_deg: height,
-      effective_overlap_arcsec: overlap,
-      algorithm: "RECT_GRID_V1",
-    };
-    setBusy(true);
-    setProfileError(null);
-    try {
-      activateProfile(await validateCustomProfile(candidate));
-    } catch (caught) {
-      setProfileError(caught instanceof Error ? caught.message : "Could not validate the custom profile.");
-    } finally {
-      setBusy(false);
-    }
   }
 
   function beginRegionSelection() {
@@ -445,11 +459,9 @@ export default function App() {
   }
 
   async function exportFile() {
-    if (!profile || !enabledProposals.length) return;
+    if (!profile || !activeSurvey || !activeInstrument || !enabledProposals.length) return;
     await runBusy(
-      () => profile.algorithm === "RECT_GRID_V1"
-        ? downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat, profile)
-        : downloadCatalogue(enabledProposals, profile.id, exportEpoch, coordinateFormat),
+      () => downloadCatalogue(enabledProposals, activeSurveyId, exportEpoch, coordinateFormat),
       () => setNotice("new_tiles.csv downloaded."),
     );
   }
@@ -459,13 +471,13 @@ export default function App() {
       <header className="topbar">
         <div className="brand-block">
           <h1 className="brand-title"><img className="brand-logo" src={jasytataLogo} alt="Jasytata" /></h1>
-          <span className="brand-profile" title={profile?.display_name ?? "Astronomical tile planning"}>
-            {profile?.display_name ?? "Astronomical tile planning"}
+          <span className="brand-profile" title={activeSurvey?.display_name ?? "Astronomical tile planning"}>
+            {activeSurvey?.display_name ?? "Astronomical tile planning"}
           </span>
         </div>
         <div className="topbar-state">
           <span className={`status-dot ${profile ? "is-ready" : ""}`} />
-          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : profile ? "Profile active · no catalogue loaded" : "Loading tile profile"}</span>
+          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : profile ? "Survey active · no catalogue loaded" : "Resolving active survey"}</span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
@@ -514,7 +526,7 @@ export default function App() {
             </div>
             <p className="panel-copy">{hasCatalogue
               ? "Original catalogue rows stay unchanged. New tiles remain separate until accepted."
-              : "Load an existing catalogue to extend a project, or start a new plan from the active tile profile."}</p>
+              : "Load catalogues to extend a project, or start a new plan with the active survey."}</p>
             {columnMapping && (
               <div className="column-mapping">
                 <strong>Map coordinates in {columnMapping.file.name}</strong>
@@ -542,46 +554,32 @@ export default function App() {
             )}
           </section>
 
-          <section className="panel-section tile-profile-section" aria-label="Tile profile">
-            <SectionHeading title="Tile profile" trailing={profile?.algorithm === "RECT_GRID_V1" ? "CUSTOM" : "VALIDATED PROFILE"} />
-            <label className="field-label" htmlFor="tile-profile-select">Profile</label>
-            <select id="tile-profile-select" className="profile-select" value={profile?.id ?? ""} disabled={!profile || busy}
-              onChange={(event) => {
-                activateProfile(loadProfile(event.target.value));
-              }}>
-              {!profile && <option value="">Loading profile…</option>}
+          <section className="panel-section tile-profile-section" aria-label="Survey profile">
+            <SectionHeading title="Survey profile" trailing={activeSurvey ? "VALIDATED SURVEY" : "UNAVAILABLE"} />
+            <label className="field-label" htmlFor="active-survey-select">Active survey</label>
+            <select id="active-survey-select" className="profile-select" value={activeSurveyId} disabled={!activeSurvey || busy}
+              onChange={(event) => activateSurvey(event.target.value)}>
               {surveyProfiles.map((survey) => <option key={survey.id} value={survey.id}>{survey.display_name}</option>)}
-              {profile?.algorithm === "RECT_GRID_V1" && <option value="custom">Custom</option>}
             </select>
             <input ref={profileFileInputRef} type="file" accept=".json,application/json" aria-label="Profile JSON file" hidden
               onChange={(event) => void handleProfileUpload(event.target.files?.[0])} />
             <div className="profile-actions">
               <button className="button button-outline" onClick={() => profileFileInputRef.current?.click()} disabled={busy}>Import profile</button>
-              <button className="button button-outline" onClick={() => profile && void runBusy(() => downloadProfileJson(profile.id), () => setNotice(`Profile ${profile.display_name} exported as JSON.`))}
-                disabled={!profile || profile.algorithm === "RECT_GRID_V1" || busy}>Export profile JSON</button>
+              <button className="button button-outline" onClick={() => activeSurvey && void runBusy(() => downloadProfileJson(activeSurveyId), () => setNotice(`Exported ${activeSurvey.display_name} survey and ${activeInstrument?.display_name ?? "linked instrument"} profile JSON.`))}
+                disabled={!activeSurvey || !activeInstrument || busy}>Export survey JSON</button>
             </div>
-            <p className="fine-print">Schema v2 JSON · profiles stay in this session. Export to keep a copy.</p>
-            {geometryDraft ? <>
-              <p className="profile-draft-label">Custom draft · active: {profile?.display_name}</p>
-              <div className="profile-geometry">
-                <label>Width <span><input aria-label="Tile width" inputMode="decimal" value={geometryDraft.width} onChange={(event) => { setGeometryDraft({ ...geometryDraft, width: event.target.value }); setProfileError(null); }} /> deg</span></label>
-                <label>Height <span><input aria-label="Tile height" inputMode="decimal" value={geometryDraft.height} onChange={(event) => { setGeometryDraft({ ...geometryDraft, height: event.target.value }); setProfileError(null); }} /> deg</span></label>
-                <label>Overlap <span><input aria-label="Tile overlap" inputMode="decimal" value={geometryDraft.overlap} onChange={(event) => { setGeometryDraft({ ...geometryDraft, overlap: event.target.value }); setProfileError(null); }} /> arcsec</span></label>
+            <p className="fine-print">Schema v2 profiles remain in this session. Export the selected survey and its linked instrument to keep a copy.</p>
+            {activeResolution.error && <p className="profile-validation-error" role="alert">{activeResolution.error}</p>}
+            {activeSurvey && activeInstrument && (
+              <div className="profile-readout" aria-label="Active survey summary">
+                <span>Survey <strong>{activeSurvey.display_name}</strong></span>
+                <span>Instrument <strong>{activeInstrument.display_name}</strong></span>
+                <span>Footprint <strong>{footprintSummary(activeInstrument.footprint)}</strong></span>
+                <span>Tiling <strong>{tilingSummary(activeSurvey.tiling)}</strong></span>
+                {(activeSurvey.description || activeInstrument.description) &&
+                  <p className="fine-print">{activeSurvey.description ?? activeInstrument.description}</p>}
               </div>
-              {profileError && <p className="profile-validation-error" role="alert">{profileError}</p>}
-              <div className="profile-actions">
-                <button className="button button-primary" onClick={() => void applyCustomProfile()} disabled={busy}>Apply</button>
-                <button className="button button-outline" onClick={() => defaultProfile && activateProfile(defaultProfile)} disabled={!defaultProfile || busy}>Reset to S-PLUS</button>
-              </div>
-            </> : <>
-              <div className="profile-readout">
-                <span>Width <strong>{profile?.tile_width_deg.toFixed(3) ?? "…"} deg</strong></span>
-                <span>Height <strong>{profile?.tile_height_deg.toFixed(3) ?? "…"} deg</strong></span>
-                <span>Overlap <strong>{profile?.effective_overlap_arcsec ?? "…"} arcsec</strong></span>
-              </div>
-              <button className="button button-outline button-full" onClick={createCustomDraft} disabled={!profile || busy}>{profile?.algorithm === "RECT_GRID_V1" ? "Edit custom profile" : "Create custom profile"}</button>
-              {profile?.algorithm === "RECT_GRID_V1" && <button className="text-button profile-reset" onClick={() => defaultProfile && activateProfile(defaultProfile)} disabled={!defaultProfile || busy}>Reset to S-PLUS</button>}
-            </>}
+            )}
           </section>
 
           <section className="panel-section">
@@ -637,7 +635,7 @@ export default function App() {
                 </details>}
               </div>
             ) : (
-              <p className="panel-copy">Select a sky polygon to plan coverage with the active tile profile and any existing tiles.</p>
+              <p className="panel-copy">Select a sky polygon to plan with the active survey and any assigned catalogue pointings.</p>
             )}
             <fieldset className="coverage-strategy">
               <legend>Coverage strategy</legend>
@@ -647,10 +645,12 @@ export default function App() {
                 <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop once sampled coverage reaches at least 99.5% if the next tile adds less than 3% of its physical footprint as new area inside the region.</small></span></label>
             <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
             </fieldset>
-            <button className="button button-plan" onClick={() => void handlePlanRegion()} disabled={!regionPolygon || !profile || busy}>
+            {planningUnavailableReason && <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
+            <button className="button button-plan" onClick={() => void handlePlanRegion()}
+              disabled={!regionPolygon || !profile || !activeSurvey || !activeInstrument || Boolean(planningUnavailableReason) || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
-            <p className="fine-print">Active profile: {profile?.display_name ?? "loading…"}</p>
+            <p className="fine-print">Active survey: {activeSurvey?.display_name ?? "unavailable"}{activeInstrument ? ` · output instrument: ${activeInstrument.display_name}` : ""}</p>
             <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>
           </section>
 
@@ -698,39 +698,46 @@ export default function App() {
                 </label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "4px 0 12px 30px" }}>
                   <label style={{ display: "grid", gap: 4 }}>
-                    <span className="fine-print">Instrument profile</span>
+                    <span className="fine-print">Catalogue instrument</span>
                     <select
-                      aria-label={`Instrument profile for ${dataset.filename}`}
-                      value={dataset.instrument_profile_id}
+                      aria-label={`Catalogue instrument for ${dataset.filename}`}
+                      value={dataset.instrument_profile_id ?? ""}
                       disabled={busy}
                       onChange={(event) => updateDatasetSettings(dataset.id, { instrument_profile_id: event.target.value })}
                     >
-                      {!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id) &&
-                        <option value={dataset.instrument_profile_id}>{dataset.instrument_profile_id} (unknown)</option>}
+                      <option value="">Choose an instrument…</option>
+                      {dataset.instrument_profile_id && !instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id) &&
+                        <option value={dataset.instrument_profile_id}>{dataset.instrument_profile_id} (unavailable)</option>}
                       {instrumentProfiles.map((instrument) => (
-                        <option key={instrument.id} value={instrument.id}>{instrument.display_name}</option>
+                        <option key={instrument.id} value={instrument.id} title={instrument.description ?? footprintSummary(instrument.footprint)}>{instrument.display_name}</option>
                       ))}
                     </select>
                   </label>
                   <label style={{ display: "grid", gap: 4 }}>
-                    <span className="fine-print">Inference role</span>
+                    <span className="fine-print">Inference participation</span>
                     <select
-                      aria-label={`Inference role for ${dataset.filename}`}
+                      aria-label={`Inference participation for ${dataset.filename}`}
                       value={dataset.inference_role}
                       disabled={busy}
                       onChange={(event) => updateDatasetSettings(dataset.id, { inference_role: event.target.value as CatalogueDataset["inference_role"] })}
                     >
-                      <option value="auto">Auto</option>
-                      <option value="include">Include</option>
-                      <option value="exclude">Exclude</option>
+                      <option value="auto">Auto · follow active survey compatibility</option>
+                      <option value="include">Include · allow compatible independent lattice</option>
+                      <option value="exclude">Exclude · coverage only</option>
                     </select>
                   </label>
                 </div>
+                {(!dataset.instrument_profile_id || !instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id)) &&
+                  <p className="profile-validation-error" role="alert">
+                    {dataset.instrument_profile_id
+                      ? `Instrument “${dataset.instrument_profile_id}” is unavailable. Assign a registered profile before planning.`
+                      : "Assign a registered instrument profile before planning with this catalogue."}
+                  </p>}
               </div>
             ))}
             {datasets.length > 0 && (
               <p className="fine-print">
-                Auto uses the active survey instrument or geometry matching a custom output. Include admits a separate instrument lattice; Exclude removes that dataset from lattice inference. All enabled catalogues still contribute coverage.
+                Auto follows the active survey’s compatibility policy. Include permits a compatible independent lattice. Exclude removes a catalogue only from lattice inference; its assigned footprint still contributes to coverage. Map visibility does not change either behavior.
               </p>
             )}
             <div className="layer-group-heading">Planning</div>
@@ -800,7 +807,7 @@ export default function App() {
           />
           <div className="map-footer">
             <span><i className="legend-line legend-cyan" />Tile footprints appear when zoomed in</span>
-            <span>{profile ? `Approximate ${profile.tile_width_deg}° × ${profile.tile_height_deg}° coverage` : "Loading geometry…"}</span>
+            <span>{activeInstrument ? `Output instrument footprint: ${footprintSummary(activeInstrument.footprint)}` : "Resolving output instrument…"}</span>
           </div>
         </section>
 
@@ -831,8 +838,8 @@ export default function App() {
                 <strong>{solutionLabel(pending.solution)}</strong>
               </div>
               {pending.solution === "profile_fallback" && <p className="diagnostic-line">{hasCatalogue
-                ? "No local grid could be inferred from the loaded tiles, so the active tile profile supplies the grid."
-                : "No catalogue is loaded; using the active tile profile grid is expected for a new project."}</p>}
+                ? "No local grid could be inferred from the loaded tiles, so the active survey tiling policy supplies the grid."
+                : "No catalogue is loaded; the active survey supplies the grid for this new project."}</p>}
               {pending.coverageStrategy && <p className="strategy-result">{pending.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
               {pending.metrics ? <MetricsPanel metrics={pending.metrics} inference={pending.inference} candidateCount={pending.candidateCenters.length} /> : <div className="preview-count"><strong>{pending.tiles.length}</strong><span>new centers ready</span></div>}
               {pending.diagnostics.map((line) => <p className="diagnostic-line" key={line}>{line}</p>)}
@@ -900,8 +907,8 @@ export default function App() {
                 </select>
               </label>
             </div>
-            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !profile || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <p className="fine-print">{profile?.display_name ?? "Loading profile"} · ICRS RA/DEC · EPOCH {exportEpoch || "…"}. Export contains enabled proposals only.</p>
+            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !profile || !activeSurvey || !activeInstrument || busy}><Icon name="download" /> Download new_tiles.csv</button>
+            <p className="fine-print">{activeSurvey?.display_name ?? "Active survey unavailable"} · ICRS RA/DEC · EPOCH {exportEpoch || "not configured"}. Export contains enabled proposals only.</p>
           </section>
         </aside>
       </section>

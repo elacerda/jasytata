@@ -6,7 +6,7 @@ import type {
   AladinLiteOverlay,
   AladinLiteSource,
 } from "aladin-lite";
-import type { CatalogueDataset, CenterInput, SkyPolygon, TileRecord, TilingProfile } from "./types";
+import type { CatalogueDataset, CenterInput, Footprint, SkyPolygon, TileRecord, TilingProfile } from "./types";
 import { skyPolygonFromVertices, tileFootprintBoundaries } from "./sky";
 import { footprintForTile } from "./profiles/footprints";
 import { profileRegistry } from "./profiles/registry";
@@ -268,19 +268,27 @@ export default function AladinMap(props: AladinMapProps) {
     if (drawFootprints && profile) {
       for (const dataset of current.datasets) {
         if (!dataset.visible) continue;
+        if (!dataset.instrument_profile_id) continue;
         const layer = datasetFootprintsRef.current.get(dataset.id);
-        const footprint = profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id).footprint;
+        let footprint: Footprint;
+        try {
+          footprint = profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id).footprint;
+        } catch {
+          continue;
+        }
         dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => {
           for (const boundary of tileFootprintBoundaries(tile, footprint)) layer?.add(A.polyline(boundary));
         });
       }
       if (current.planningLayers.proposals) {
         proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => {
-          const footprint = footprintForTile(tile, profile, profileRegistry);
+          const footprint = displayFootprintForTile(tile, profile);
+          if (!footprint) return;
           for (const boundary of tileFootprintBoundaries(tile, footprint)) proposedLayer.add(A.polyline(boundary));
         });
         proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => {
-          const footprint = footprintForTile(tile, profile, profileRegistry);
+          const footprint = displayFootprintForTile(tile, profile);
+          if (!footprint) return;
           for (const boundary of tileFootprintBoundaries(tile, footprint)) disabledLayer.add(A.polyline(boundary));
         });
       }
@@ -288,12 +296,15 @@ export default function AladinMap(props: AladinMapProps) {
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
         .slice(0, 100)
         .forEach((tile) => {
-          const footprint = footprintForTile(tile, profile, profileRegistry);
+          const footprint = displayFootprintForTile(tile, profile);
+          if (!footprint) return;
           for (const boundary of tileFootprintBoundaries(tile, footprint)) anchorLayer.add(A.polyline(boundary));
         });
       if (selected && visible(selected)) {
-        const footprint = footprintForTile(selected, profile, profileRegistry);
-        for (const boundary of tileFootprintBoundaries(selected, footprint)) selectedLayer.add(A.polyline(boundary));
+        const footprint = displayFootprintForTile(selected, profile);
+        if (footprint) {
+          for (const boundary of tileFootprintBoundaries(selected, footprint)) selectedLayer.add(A.polyline(boundary));
+        }
       }
       current.candidateCenters
         .filter((center) => current.planningLayers.lattice && visible(center))
@@ -443,6 +454,15 @@ function rebuildOverlays(instance: AladinLiteInstance, refs: { current: AladinLi
     instance.addOverlay(overlay);
     return overlay;
   });
+}
+
+function displayFootprintForTile(tile: TileRecord, profile: TilingProfile | null): Footprint | null {
+  if (!profile || (tile.source === "original" && !tile.instrument_profile_id)) return null;
+  try {
+    return footprintForTile(tile, profile, profileRegistry);
+  } catch {
+    return null;
+  }
 }
 
 function wrappedRaDelta(ra: number, reference: number) {

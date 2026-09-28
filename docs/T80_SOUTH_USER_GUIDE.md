@@ -1,12 +1,12 @@
 # Manual rápido do Jasytata
 ## Planejamento de novos campos para o T80-South
 
-O **Jasytata** permite continuar um projeto usando um catálogo de apontamentos existente ou iniciar um novo plano de cobertura a partir do perfil ativo do instrumento. O catálogo é opcional.
+O **Jasytata** permite continuar um projeto usando catálogos de apontamentos existentes ou iniciar um novo plano de cobertura a partir do survey ativo. O catálogo é opcional.
 
 Dois fluxos comuns:
 
-- **A. Continuar um projeto ou levantamento:** carregue o catálogo existente, confirme o perfil do instrumento e planeje uma região para acrescentar novos tiles.
-- **B. Iniciar um projeto:** mantenha o perfil desejado ativo e planeje a região sem carregar um catálogo. O perfil fornece a geometria e a grade inicial dos tiles.
+- **A. Continuar um projeto ou levantamento:** carregue um ou mais catálogos, confira o instrumento associado a cada um e planeje uma região para acrescentar novos tiles.
+- **B. Iniciar um projeto:** mantenha o survey desejado ativo e planeje a região sem carregar catálogos. O survey fornece a política de planejamento e seu instrumento vinculado fornece a geometria dos novos tiles.
 
 ---
 
@@ -20,13 +20,15 @@ Aplicação pública:
 
 O planejamento, a cobertura e a exportação são executados no navegador. Não é necessário iniciar um servidor. O mapa Aladin Lite e as imagens astronômicas podem acessar serviços externos.
 
-Ao abrir a página, o perfil padrão deve aparecer como:
+Ao abrir a página, o survey padrão deve aparecer como:
 
 **S-PLUS / T80-South**
 
-Para o uso normal do T80-South, **não é necessário alterar esse perfil**.
+O Jasytata resolve automaticamente o instrumento de saída **T80-South camera** pelo survey ativo. Para o uso normal do T80-South, **não é necessário alterar o survey nem configurar o instrumento de saída**.
 
-Sem catálogo carregado, o perfil ativo é suficiente para planejar novos campos.
+Sem catálogos carregados, o survey ativo é suficiente para planejar novos campos.
+
+O seletor **Active survey**, na seção **Survey profile**, define a política usada para gerar os novos tiles. Perfis Schema v2 importados ficam disponíveis imediatamente nessa lista e nos seletores de instrumento dos catálogos durante a sessão atual. Eles permanecem na memória do navegador até recarregar a página. **Export survey JSON** salva o survey selecionado junto com seu instrumento vinculado.
 
 ---
 
@@ -51,6 +53,8 @@ Depois clique em:
 **Load mapped catalogue**
 
 O catálogo aparecerá sobre o mapa do céu e será considerado no planejamento. Os tiles originais não são alterados.
+
+Cada catálogo tem seu próprio seletor **Catalogue instrument**, que define a geometria usada para interpretar seus apontamentos. O catálogo de referência do T80-South já recebe o instrumento **T80-South camera**. Em uma sessão com vários instrumentos disponíveis, escolha explicitamente o instrumento de cada catálogo enviado; a geometria não é inferida pelo nome do arquivo. O seletor **Inference participation** controla apenas se o catálogo pode ajudar a inferir uma grade: **Exclude** retira o catálogo da inferência, mas seus footprints continuam contribuindo para a cobertura.
 
 ### Para testes
 
