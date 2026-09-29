@@ -3,7 +3,19 @@ import { parseDecDegrees, parseRaDegrees, type RaUnit } from "./coordinates";
 
 const RA_ALIASES = new Set(["ra", "ra_deg", "radeg", "ra_hours", "ra_icrs", "raj2000", "right_ascension", "rightascension"]);
 const DEC_ALIASES = new Set(["dec", "dec_deg", "decdeg", "dec_icrs", "dej2000", "declination"]);
+const PA_ALIASES = new Set(["position_angle_deg", "pa_deg"]);
 const alias = (header: string) => header.toLowerCase().replaceAll(" ", "_");
+
+/** Optional position angle handling for catalogue imports.
+ * @property positionAngleColumn - Explicit supported PA header. If omitted, the
+ *   parser recognizes the canonical `position_angle_deg` and `pa_deg` headers.
+ * @property requirePositionAngle - Reject rows or catalogues without a selected
+ *   PA column. Use when the active runtime policy requires per-pointing PA.
+ */
+export interface CatalogueParseOptions {
+  positionAngleColumn?: string;
+  requirePositionAngle?: boolean;
+}
 
 /** Read RFC-style CSV cells, including quoted commas, escaped quotes, and multiline fields.
  * @param text - Decoded UTF-8 CSV content.
@@ -35,10 +47,11 @@ export function readCsv(text: string): string[][] {
  * @param raColumn - Explicit RA header for ambiguous catalogues.
  * @param decColumn - Explicit DEC header for ambiguous catalogues.
  * @param raUnit - Numeric RA convention; ra_hours in auto mode means hours.
+ * @param options - Optional supported PA header selection and required-PA policy.
  * @returns Canonical decimal-degree tiles or a column mapping request.
  * @throws On invalid UTF-8, headers, units, selected rows, or empty catalogues.
  */
-export function parseCatalogueCsv(contents: Uint8Array, filename = "catalogue.csv", raColumn?: string, decColumn?: string, raUnit: RaUnit = "auto"): CatalogueResponse {
+export function parseCatalogueCsv(contents: Uint8Array, filename = "catalogue.csv", raColumn?: string, decColumn?: string, raUnit: RaUnit = "auto", options: CatalogueParseOptions = {}): CatalogueResponse {
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(contents).replace(/^\uFEFF/, ""); }
   catch { throw new Error("CSV must be UTF-8 encoded"); }
@@ -47,6 +60,13 @@ export function parseCatalogueCsv(contents: Uint8Array, filename = "catalogue.cs
   if (!headers.length || headers.some((header) => !header) || new Set(headers).size !== headers.length) throw new Error("CSV must have unique, non-empty column headers");
   if (!["auto", "degrees", "hours"].includes(raUnit)) throw new Error("RA unit must be auto, degrees, or hours");
   if ((raColumn === undefined) !== (decColumn === undefined)) throw new Error("Choose both RA and DEC columns");
+  const paMatches = headers.filter((header) => PA_ALIASES.has(alias(header)));
+  const positionAngleColumn = options.positionAngleColumn ?? (paMatches.length === 1 ? paMatches[0] : undefined);
+  if (paMatches.length > 1 && options.positionAngleColumn === undefined) throw new Error("Catalogue has multiple supported position angle columns; select one explicitly");
+  if (positionAngleColumn !== undefined && (!headers.includes(positionAngleColumn) || !PA_ALIASES.has(alias(positionAngleColumn)))) {
+    throw new Error("Selected position angle column must be a supported CSV header (position_angle_deg or pa_deg)");
+  }
+  if (options.requirePositionAngle && positionAngleColumn === undefined) throw new Error("Catalogue is missing the required position angle column");
   if (raColumn === undefined) {
     const ras = headers.filter((header) => RA_ALIASES.has(alias(header)));
     const decs = headers.filter((header) => DEC_ALIASES.has(alias(header)));
@@ -67,12 +87,18 @@ export function parseCatalogueCsv(contents: Uint8Array, filename = "catalogue.cs
     const row: Record<string, string> = {};
     headers.forEach((header, index) => { row[header] = fields[index] ?? ""; });
     const missing = [raColumn, decColumn!].filter((key) => !row[key].trim());
+    if (options.requirePositionAngle && positionAngleColumn && !row[positionAngleColumn]?.trim()) missing.push(positionAngleColumn);
     if (missing.length) throw new Error(`Row ${rowNumber}: empty required value in ${missing.join(", ")}`);
     try {
       const metadata = Object.fromEntries(Object.entries(row).filter(([key]) => key !== raColumn && key !== decColumn));
+      const rawPositionAngle = positionAngleColumn === undefined ? "" : row[positionAngleColumn].trim();
+      const validNumber = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/.test(rawPositionAngle);
+      const positionAngle = rawPositionAngle === "" ? undefined : validNumber ? Number(rawPositionAngle) : Number.NaN;
+      if (positionAngle !== undefined && !Number.isFinite(positionAngle)) throw new Error(`Invalid position angle '${rawPositionAngle}'`);
       tiles.push({
         id: `original-${i}`, name: row.NAME ?? `Row ${i}`,
         ra_deg: parseRaDegrees(row[raColumn], raUnit), dec_deg: parseDecDegrees(row[decColumn!]),
+        ...(positionAngle === undefined ? {} : { position_angle_deg: positionAngle }),
         // Retain historical PID grouping solely for frozen legacy_splus inference.
         // Generic inference/export ignore this compatibility field and all source headers.
         source: "original", enabled: true, dataset_id: filename, group_id: `${filename}:${row.PID ?? ""}`,

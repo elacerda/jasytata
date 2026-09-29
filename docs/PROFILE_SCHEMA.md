@@ -84,8 +84,10 @@ triangular lattice uses `[[s,0], [s/2,sqrt(3)*s/2]]`.
 
 Lattice orientation is encoded only in these vectors; lattice
 `position_angle_deg` and the former `origin_policy` field are rejected. Camera
-PA belongs exclusively to the instrument footprint. A camera at PA 30° may use
-an axis-aligned lattice, and a camera at PA 0° may use a rotated lattice.
+The Schema v2 profile default PA belongs to the instrument footprint. Gate 5
+runtime orientation can resolve a different PA for a pointing under an explicit
+per-pointing policy; it never reads or changes the lattice basis. A camera at
+PA 30° may use an axis-aligned lattice, and a camera at PA 0° may use a rotated lattice.
 Overlap is not a lattice parameter. The profile bridge can construct basis
 vectors from custom v1 width/height minus overlap as an authoring convenience.
 The published inline `RECT_GRID_V1` planner entry point retains its frozen
@@ -500,9 +502,10 @@ select only from `epoch.allowed`. A singleton allowed list defines a constant
 epoch. Epoch is never read from a source row or interpreted as a coordinate
 transformation. The bundled T80 policy supplies `EPOCH=2000`.
 
-Absent `position_angle_column` omits PA. When requested, the pointing must carry
-finite `position_angle_deg`: astronomical degrees east of north, matching the
-footprint engine. On acceptance the browser copies an explicitly declared
+Absent `position_angle_column` omits PA. In the established Schema v2 CSV path,
+the pointing must carry finite `position_angle_deg` when PA is requested:
+astronomical degrees east of north, matching the footprint engine. On acceptance
+the browser copies an explicitly declared
 **top-level** output instrument footprint PA when the proposal has no declared PA.
 This records the camera orientation already used for that proposal's footprint;
 it is independent of lattice basis orientation and inferred rotation. Compound
@@ -510,7 +513,12 @@ child rotations remain detector geometry, not camera PA. Circles have no declare
 orientation. An absent footprint angle is not promoted to an export default of
 zero: a requested PA with no declared value fails with a useful UI error before
 creating a download. An explicitly declared zero is valid. PA uses eight decimal
-places, with no angle normalization or invented value.
+places, with no angle normalization or invented value. Gate 5 also permits a
+caller-supplied runtime resolver for policy-resolved PA and ordered exposure rows;
+these are not Schema v2 profile fields. Effective geometry normalizes its
+resolved angle, while the unchanged v2 export path retains its input
+representation. The [Gate 5 validation record](V0.4.0_ORIENTATION_SEQUENCE_VALIDATION.md)
+specifies the runtime precedence and sequence export boundary.
 
 Optional `export.identifiers` adds these declarative output labels:
 

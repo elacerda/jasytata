@@ -12,6 +12,9 @@ import { loadProfile, listProfiles, validateProfile, parseProfileJson, serialize
 import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
 import { buildExportCsv } from "./science/export";
+import type { PointingExportOptions } from "./science/export";
+import { resolvePointingGeometries, type PointingGeometryContext } from "./science/pointing-geometry";
+import { resolvePlanningProfile } from "./profiles/planning";
 import { planRegion as planRegionLocal } from "./science/planner";
 import { measureActiveCoverage } from "./science/coverage";
 
@@ -94,6 +97,7 @@ export async function proposeCenters(
  * @param surveyId - Exact active Schema v2 survey ID, never a source instrument ID.
  * @param epoch - Optional allowed descriptive epoch; the policy supplies its default.
  * @param registry - Validated session registry, injectable for isolated tests.
+ * @param geometryContext - Optional Gate 5 runtime orientation and strategy choice.
  * @returns Resolves after triggering new_tiles.csv in the browser.
  * @throws For unresolved/invalid surveys or export rows. No backend or fallback is used.
  */
@@ -102,9 +106,34 @@ export async function downloadCatalogue(
   surveyId: string,
   epoch?: string,
   registry: ProfileRegistry = profileRegistry,
+  geometryContext?: PointingGeometryContext,
 ): Promise<void> {
   const survey = registry.resolveSurveyProfile(surveyId);
-  const blob = new Blob([buildExportCsv(proposedTiles, survey, epoch)], { type: "text/csv; charset=utf-8" });
+  let options: PointingExportOptions | undefined;
+  if (geometryContext) {
+    const profile = resolvePlanningProfile(surveyId, undefined, registry).profile;
+    const nominal = { ...geometryContext, coverageBasis: "single_exposure" as const };
+    const sequences = new Map(proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => [
+      tile, geometryContext.sequenceForTile?.(tile),
+    ] as const));
+    const effective = {
+      ...geometryContext,
+      coverageBasis: "effective_sequence" as const,
+      sequenceForTile: (tile: TileRecord) => sequences.get(tile),
+    };
+    const hasSequence = [...sequences.values()].some((sequence) => sequence !== undefined);
+    options = {
+      resolvePositionAngle: (tile) => resolvePointingGeometries(tile, profile, registry, nominal)[0].position_angle_deg,
+      ...(hasSequence ? { resolveExposures: (tile: TileRecord) => sequences.get(tile) === undefined ? undefined : resolvePointingGeometries(tile, profile, registry, effective).map((geometry) => ({
+        id: geometry.id,
+        order: geometry.order,
+        ra_deg: geometry.center[0],
+        dec_deg: geometry.center[1],
+        ...(geometry.position_angle_deg === undefined ? {} : { position_angle_deg: geometry.position_angle_deg }),
+      })) } : {}),
+    };
+  }
+  const blob = new Blob([buildExportCsv(proposedTiles, survey, epoch, options)], { type: "text/csv; charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -121,10 +150,11 @@ export async function downloadCatalogue(
  * @param profileId - Bundled or custom profile ID.
  * @param profile - Inline custom geometry when selected.
  * @param strategy - Sampled-coverage stopping policy.
+ * @param geometryContext - Optional runtime pointing orientation and sequence geometry.
  * @returns Auditable proposal and sampled metrics.
  */
-export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete"): Promise<RegionPlanResponse> {
-  return planRegionLocal(polygon, existingTiles, profileId, profile, strategy);
+export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete", geometryContext?: PointingGeometryContext): Promise<RegionPlanResponse> {
+  return planRegionLocal(polygon, existingTiles, profileId, profile, strategy, profileRegistry, geometryContext);
 }
 
 /** Build the scientific planning input shared with development diagnostics.
@@ -145,10 +175,11 @@ export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileR
  * @param proposedTiles - Editable proposal records.
  * @param profileId - Active observing profile ID.
  * @param profile - Optional inline custom profile.
+ * @param geometryContext - Optional Gate 5 nominal/effective geometry selection.
  * @returns Existing, incremental, and total coverage measurements.
  */
-export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile): Promise<PlanMetrics> {
-  return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile);
+export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile, geometryContext?: PointingGeometryContext): Promise<PlanMetrics> {
+  return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile, profileRegistry, geometryContext);
 }
 
 /** Read and atomically register a browser-selected Schema v2 profile file.

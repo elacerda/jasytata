@@ -7,6 +7,7 @@ import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
+import { pointingGeometriesIntersectRegion, pointingGeometryUnionArea, resolvePointingGeometries, type PointingGeometryContext } from "./pointing-geometry";
 
 // Minimum eight cells per axis is a frozen compatibility algorithm rule.
 // Scientific resolution and budget come from the validated survey profile.
@@ -35,6 +36,8 @@ export interface CoverageGrid {
 export interface MaskedCenter {
   center: Center;
   mask: Uint8Array;
+  /** Physical area used for outside-region metrics when this is a sequence union. */
+  physicalAreaDeg2?: number;
 }
 
 /** Sample an ICRS region with footprint-relative resolution and a bounded grid.
@@ -237,6 +240,7 @@ export function tileMask(
  * @param tiles - Enabled original and accepted proposal records.
  * @param profile - Active output planner profile; its linked instrument supplies proposal geometry.
  * @param registry - Session-local registry used to resolve source dataset geometry.
+ * @param geometryContext - Optional PA and sequence selection. Omission retains Schema v2 geometry.
  * @returns Binary union mask aligned with the grid.
  * @throws If an associated source or active output instrument is unknown.
  */
@@ -245,6 +249,7 @@ export function coveredMask(
   tiles: readonly TileRecord[],
   profile: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
+  geometryContext?: PointingGeometryContext,
 ): Uint8Array {
   const covered = new Uint8Array(grid.ra.length);
   const footprints = new Map<string, Footprint>();
@@ -259,9 +264,14 @@ export function coveredMask(
       footprint = cached ?? registry.resolveInstrumentProfile(tile.instrument_profile_id).footprint;
       footprints.set(tile.instrument_profile_id, footprint);
     }
-    const mask = tileMask(grid, tile.ra_deg, tile.dec_deg, footprint);
-    for (let index = 0; index < mask.length; index += 1) {
-      if (mask[index] && !covered[index]) { covered[index] = 1; coveredCount += 1; }
+    const geometries = geometryContext
+      ? resolvePointingGeometries(tile, profile, registry, geometryContext)
+      : [{ center: [tile.ra_deg, tile.dec_deg] as [number, number], footprint }];
+    for (const geometry of geometries) {
+      const mask = tileMask(grid, geometry.center[0], geometry.center[1], geometry.footprint);
+      for (let index = 0; index < mask.length; index += 1) {
+        if (mask[index] && !covered[index]) { covered[index] = 1; coveredCount += 1; }
+      }
     }
     if (coveredCount === selectedSampleCount) break;
   }
@@ -273,6 +283,7 @@ export function coveredMask(
  * @param tiles - Enabled source tiles and accepted proposals.
  * @param profile - Active output profile for unassociated tiles and proposals.
  * @param registry - Session-local registry used to resolve source instruments.
+ * @param geometryContext - Optional PA and sequence selection. One tile counts once if any exposure intersects.
  * @returns Number of source or proposal footprints intersecting positive polygon area.
  * @throws If an associated source or active output instrument is unknown.
  */
@@ -281,6 +292,7 @@ export function contributingTileCountForTiles(
   tiles: readonly TileRecord[],
   profile: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
+  geometryContext?: PointingGeometryContext,
 ): number {
   const footprints = new Map<string, Footprint>();
   const outputFootprint = outputFootprintForProfile(profile, registry);
@@ -292,7 +304,10 @@ export function contributingTileCountForTiles(
       footprint = cached ?? registry.resolveInstrumentProfile(tile.instrument_profile_id).footprint;
       footprints.set(tile.instrument_profile_id, footprint);
     }
-    if (footprintIntersectsRegion(footprint, tile, polygon)) total += 1;
+    if (geometryContext) {
+      const geometries = resolvePointingGeometries(tile, profile, registry, geometryContext);
+      if (pointingGeometriesIntersectRegion(geometries, polygon)) total += 1;
+    } else if (footprintIntersectsRegion(footprint, tile, polygon)) total += 1;
   }
   return total;
 }
@@ -311,7 +326,8 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, physicalAreaDeg2:
 }
 
 /** Greedily select centers by incremental coverage and Python's ordered tie breaks.
- * @param candidates - Unoccupied useful centers in deterministic grid order.
+ * @param candidates - Unoccupied useful centers in deterministic grid order;
+ *   effective-sequence candidates may supply their overlap-aware union area.
  * @param existingMask - Existing selected-region coverage mask.
  * @param grid - Weighted ICRS samples.
  * @param geometry - Schema v2 output footprint or legacy rectangular dimensions.
@@ -342,18 +358,18 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
     let bestIndex = -1;
     let bestScore: number[] | null = null;
     for (let index = 0; index < remaining.length; index += 1) {
-      const { center: [ra, dec], mask } = remaining[index];
+      const { center: [ra, dec], mask, physicalAreaDeg2: candidateArea } = remaining[index];
       const gain = weightSum(grid, mask, uncovered);
       const overlap = weightSum(grid, mask, uncovered, false);
       const inside = Math.max(weightSum(grid, mask), 1e-12);
-      const outsideArea = outsideTileArea(mask, grid, physicalAreaDeg2);
+      const outsideArea = outsideTileArea(mask, grid, candidateArea ?? physicalAreaDeg2);
       const score = [gain, -overlap / inside, -outsideArea, -dec, -ra, index];
       if (bestScore === null || compareScore(score, bestScore) > 0) { bestScore = score; bestIndex = index; }
     }
     const best = remaining.splice(bestIndex, 1)[0];
     const gain = weightSum(grid, best.mask, uncovered);
     if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) break;
-    const marginalEfficiency = gain * grid.cellAreaDeg2 / physicalAreaDeg2;
+    const marginalEfficiency = gain * grid.cellAreaDeg2 / (best.physicalAreaDeg2 ?? physicalAreaDeg2);
     if (strategy === "efficient" && efficientPolicy && currentCoverage >= efficientPolicy.min_coverage && marginalEfficiency < efficientPolicy.min_marginal_efficiency) break;
     selected.push(best);
     for (let index = 0; index < uncovered.length; index += 1) if (best.mask[index]) uncovered[index] = 0;
@@ -380,7 +396,8 @@ function compareScore(left: readonly number[], right: readonly number[]): number
  * @param grid - Weighted ICRS polygon samples.
  * @param contributing - Number of actual footprints with positive geometric intersection.
  * @param geometry - Schema v2 output footprint or legacy rectangular tile dimensions.
- *   Its physical union area is computed once for all selected masks.
+ *   Its physical area is the fallback for each selected mask; effective-sequence
+ *   proposals may carry their own overlap-aware union area.
  * @returns Current declination-weighted sampled fractions, areas in square degrees, and counts.
  */
 export function measureMetrics(selected: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, contributing: number, geometry: FootprintGeometry): PlanMetrics {
@@ -391,13 +408,13 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
   let proposedSampleWeight = 0;
   let redundantSampleWeight = 0;
   let outsideArea = 0;
-  for (const { mask } of selected) {
+  for (const { mask, physicalAreaDeg2: selectedPhysicalArea } of selected) {
     redundantSampleWeight += weightSum(grid, mask, covered);
     proposedSampleWeight += weightSum(grid, mask);
     for (let index = 0; index < mask.length; index += 1) {
       if (mask[index]) { if (!covered[index]) newCovered[index] = 1; covered[index] = 1; }
     }
-    outsideArea += outsideTileArea(mask, grid, physicalAreaDeg2);
+    outsideArea += outsideTileArea(mask, grid, selectedPhysicalArea ?? physicalAreaDeg2);
   }
   const total = Math.max(grid.totalWeight, 1e-12);
   const totalCoverage = weightSum(grid, covered) / total;
@@ -427,6 +444,7 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
  * @param profileId - Registered survey, bundled preset, or custom profile ID.
  * @param inlineProfile - Session-only custom profile, if any.
  * @param registry - Session-local registry used to resolve source instrument profiles.
+ * @param geometryContext - Optional PA and single/effective-sequence coverage basis.
  * @returns Current sampled-coverage metrics for enabled existing and proposed footprints.
  * @throws On invalid polygon/profile, unknown instrument ID,
  *   or non-proposal editable record.
@@ -438,6 +456,7 @@ export function measureActiveCoverage(
   profileId = DEFAULT_PROFILE.id,
   inlineProfile?: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
+  geometryContext?: PointingGeometryContext,
 ): PlanMetrics {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000 || proposedTiles.length > 500) throw new Error("Too many tile records");
@@ -450,10 +469,27 @@ export function measureActiveCoverage(
       ? sampleLegacyRegion(polygon, tiling.grid_extent_deg, registry.resolveSurveyProfile(profile.id).coverage)
       : sampleRegion(polygon, outputFootprint, registry.resolveSurveyProfile(profile.id).coverage);
   const activeExisting = existingTiles.filter((tile) => tile.enabled !== false);
-  const existing = coveredMask(grid, activeExisting, profile, registry);
-  const selected = proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => ({
-    center: [tile.ra_deg, tile.dec_deg] as Center,
-    mask: tileMask(grid, tile.ra_deg, tile.dec_deg, outputFootprint),
-  }));
-  return measureMetrics(selected, existing, grid, contributingTileCountForTiles(polygon, activeExisting, profile, registry), outputFootprint);
+  const existing = coveredMask(grid, activeExisting, profile, registry, geometryContext);
+  const selected = proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => {
+    if (!geometryContext) {
+      return { center: [tile.ra_deg, tile.dec_deg] as Center, mask: tileMask(grid, tile.ra_deg, tile.dec_deg, outputFootprint) };
+    }
+    const sequence = geometryContext.coverageBasis === "effective_sequence"
+      ? geometryContext.sequenceForTile?.(tile)
+      : undefined;
+    const tileGeometryContext = sequence === undefined
+      ? geometryContext
+      : { ...geometryContext, sequenceForTile: () => sequence };
+    const geometries = resolvePointingGeometries(tile, profile, registry, tileGeometryContext);
+    const mask = new Uint8Array(grid.ra.length);
+    for (const pointingGeometry of geometries) {
+      const exposureMask = tileMask(grid, pointingGeometry.center[0], pointingGeometry.center[1], pointingGeometry.footprint);
+      for (let index = 0; index < mask.length; index += 1) if (exposureMask[index]) mask[index] = 1;
+    }
+    const physicalAreaDeg2 = sequence
+      ? pointingGeometryUnionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
+      : undefined;
+    return { center: [tile.ra_deg, tile.dec_deg] as Center, mask, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) };
+  });
+  return measureMetrics(selected, existing, grid, contributingTileCountForTiles(polygon, activeExisting, profile, registry, geometryContext), outputFootprint);
 }

@@ -4,6 +4,7 @@ import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/regist
 import { parseProfileJson, serializeProfile } from "./profiles/document";
 import golden from "./data/golden.json";
 import type { TileRecord } from "./types";
+import { readCsv } from "./science/catalogue";
 
 const proposal: TileRecord = {
   id: "proposal-1", name: "", ra_deg: 150.5, dec_deg: -24.25,
@@ -94,6 +95,49 @@ describe("local facade and download", () => {
       const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
     });
     expect(csv).toBe(golden.exports.sexagesimal);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  it("exports runtime pointing PA and ordered exposure centers through the canonical geometry resolver", async () => {
+    const document = createBundledProfileRegistry().resolveProfileDocument("splus-t80-south");
+    document.instrument.id = "gate5-export-camera";
+    document.instrument.footprint = { type: "rectangle", width_deg: 0.02, height_deg: 0.01 };
+    document.survey.id = "gate5-export-strategy";
+    document.survey.instrument_id = document.instrument.id;
+    document.survey.tiling = { type: "manual" };
+    document.survey.export = {
+      ra_column: "RA", dec_column: "DEC", coordinate_format: "decimal",
+      position_angle_column: "PA", identifiers: { id_column: "TARGET" },
+    };
+    const registry = new ProfileRegistry();
+    registry.registerProfileDocument(document);
+    const pointing = { ...proposal, position_angle_deg: 37 };
+    const sequence = { id: "oriented-two-position", exposures: [
+      { order: 1, east_arcsec: 0, north_arcsec: 0, rotation_deg: 0 },
+      { order: 2, east_arcsec: 3600, north_arcsec: 0, rotation_deg: 90 },
+    ] };
+    let downloaded: Blob | undefined;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:gate5"; }) });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    await downloadCatalogue([pointing], document.survey.id, undefined, registry, {
+      orientationPolicyForTile: () => ({ policy: "per_pointing", required: true }),
+      sequenceForTile: () => sequence,
+      coverageBasis: "single_exposure",
+    });
+    const csv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
+    });
+    const rows = readCsv(csv);
+    expect(rows[0]).toEqual(["RA", "DEC", "PA", "TARGET"]);
+    expect(rows.slice(1).map((row) => row.slice(2))).toEqual([
+      ["37.00000000", "PROPOSED_0001_EXP_0001"],
+      ["127.00000000", "PROPOSED_0001_EXP_0002"],
+    ]);
+    expect(Number(rows[2][0])).toBeGreaterThan(Number(rows[1][0]));
+    expect(Number(rows[2][1])).toBeCloseTo(Number(rows[1][1]), 8);
+    expect(pointing.position_angle_deg).toBe(37);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 

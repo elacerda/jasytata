@@ -6,13 +6,20 @@ import type {
   AladinLiteOverlay,
   AladinLiteSource,
 } from "aladin-lite";
-import type { CatalogueDataset, CenterInput, Footprint, SkyPolygon, TileRecord, TilingProfile } from "./types";
+import type { CatalogueDataset, CenterInput, SkyPolygon, TileRecord, TilingProfile } from "./types";
 import { skyPolygonFromVertices, tileFootprintBoundaries } from "./sky";
-import { footprintForTile } from "./profiles/footprints";
+import { resolvePointingGeometries, type PointingGeometry, type PointingGeometryContext } from "./science/pointing-geometry";
 import { profileRegistry } from "./profiles/registry";
 
 /** Map click behavior: normal inspection/pan or single-center placement. */
 export type MapMode = "idle" | "add-tile";
+
+/** Zero-sized fallback used only when resolving an associated source instrument without an active planner. */
+const SOURCE_GEOMETRY_FALLBACK_PROFILE: TilingProfile = {
+  id: "map-source-fallback", display_name: "Map source fallback", tile_width_deg: 0, tile_height_deg: 0,
+  effective_overlap_arcsec: 0, coordinate_frame: "icrs", export_epoch_default: "2000",
+  export_epoch_options: ["2000"], algorithm: "SPLUS_LEGACY_GRID_V1",
+};
 
 interface AladinMapProps {
   tiles: TileRecord[];
@@ -27,6 +34,8 @@ interface AladinMapProps {
   planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
   anchorTileIds: string[];
   candidateCenters: CenterInput[];
+  /** Optional caller-owned PA and exposure geometry policy for displayed footprints. */
+  pointingGeometryContext?: PointingGeometryContext;
   onSkyClick: (ra: number, dec: number) => void;
   onTileSelect: (tile: TileRecord) => void;
   onRegionSelect: (polygon: SkyPolygon) => void;
@@ -62,6 +71,7 @@ export default function AladinMap(props: AladinMapProps) {
   const disabledCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const sourceLookupRef = useRef<WeakMap<AladinLiteSource, TileRecord>>(new WeakMap());
   const overlaysRef = useRef<AladinLiteOverlay[]>([]);
+  const reportedOrientationErrorRef = useRef<string | null>(null);
   const clickHandlerRef = useRef<(value: unknown) => void>(() => undefined);
   const objectHandlerRef = useRef<(value: unknown) => void>(() => undefined);
   const redrawRef = useRef<() => void>(() => undefined);
@@ -148,7 +158,7 @@ export default function AladinMap(props: AladinMapProps) {
 
   useEffect(() => {
     redrawRef.current();
-  }, [props.selectedTileId, props.selectedPolygon, props.anchorTileIds, props.candidateCenters, props.planningLayers, props.profile]);
+  }, [props.selectedTileId, props.selectedPolygon, props.anchorTileIds, props.candidateCenters, props.planningLayers, props.profile, props.pointingGeometryContext]);
 
   useEffect(() => {
     const tiles = propsRef.current.tiles;
@@ -244,10 +254,16 @@ export default function AladinMap(props: AladinMapProps) {
     const instance = aladinRef.current;
     if (!instance) return;
     const current = propsRef.current;
+    const reportOrientationError = (message: string) => {
+      if (message === reportedOrientationErrorRef.current) return;
+      reportedOrientationErrorRef.current = message;
+      current.onError(`Could not render pointing geometry: ${message}`);
+    };
     const proposals = current.tiles.filter((tile) => tile.source === "proposed");
     const [centerRa, centerDec] = instance.getRaDec();
     const [fovX, fovY] = instance.getFoV();
-    const drawFootprints = !!current.profile && fovX <= 36;
+    const drawImportedFootprints = fovX <= 36;
+    const drawFootprints = !!current.profile && drawImportedFootprints;
     const profile = current.profile;
     const margin = Math.max(profile?.tile_width_deg ?? 0, profile?.tile_height_deg ?? 0);
     const visible = (tile: SkyPoint) =>
@@ -265,46 +281,40 @@ export default function AladinMap(props: AladinMapProps) {
     const candidateLayer = footprintLayers[4];
     for (const layer of footprintLayers) layer.removeAll();
     for (const layer of datasetFootprintsRef.current.values()) layer.removeAll();
-    if (drawFootprints && profile) {
+    if (drawImportedFootprints) {
       for (const dataset of current.datasets) {
         if (!dataset.visible) continue;
         if (!dataset.instrument_profile_id) continue;
         const layer = datasetFootprintsRef.current.get(dataset.id);
-        let footprint: Footprint;
-        try {
-          footprint = profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id).footprint;
-        } catch {
-          continue;
-        }
         dataset.tiles.filter(visible).slice(0, 900).forEach((tile) => {
-          for (const boundary of tileFootprintBoundaries(tile, footprint)) layer?.add(A.polyline(boundary));
+          const datasetTile = { ...tile, instrument_profile_id: tile.instrument_profile_id ?? dataset.instrument_profile_id };
+          const geometries = displayGeometriesForTile(datasetTile, profile, current.pointingGeometryContext, reportOrientationError);
+          if (!geometries) return;
+          addGeometryBoundaries(layer, datasetTile, geometries);
         });
       }
+    }
+    if (drawFootprints && profile) {
       if (current.planningLayers.proposals) {
         proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => {
-          const footprint = displayFootprintForTile(tile, profile);
-          if (!footprint) return;
-          for (const boundary of tileFootprintBoundaries(tile, footprint)) proposedLayer.add(A.polyline(boundary));
+          const geometries = displayGeometriesForTile(tile, profile, current.pointingGeometryContext, reportOrientationError);
+          if (geometries) addGeometryBoundaries(proposedLayer, tile, geometries);
         });
         proposals.filter((tile) => tile.enabled === false && visible(tile)).slice(0, 500).forEach((tile) => {
-          const footprint = displayFootprintForTile(tile, profile);
-          if (!footprint) return;
-          for (const boundary of tileFootprintBoundaries(tile, footprint)) disabledLayer.add(A.polyline(boundary));
+          const geometries = displayGeometriesForTile(tile, profile, current.pointingGeometryContext, reportOrientationError);
+          if (geometries) addGeometryBoundaries(disabledLayer, tile, geometries);
         });
       }
       if (current.planningLayers.anchors) current.tiles
         .filter((tile) => anchorSet.has(tile.id) && visible(tile))
         .slice(0, 100)
         .forEach((tile) => {
-          const footprint = displayFootprintForTile(tile, profile);
-          if (!footprint) return;
-          for (const boundary of tileFootprintBoundaries(tile, footprint)) anchorLayer.add(A.polyline(boundary));
+          const geometries = displayGeometriesForTile(tile, profile, current.pointingGeometryContext, reportOrientationError);
+          if (geometries) addGeometryBoundaries(anchorLayer, tile, geometries);
         });
       if (selected && visible(selected)) {
-        const footprint = displayFootprintForTile(selected, profile);
-        if (footprint) {
-          for (const boundary of tileFootprintBoundaries(selected, footprint)) selectedLayer.add(A.polyline(boundary));
-        }
+        const geometries = displayGeometriesForTile(selected, profile, current.pointingGeometryContext, reportOrientationError);
+        if (geometries) addGeometryBoundaries(selectedLayer, selected, geometries);
       }
       current.candidateCenters
         .filter((center) => current.planningLayers.lattice && visible(center))
@@ -456,12 +466,28 @@ function rebuildOverlays(instance: AladinLiteInstance, refs: { current: AladinLi
   });
 }
 
-function displayFootprintForTile(tile: TileRecord, profile: TilingProfile | null): Footprint | null {
-  if (!profile || (tile.source === "original" && !tile.instrument_profile_id)) return null;
+function displayGeometriesForTile(
+  tile: TileRecord,
+  profile: TilingProfile | null,
+  context?: PointingGeometryContext,
+  onOrientationError?: (message: string) => void,
+): PointingGeometry[] | null {
+  const sourceWithoutPlanner = !profile && tile.source === "original" && !!tile.instrument_profile_id;
+  if ((!profile && !sourceWithoutPlanner) || (tile.source === "original" && !tile.instrument_profile_id)) return null;
   try {
-    return footprintForTile(tile, profile, profileRegistry);
-  } catch {
+    return resolvePointingGeometries(tile, profile ?? SOURCE_GEOMETRY_FALLBACK_PROFILE, profileRegistry, context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (context?.orientationPolicyForTile && /position angle|PA policy/i.test(message)) onOrientationError?.(message);
     return null;
+  }
+}
+
+function addGeometryBoundaries(layer: AladinLiteOverlay | undefined, tile: TileRecord, geometries: readonly PointingGeometry[]) {
+  if (!layer) return;
+  for (const geometry of geometries) {
+    const centeredTile = { ...tile, ra_deg: geometry.center[0], dec_deg: geometry.center[1] };
+    for (const boundary of tileFootprintBoundaries(centeredTile, geometry.footprint)) layer.add(A.polyline(boundary));
   }
 }
 

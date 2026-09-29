@@ -7,6 +7,7 @@ import { createDataset } from "./datasets";
 import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
 import type { ProfileDocument } from "./profiles/document";
 import { InstrumentProfileEditor } from "./profiles/InstrumentProfileEditor";
+import type { PointingGeometryContext } from "./science/pointing-geometry";
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
 import type {
   CenterInput,
@@ -52,8 +53,13 @@ function tilingSummary(tiling: SurveyProfileV2["tiling"]): string {
   return `Lattice · fixed anchor ${formatDegrees(tiling.origin.ra_deg)} RA, ${formatDegrees(tiling.origin.dec_deg)} DEC`;
 }
 
-/** Render the stateless catalogue, sky planning, proposal, and export workspace. */
-export default function App() {
+/** Render the catalogue, sky planning, proposal, and export workspace.
+ * @param pointingGeometryContext - Optional runtime Gate 5 policy/sequence context.
+ *   The ordinary application path retains Schema v2 behavior until profile
+ *   persistence and user selection are supplied by later gates.
+ * @returns Interactive Jasytata workspace.
+ */
+export default function App({ pointingGeometryContext }: { pointingGeometryContext?: PointingGeometryContext } = {}) {
   const [theme, setTheme] = useState<ThemeMode>(() => {
     try {
       return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
@@ -186,13 +192,15 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    void measureCoverage(regionPolygon, originalTiles, proposals, activeSurveyId)
+    void (pointingGeometryContext
+      ? measureCoverage(regionPolygon, originalTiles, proposals, activeSurveyId, undefined, pointingGeometryContext)
+      : measureCoverage(regionPolygon, originalTiles, proposals, activeSurveyId))
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
       });
     return () => { cancelled = true; };
-  }, [regionPolygon, activeSurveyId, profile, proposals, originalTiles, unresolvedDataset, activeResolution.error]);
+  }, [regionPolygon, activeSurveyId, profile, proposals, originalTiles, unresolvedDataset, activeResolution.error, pointingGeometryContext]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -332,7 +340,9 @@ export default function App() {
       setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy)));
     }
     await runBusy(
-      () => planRegion(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy),
+      () => pointingGeometryContext
+        ? planRegion(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy, pointingGeometryContext)
+        : planRegion(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
@@ -368,7 +378,7 @@ export default function App() {
       ...tile,
       id: `proposal-${batch}-${tile.id}`,
       // Camera orientation is declared independently of the lattice basis/inferred rotation.
-      ...(tile.position_angle_deg !== undefined ? {} : declaredPa !== undefined ? { position_angle_deg: declaredPa } : {}),
+      ...(pointingGeometryContext || tile.position_angle_deg !== undefined ? {} : declaredPa !== undefined ? { position_angle_deg: declaredPa } : {}),
       source: "proposed" as const,
       enabled: true,
     }));
@@ -458,7 +468,9 @@ export default function App() {
       return;
     }
     await runBusy(
-      () => downloadCatalogue(proposals, activeSurveyId, exportEpoch),
+      () => pointingGeometryContext
+        ? downloadCatalogue(proposals, activeSurveyId, exportEpoch, profileRegistry, pointingGeometryContext)
+        : downloadCatalogue(proposals, activeSurveyId, exportEpoch),
       () => setNotice("new_tiles.csv downloaded."),
     );
   }
@@ -789,6 +801,7 @@ export default function App() {
             planningLayers={planningLayers}
             anchorTileIds={activeContext?.inference?.anchor_tile_ids ?? EMPTY_IDS}
             candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
+            pointingGeometryContext={pointingGeometryContext}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
             onRegionSelect={(polygon) => {

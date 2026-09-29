@@ -7,6 +7,27 @@ export type CoverageStrategy = "complete" | "efficient";
 /** Whether a catalogue dataset may provide local-grid inference evidence. */
 export type InferenceRole = "auto" | "include" | "exclude";
 
+/** Runtime policy controlling how a pointing obtains its astronomical PA. */
+export type PositionAnglePolicy = "fixed" | "user_selected" | "per_pointing" | "not_applicable";
+
+/** Caller-owned orientation inputs; deliberately excluded from persisted profile schemas. */
+export interface PositionAngleOptions {
+  /** Policy governing profile, row, and plan-level PA precedence. */
+  policy: PositionAnglePolicy;
+  /** Require a selected PA for optional per-pointing and user-selected policies. */
+  required?: boolean;
+  /** User-selected PA supplied by the active plan, in degrees east of north. */
+  plan_position_angle_deg?: number;
+}
+
+/** Effective geometry and the scientifically declared resolved PA, when meaningful. */
+export interface ResolvedFootprintOrientation {
+  /** Immutable footprint copy with the policy-resolved absolute PA applied. */
+  footprint: Footprint;
+  /** Declared PA in degrees east of north; absent when no physical PA is declared. */
+  resolved_position_angle_deg?: number;
+}
+
 /** Catalogue tile in client state, with original string values retained for inspection. */
 export interface TileRecord {
   id: string;
