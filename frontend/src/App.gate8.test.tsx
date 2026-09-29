@@ -14,6 +14,7 @@ import { outputFootprintForProfile } from "./profiles/footprints";
 import { tileFootprintBoundaries } from "./sky";
 import type { CatalogueDataset, SkyPolygon, TileRecord, TilingProfile } from "./types";
 import golden from "./data/golden.json";
+import plannerContract from "./data/planner-contract.json";
 import referenceCsv from "../public/data/tiles_nc.csv?raw";
 
 interface MapModel {
@@ -251,8 +252,10 @@ describe("Gate 8 real App workflow matrix", () => {
     await user.click(screen.getByRole("button", { name: "Select G8 region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
-    const accepted = session.map!.tiles.filter((t) => t.source === "proposed"); expect(accepted).toHaveLength(14);
-    expect(measureActiveCoverage(fixture.polygon, sources, accepted).selected_region_coverage).toBe(1);
+    const accepted = session.map!.tiles.filter((t) => t.source === "proposed");
+    expect(accepted).toHaveLength(plannerContract.plans.historical_holdout.new_tiles);
+    expect(measureActiveCoverage(fixture.polygon, sources, accepted).selected_region_coverage)
+      .toBe(plannerContract.plans.historical_holdout.selected_region_coverage);
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
     expect(await blobText(downloads.at(-1)!)).toBe(buildExportCsv(accepted, cases[0].document.survey));
     expect(session.map!.tiles.filter((t) => t.source === "original")).toEqual(sources);

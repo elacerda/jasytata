@@ -129,13 +129,13 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: /load reference/i }));
-    expect(await screen.findByText("4,774 original tiles")).toBeTruthy();
+    expect(await screen.findByText(/^4[,.]774 original tiles$/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Select overlap region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(await screen.findByText("Existing grid extended", {}, { timeout: 10000 })).toBeTruthy();
     expect(screen.getByTestId("real-map-state")).toHaveTextContent('"candidates":');
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
-    await waitFor(() => expect([...document.querySelectorAll(".metric-row")].map((row) => row.textContent)).toContain("Final region coverage100.0%"), { timeout: 10000 });
+    await waitFor(() => expect([...document.querySelectorAll(".metric-row")].map((row) => row.textContent)).toContain("Final region coverage99.7%"), { timeout: 10000 });
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/i }));
     expect(click).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledTimes(1);

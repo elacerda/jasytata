@@ -1,11 +1,11 @@
 {
-  "source": "v0.2.0 T80-South sampled-coverage compatibility contract at commit 899d8ea19bc07c10c4d3530de0656c5ee10664f7; former Python inputs remain in golden.json",
+  "source": "Baseline evidence: v0.2.0 T80-South at commit 899d8ea19bc07c10c4d3530de0656c5ee10664f7; expectations below apply the v0.3.1 legacy_splus lattice-only correction to supplemental off-lattice gap-fill. Former Python inputs remain in golden.json.",
   "plans": {
-    "splus_b_single": { "new_tiles": 3, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.06559 },
-    "splus_b_three_holes": { "new_tiles": 10, "selected_region_area_deg2": 6.1221, "sample_step_deg": 0.01, "already_covered_fraction": 0.05419 },
-    "splus_b_adjacent_rows": { "new_tiles": 14, "selected_region_area_deg2": 11.1482, "sample_step_deg": 0.0119, "already_covered_fraction": 0.30594 },
+    "splus_b_single": { "new_tiles": 1, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.06559, "selected_region_coverage": 0.99419, "remaining_uncovered_fraction": 0.00581, "remaining_uncovered_area_deg2": 0.0121 },
+    "splus_b_three_holes": { "new_tiles": 3, "selected_region_area_deg2": 6.1221, "sample_step_deg": 0.01, "already_covered_fraction": 0.05419, "selected_region_coverage": 0.99405, "remaining_uncovered_fraction": 0.00595, "remaining_uncovered_area_deg2": 0.0364 },
+    "splus_b_adjacent_rows": { "new_tiles": 4, "selected_region_area_deg2": 11.1482, "sample_step_deg": 0.0119, "already_covered_fraction": 0.30594, "selected_region_coverage": 0.99606, "remaining_uncovered_fraction": 0.00394, "remaining_uncovered_area_deg2": 0.0439 },
     "splus_n_north": { "new_tiles": 2, "selected_region_area_deg2": 4.0208, "sample_step_deg": 0.01, "already_covered_fraction": 0.15387 },
-    "splus_b_row_edge": { "new_tiles": 11, "selected_region_area_deg2": 4.1052, "sample_step_deg": 0.01, "already_covered_fraction": 0.03595 },
+    "splus_b_row_edge": { "new_tiles": 4, "selected_region_area_deg2": 4.1052, "sample_step_deg": 0.01, "already_covered_fraction": 0.03595, "selected_region_coverage": 0.98789, "remaining_uncovered_fraction": 0.01211, "remaining_uncovered_area_deg2": 0.0497 },
     "splus_d_south": { "new_tiles": 4, "selected_region_area_deg2": 4.0794, "sample_step_deg": 0.01, "already_covered_fraction": 0.09526 },
     "splus_b_one_anchor": { "new_tiles": 4, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.00586 },
     "empty_rectangle": { "new_tiles": 15, "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0 },
@@ -14,9 +14,9 @@
     "concave": { "new_tiles": 16, "selected_region_area_deg2": 17.5184, "sample_step_deg": 0.02, "already_covered_fraction": 0 },
     "tiny_triangle": { "new_tiles": 1, "selected_region_area_deg2": 0.0004, "sample_step_deg": 0.0038, "already_covered_fraction": 0 },
     "custom_rectangle": { "new_tiles": 16, "selected_region_area_deg2": 29.9802, "sample_step_deg": 0.0183, "already_covered_fraction": 0 },
-    "historical_holdout": { "new_tiles": 14, "selected_region_area_deg2": 11.1482, "sample_step_deg": 0.0119, "already_covered_fraction": 0.30594 },
+    "historical_holdout": { "new_tiles": 4, "selected_region_area_deg2": 11.1482, "sample_step_deg": 0.0119, "already_covered_fraction": 0.30594, "selected_region_coverage": 0.99606, "remaining_uncovered_fraction": 0.00394, "remaining_uncovered_area_deg2": 0.0439 },
     "historical_fallback": { "new_tiles": 4, "selected_region_area_deg2": 2.0735, "sample_step_deg": 0.01, "already_covered_fraction": 0.00586 },
-    "large_overlap": { "new_tiles": 40, "selected_region_area_deg2": 162.2592, "sample_step_deg": 0.0467, "already_covered_fraction": 0.80985 }
+    "large_overlap": { "new_tiles": 20, "selected_region_area_deg2": 162.2592, "sample_step_deg": 0.0467, "already_covered_fraction": 0.80985, "selected_region_coverage": 0.99706, "remaining_uncovered_fraction": 0.00294, "remaining_uncovered_area_deg2": 0.4769 }
   },
   "coverage": {
     "zero": { "selected_region_area_deg2": 13.9911, "sample_step_deg": 0.0133, "already_covered_fraction": 0, "selected_region_coverage": 0 },

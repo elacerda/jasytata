@@ -167,8 +167,11 @@ The values below describe the bundled T80 reference. Registered `legacy_splus`
 surveys derive spacing/phase/occupancy tolerances from their policy fractions
 times the smaller legacy grid extent, and consume enabled state and anchor/pair
 minima from the profile. Nonrotating row grouping, two-horizontal-pair evidence,
-median phase residual at most half the maximum tolerance, search topology and
-supplemental gap-fill remain explicit compatibility algorithm rules.
+median phase residual at most half the maximum tolerance, and search topology
+remain explicit compatibility algorithm rules. The inferred/profile lattice is
+the admissible candidate set: Complete selects useful lattice sites until none
+improves sampled coverage, and any residual uncovered samples are reported.
+Legacy S-PLUS planning does not synthesize a supplemental phase or dither.
 `allow_rotation` applies to generic inference, not this legacy strategy.
 
 The selected polygon is unwrapped around its local RA center and must span at most 180°. Neighbor pairs are measured in local physical east-west degrees at the pair's mean declination:
@@ -332,14 +335,16 @@ gaps remain empty and overlaps count once. The compound denominator inherits
 Gate 3's 1/4096 bounding-scale boundary-cell approximation. It is not a bounding
 rectangle or the sum of overlapping detector areas.
 
-Supplemental gap-fill is exclusive to `legacy_splus` and frozen inline v1
-`RECT_GRID_V1`. If their primary grid leaves uncovered samples, a supplemental
-lattice is phased halfway between centers around the uncovered-sample bounds,
-anchored to the nearest stable inferred tile where available. Spacing remains
-capped at 90% of compatibility tile width and height. Both passes use the resolved
-Efficient policy. Generic declared lattices never add supplemental spacing or
-phase, and report remaining gaps. Generic occupancy continues to use the Gate 5
-basis-relative fraction; the legacy spherical `0.12°` exclusion remains isolated.
+Supplemental gap-fill remains available only to the frozen inline v1
+`RECT_GRID_V1` compatibility path. That path may phase a supplemental lattice
+halfway between centers around uncovered-sample bounds, anchored to the nearest
+stable inferred tile where available, with spacing capped at 90% of compatibility
+tile width and height. Registered `legacy_splus` surveys do not run this second
+pass: Complete and Efficient use the same admissible lattice, with Efficient
+applying only its configured stopping policy. Generic declared lattices also
+report residual gaps without adding supplemental spacing or phase. Generic
+occupancy continues to use the Gate 5 basis-relative fraction; the legacy
+spherical `0.12°` exclusion remains isolated.
 The 1200-candidate safeguards reject excess browser work without truncating
 candidates; focused generic tests reveal no reason to change these operational
 limits. Outside area subtracts sampled inside area from generic physical footprint
