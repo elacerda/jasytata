@@ -214,11 +214,13 @@ or Gate 3's deterministic adaptive compound union estimate. Compound overlaps
 count once and detector gaps are excluded; Efficient inherits that estimate's
 boundary resolution, not the mosaic bounding-box area.
 
-The Gate 6B audit confirms supplemental gap-fill and its rectangle spacing are
-compatibility-only (`legacy_splus` and frozen inline v1); their geometry is
-unchanged. Both compatibility selection passes now consume the resolved
-Efficient policy. Generic occupancy still uses separation divided by basis scale
-and `inference.occupancy_tolerance_fraction`; it never applies the compatibility
+The Gate 6B audit confirms supplemental gap-fill remains only in the frozen
+inline v1 rectangle compatibility path; its rectangle spacing and fill behavior
+are unchanged. Registered Schema v2 `legacy_splus` stays on its inferred/profile
+lattice and may report residual uncovered sampled area. Both the registered
+`legacy_splus` and frozen inline v1 selection paths consume the resolved Efficient
+policy. Generic occupancy still uses separation divided by basis scale and
+`inference.occupancy_tolerance_fraction`; it never applies the compatibility
 `0.12°` exclusion. The 1200 candidate caps reject oversized work before mask
 selection; they are browser-computation safeguards, not scientific thresholds
 or truncation rules. No generic failure in the focused tests requires changing

@@ -18,7 +18,9 @@ The graph is a navigation and context-reduction aid, not a source of scientific 
 
 ## Jasytata scientific compatibility
 
-The published v0.3.0 scientific behavior is the regression-protected baseline during v0.4.0 development, including the inherited v0.2.0 T80-South/S-PLUS compatibility contract.
+v0.4.0 develops from the corrected v0.3.x baseline integrated from `main` by
+merge `e7896b4`, while preserving the intended T80-South/S-PLUS compatibility
+contract, including its inherited v0.2.0 behavior.
 
 Do not change scientific behavior, constants, fixture expectations, coordinate semantics, coverage semantics, or T80 compatibility unless the current task explicitly authorizes that change.
 
