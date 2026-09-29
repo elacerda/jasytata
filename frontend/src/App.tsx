@@ -514,7 +514,7 @@ export default function App() {
       )}
 
       <section className="workspace">
-        <aside className="control-panel panel-scroll" aria-label="Catalogue and planning controls">
+        <aside className="control-panel panel-scroll" aria-label="Catalogue and planning controls" tabIndex={0}>
           <section className="panel-section catalog-section">
             <SectionHeading title="Existing catalogue" trailing={hasCatalogue ? "LOADED" : "OPTIONAL"} />
             <div className="catalogue-summary">
@@ -809,7 +809,7 @@ export default function App() {
           </div>
         </section>
 
-        <aside className="inspector-panel panel-scroll" aria-label="Tile and proposal inspector">
+        <aside className="inspector-panel panel-scroll" aria-label="Tile and proposal inspector" tabIndex={0}>
           <section className="panel-section inspector-section">
             <SectionHeading title={selectedTile ? "Tile details" : "Inspector"} trailing={selectedTile?.source === "original" ? "ORIGINAL" : selectedTile ? "PROPOSED" : undefined} />
             {selectedTile ? (
@@ -849,13 +849,13 @@ export default function App() {
               )}
               <div className="proposal-list-head"><span>NEW TILE CENTERS</span><span>{pending.tiles.length}</span></div>
               <div className="proposal-list">
-                {pending.tiles.length ? pending.tiles.slice(0, 16).map((tile, index) => (
+                {pending.tiles.length ? pending.tiles.slice(0, 8).map((tile, index) => (
                   <div className="proposal-row" key={`${tile.id}-${index}`}>
                     <span className="proposal-index">{String(index + 1).padStart(2, "0")}</span>
                     <span><strong>{tile.ra_deg.toFixed(4)}°</strong><small>{tile.dec_deg.toFixed(4)}°</small></span>
                   </div>
                 )) : <p className="panel-copy">Existing coverage already satisfies this plan.</p>}
-                {pending.tiles.length > 16 && <span className="more-row">+{pending.tiles.length - 16} more preview centers</span>}
+                {pending.tiles.length > 8 && <span className="more-row">+{pending.tiles.length - 8} more preview centers</span>}
               </div>
               <div className="proposal-actions">
                 <button className="button button-primary button-full" onClick={acceptPreview} disabled={!pending.tiles.length}><Icon name="check" /> Accept proposal</button>
