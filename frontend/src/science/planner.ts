@@ -99,13 +99,27 @@ function circularPhase(values: readonly number[]): number {
   return modulo(Math.atan2(imaginary / values.length, real / values.length), 2 * Math.PI) / (2 * Math.PI);
 }
 
+/** Keep one deterministic inference-evidence row for each instrument center. */
+function uniquePositionEvidence(tiles: readonly TileRecord[]): TileRecord[] {
+  const unique = new Map<string, TileRecord>();
+  const sorted = [...tiles].sort((a, b) => a.dec_deg - b.dec_deg || a.ra_deg - b.ra_deg || a.id.localeCompare(b.id));
+  for (const tile of sorted) {
+    const ra = Object.is(tile.ra_deg, -0) ? 0 : tile.ra_deg;
+    const dec = Object.is(tile.dec_deg, -0) ? 0 : tile.dec_deg;
+    const key = `${tile.instrument_profile_id ?? ""}:${ra},${dec}`;
+    if (!unique.has(key)) unique.set(key, tile);
+  }
+  return [...unique.values()];
+}
+
 function modularDistance(value: number, phase: number): number {
   return Math.abs(modulo(value - phase + 0.5, 1) - 0.5);
 }
 
 function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _centerDec: number, profile: TilingProfile, settings: LegacyInferenceSettings): Lattice | null {
-  if (!settings.policy.enabled || tiles.length < settings.policy.min_anchor_tiles) return null;
-  const points = [...tiles].sort((a, b) => a.dec_deg - b.dec_deg ||
+  const evidence = uniquePositionEvidence(tiles);
+  if (!settings.policy.enabled || evidence.length < settings.policy.min_anchor_tiles) return null;
+  const points = [...evidence].sort((a, b) => a.dec_deg - b.dec_deg ||
     wrappedRaDelta(a.ra_deg, centerRa) - wrappedRaDelta(b.ra_deg, centerRa) || a.id.localeCompare(b.id));
   const horizontalSteps: number[] = [];
   const verticalSteps: number[] = [];
@@ -142,7 +156,7 @@ function inferLatticeGroup(tiles: readonly TileRecord[], centerRa: number, _cent
   if (Math.abs(inferredDecSpacing - profileDecSpacing) > settings.spacingDeg ||
     Math.abs(inferredRaSpacing - profileRaSpacing) > settings.spacingDeg) return null;
   const anchorSet = new Set(anchorIds);
-  const rowGroups = groupAnchorRows(tiles.filter((tile) => anchorSet.has(tile.id)), settings.spacingDeg);
+  const rowGroups = groupAnchorRows(evidence.filter((tile) => anchorSet.has(tile.id)), settings.spacingDeg);
   const rowDecDeg = new Map<number, number>();
   const rowIndices = new Map<number, TileRecord[]>();
   let rowIndex = 0;
@@ -550,7 +564,7 @@ export function planRegion(
   return planLegacyRegion(polygon, existingTiles, profile, strategy, registry, efficientPolicy);
 }
 
-/** Compatibility strategy: retains historical inference, occupancy, and overlap-fill. */
+/** Compatibility strategy for legacy inference and rectangular-profile coverage. */
 function planLegacyRegion(
   polygon: SkyPolygon,
   existingTiles: TileRecord[],
@@ -613,7 +627,9 @@ function planLegacyRegion(
   const primaryCandidates = usefulUncoveredCenters(uniqueCandidates, existingMask, grid, outputFootprint);
   const primary = greedyChoose(primaryCandidates, existingMask, grid, outputFootprint, AUTOMATIC_COVERAGE_TARGET, strategy, efficientPolicy);
   const primaryCoverage = combinedCoverageMask(existingMask, primary);
-  const remainingGap = uncoveredSampleBounds(grid, primaryCoverage);
+  const remainingGap = survey?.tiling.type === "legacy_splus"
+    ? null
+    : uncoveredSampleBounds(grid, primaryCoverage);
   let gapFill: MaskedCenter[] = [];
   if (remainingGap) {
     const anchor = nearestGapAnchor(remainingGap, latticeTiles.length ? latticeTiles : localTiles, lattice, uniqueCandidates);
