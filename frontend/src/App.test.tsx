@@ -104,6 +104,8 @@ const original: TileRecord = {
 
 const catalogue: CatalogueResponse = {
   filename: "tiles_nc.csv",
+  // The real bundled-reference loader declares this association explicitly.
+  instrument_profile_id: "t80-south",
   row_count: 4774,
   tiles: [original],
   warnings: [],
@@ -551,6 +553,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.upload(input, new File(["RA,DEC\n"], "tiles_nc.csv", { type: "text/csv" }));
     await user.upload(input, new File(["ra_deg,dec_deg\n"], "dr6.csv", { type: "text/csv" }));
     expect(await screen.findByText("2 catalogues loaded")).toBeTruthy();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Catalogue instrument for dr6.csv" }), "t80-south");
     const firstToggle = screen.getByRole("checkbox", { name: "Show tiles_nc.csv" });
     const secondToggle = screen.getByRole("checkbox", { name: "Show dr6.csv" });
     expect((firstToggle as HTMLInputElement).checked).toBe(true);

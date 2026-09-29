@@ -286,8 +286,8 @@ describe("complete Schema v2 profile authoring", () => {
     if (kind === "instrument") { await user.click(screen.getByRole("button", { name: "Back to instrument" })); await edit(user, "Instrument ID", "authored-camera"); await user.click(screen.getByRole("button", { name: "Continue to survey" })); }
     else await edit(user, "Survey ID", "authored-survey");
     await user.click(screen.getByRole("button", { name: "Add profile" }));
-    expect(registry.listInstrumentProfiles()).toHaveLength(2); expect(registry.listSurveyProfiles()).toHaveLength(2);
-    expect(registry.resolveProfileDocument("splus-t80-south")).toEqual({ instrument: beforeInstruments[0], survey: beforeSurveys[0] });
+    expect(registry.listInstrumentProfiles()).toHaveLength(beforeInstruments.length + 1); expect(registry.listSurveyProfiles()).toHaveLength(beforeSurveys.length + 1);
+    expect(registry.resolveProfileDocument("splus-t80-south")).toEqual({ instrument: beforeInstruments.find(({ id }) => id === "t80-south"), survey: beforeSurveys[0] });
     expect(registry.resolveProfileDocument("authored-survey").survey.instrument_id).toBe("authored-camera");
   });
 

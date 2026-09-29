@@ -1,6 +1,7 @@
 import type { InstrumentProfileV2, SurveyProfileV2 } from "../types";
 import { validateInstrumentProfileV2, validateSurveyProfileV2 } from "./schema-v2";
 import { BUNDLED_PROFILE_DOCUMENT } from "./v2";
+import kcwiInstruments from "./kcwi-slicers.json";
 
 import { validateProfileDocument, type ProfileDocument } from "./document";
 import { ProfileError } from "./errors";
@@ -127,14 +128,22 @@ export class ProfileRegistry {
   }
 }
 
-/** Create an independent registry seeded with the bundled T80/S-PLUS pair.
- * @returns Browser-memory registry with validated bundled profiles.
+/** Create an independent registry with T80/S-PLUS and standard KCWI instruments.
+ *
+ * KCWI fields are instrument-only, at a declared PA; no survey, placement,
+ * overlap, sampling or export policy is inferred. See the v0.4 instrument matrix
+ * for measured angular dimensions, axis conventions, provenance and limits.
+ * Every bundled object uses the same validators as ordinary registration.
+ *
+ * @returns Fresh browser-memory registry with validated bundled profiles.
+ * @throws If any bundled configuration fails ordinary profile validation.
  */
 export function createBundledProfileRegistry(): ProfileRegistry {
   const registry = new ProfileRegistry();
   registry.registerProfileDocument(BUNDLED_PROFILE_DOCUMENT);
+  for (const instrument of kcwiInstruments) registry.registerInstrumentProfile(instrument);
   return registry;
 }
 
-/** Shared session-local registry, seeded with bundled T80/S-PLUS profiles. */
+/** Shared session-local registry with the bundled survey and instrument library. */
 export const profileRegistry = createBundledProfileRegistry();

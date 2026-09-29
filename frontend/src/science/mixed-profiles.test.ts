@@ -115,11 +115,15 @@ describe("Gate 2 dataset and instrument separation", () => {
     source.original_values = { RA: "359.8", DEC: "0" };
     delete source.instrument_profile_id;
     const result: CatalogueResponse = { filename: "arbitrary.csv", row_count: 1, tiles: [source], warnings: [] };
-    const singleInstrument = createDataset(result, 0, "single", undefined, createBundledProfileRegistry());
+    const singleRegistry = new ProfileRegistry();
+    singleRegistry.registerInstrumentProfile(T80_SOUTH_INSTRUMENT_V2);
+    const singleInstrument = createDataset(result, 0, "single", undefined, singleRegistry);
     const multipleInstruments = createDataset(result, 0, "ambiguous", undefined, twoInstrumentRegistry());
+    const bundledInstruments = createDataset(result, 0, "bundled", undefined, createBundledProfileRegistry());
 
     expect(singleInstrument.instrument_profile_id).toBe("t80-south");
     expect(multipleInstruments.instrument_profile_id).toBeNull();
+    expect(bundledInstruments.instrument_profile_id).toBeNull();
     expect(source.instrument_profile_id).toBeUndefined();
     expect(source.original_values).toEqual({ RA: "359.8", DEC: "0" });
   });

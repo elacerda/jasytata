@@ -1,0 +1,41 @@
+[
+  {
+    "schema_version": 2,
+    "id": "keck-kcwi-small",
+    "display_name": "Keck / KCWI — small slicer (PA 0° along slices)",
+    "description": "Standard contiguous IFU field: measured 8.4 arcsec across slices by 20.4 arcsec along slices. Planning reference: across slices east, along slices north, PA 0 degrees; not a Keck rotator-keyword conversion. Single standard field only; no nod-and-shuffle, dither sequence, survey overlap or automatic placement. Source: https://www2.keck.hawaii.edu/inst/kcwi/primer.html . Assumptions, provenance and limits: docs/V0.4.0_INSTRUMENT_MATRIX.md#keck--kcwi--a-standard-slicer-fields-at-one-declared-pa .",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "rectangle",
+      "width_deg": 0.0023333333333333335,
+      "height_deg": 0.005666666666666666,
+      "position_angle_deg": 0
+    }
+  },
+  {
+    "schema_version": 2,
+    "id": "keck-kcwi-medium",
+    "display_name": "Keck / KCWI — medium slicer (PA 0° along slices)",
+    "description": "Standard contiguous IFU field: measured 16.5 arcsec across slices by 20.4 arcsec along slices. Planning reference: across slices east, along slices north, PA 0 degrees; not a Keck rotator-keyword conversion. Single standard field only; no nod-and-shuffle, dither sequence, survey overlap or automatic placement. Source: https://www2.keck.hawaii.edu/inst/kcwi/primer.html . Assumptions, provenance and limits: docs/V0.4.0_INSTRUMENT_MATRIX.md#keck--kcwi--a-standard-slicer-fields-at-one-declared-pa .",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "rectangle",
+      "width_deg": 0.004583333333333333,
+      "height_deg": 0.005666666666666666,
+      "position_angle_deg": 0
+    }
+  },
+  {
+    "schema_version": 2,
+    "id": "keck-kcwi-large",
+    "display_name": "Keck / KCWI — large slicer (PA 0° along slices)",
+    "description": "Standard contiguous IFU field: measured 33.1 arcsec across slices by 20.4 arcsec along slices. Planning reference: across slices east, along slices north, PA 0 degrees; not a Keck rotator-keyword conversion. Single standard field only; no nod-and-shuffle, dither sequence, survey overlap or automatic placement. Source: https://www2.keck.hawaii.edu/inst/kcwi/primer.html . Assumptions, provenance and limits: docs/V0.4.0_INSTRUMENT_MATRIX.md#keck--kcwi--a-standard-slicer-fields-at-one-declared-pa .",
+    "coordinate_frame": "icrs",
+    "footprint": {
+      "type": "rectangle",
+      "width_deg": 0.009194444444444446,
+      "height_deg": 0.005666666666666666,
+      "position_angle_deg": 0
+    }
+  }
+]

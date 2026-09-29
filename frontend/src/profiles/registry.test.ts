@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { InstrumentProfileV2 } from "../types";
+import type { InstrumentProfileV2, TileRecord } from "../types";
 import { createBundledProfileRegistry, ProfileRegistry } from "./registry";
 import { SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "./v2";
+import { validateInstrumentProfileV2 } from "./schema-v2";
+import { validateProfileDocument } from "./document";
+import { footprintForTile } from "./footprints";
+import { DEFAULT_PROFILE } from "./index";
+import kcwiInstruments from "./kcwi-slicers.json";
 
 describe("browser profile registry", () => {
   it("resolves the bundled T80 instrument and S-PLUS survey by stable ID", () => {
@@ -37,5 +42,78 @@ describe("browser profile registry", () => {
     const registry = new ProfileRegistry();
 
     expect(() => registry.registerSurveyProfile(SPLUS_SURVEY_V2)).toThrow(/Unknown instrument profile ID "t80-south"/);
+  });
+});
+
+describe("Gate 1 empirical KCWI instruments", () => {
+  it.each([
+    ["keck-kcwi-small", 8.4],
+    ["keck-kcwi-medium", 16.5],
+    ["keck-kcwi-large", 33.1],
+  ] as const)("validates %s with measured arcsecond dimensions and the declared slice-axis PA", (id, widthArcsec) => {
+    const raw = kcwiInstruments.find((instrument) => instrument.id === id);
+    const instrument = validateInstrumentProfileV2(raw);
+    expect(instrument.coordinate_frame).toBe("icrs");
+    expect(instrument.schema_version).toBe(2);
+    expect(instrument.footprint.type).toBe("rectangle");
+    if (instrument.footprint.type !== "rectangle") throw new Error("Expected KCWI rectangle");
+    expect(instrument.footprint.width_deg).toBeCloseTo(widthArcsec / 3600, 15);
+    expect(instrument.footprint.height_deg).toBeCloseTo(20.4 / 3600, 15);
+    expect(instrument.footprint.position_angle_deg).toBe(0);
+    expect(instrument.description).toContain("https://www2.keck.hawaii.edu/inst/kcwi/primer.html");
+    expect(instrument.description).toContain("not a Keck rotator-keyword conversion");
+
+    const registry = new ProfileRegistry();
+    expect(registry.registerInstrumentProfile(raw)).toEqual(instrument);
+    expect(registry.resolveInstrumentProfile(id)).toEqual(instrument);
+    expect(registry.listSurveyProfiles()).toEqual([]);
+    expect(() => validateInstrumentProfileV2({ ...raw, footprint: { ...instrument.footprint, width_deg: 0 } })).toThrow(/Rectangle width/);
+  });
+
+  it("bundles only the three KCWI modes alongside the unchanged T80/S-PLUS pair", () => {
+    const registry = createBundledProfileRegistry();
+    expect(registry.listInstrumentProfiles().map(({ id }) => id)).toEqual([
+      "keck-kcwi-large", "keck-kcwi-medium", "keck-kcwi-small", "t80-south",
+    ]);
+    expect(registry.listSurveyProfiles()).toEqual([SPLUS_SURVEY_V2]);
+    expect(registry.resolveProfileDocument("splus-t80-south")).toEqual({
+      instrument: T80_SOUTH_INSTRUMENT_V2, survey: SPLUS_SURVEY_V2,
+    });
+    expect(DEFAULT_PROFILE.id).toBe("splus-t80-south");
+    for (const raw of kcwiInstruments) {
+      expect(registry.resolveInstrumentProfile(raw.id)).toEqual(validateInstrumentProfileV2(raw));
+      expect(registry.findSurveyProfile(raw.id)).toBeUndefined();
+      expect(() => registry.registerInstrumentProfile(raw)).toThrow(/already registered/);
+    }
+  });
+
+  it("keeps KCWI data independent between registry instances and lookups", () => {
+    const registry = createBundledProfileRegistry();
+    const other = createBundledProfileRegistry();
+    const copy = registry.resolveInstrumentProfile("keck-kcwi-large");
+    copy.display_name = "Changed copy";
+    if (copy.footprint.type !== "rectangle") throw new Error("Expected KCWI rectangle");
+    copy.footprint.width_deg = 1;
+    registry.listInstrumentProfiles()[0].description = "Changed list";
+    expect(registry.resolveInstrumentProfile(copy.id)).toEqual(other.resolveInstrumentProfile(copy.id));
+  });
+
+  it.each(kcwiInstruments)("resolves source geometry for $id independently of output policy and ID spelling", (raw) => {
+    const registry = createBundledProfileRegistry();
+    const tile: TileRecord = {
+      id: "source-1", name: "Target", ra_deg: 150, dec_deg: -30, source: "original",
+      generation_method: null, original_values: { RA: "150", DEC: "-30" }, metadata: {},
+      instrument_profile_id: raw.id, inference_role: "exclude",
+    };
+    expect(footprintForTile(tile, DEFAULT_PROFILE, registry)).toEqual(raw.footprint);
+    const renamed = registry.registerInstrumentProfile({ ...raw, id: "ordinary-slicer" });
+    expect(footprintForTile({ ...tile, instrument_profile_id: renamed.id }, DEFAULT_PROFILE, registry)).toEqual(raw.footprint);
+    expect(footprintForTile({ ...tile, source: "proposed" }, DEFAULT_PROFILE, registry)).toEqual(T80_SOUTH_INSTRUMENT_V2.footprint);
+  });
+
+  it("records the existing instrument-only browser-document gap without inventing a survey", () => {
+    for (const instrument of kcwiInstruments) {
+      expect(() => validateProfileDocument({ instrument })).toThrow(/Survey profile/);
+    }
   });
 });

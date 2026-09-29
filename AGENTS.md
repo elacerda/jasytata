@@ -18,14 +18,15 @@ The graph is a navigation and context-reduction aid, not a source of scientific 
 
 ## Jasytata scientific compatibility
 
-The published v0.2.0 T80-South/S-PLUS behavior is a regression-protected compatibility contract during v0.3.0 development.
+The published v0.3.0 scientific behavior is the regression-protected baseline during v0.4.0 development, including the inherited v0.2.0 T80-South/S-PLUS compatibility contract.
 
 Do not change scientific behavior, constants, fixture expectations, coordinate semantics, coverage semantics, or T80 compatibility unless the current task explicitly authorizes that change.
 
-For v0.3.0 work, follow the current gate and acceptance criteria in `docs/legacy/V0.3.0_ROADMAP.md`. Do not implement later gates opportunistically.
+For v0.4.0 work, follow the current gate and acceptance criteria in `docs/V0.4.0_ROADMAP.md`. The v0.3.0 roadmap is historical evidence. Do not implement later gates opportunistically.
 
 ## Validation
 
 Use the smallest relevant tests while developing, then run the repository validation required by the current gate.
 
 Do not commit or modify the local untracked `poly.txt` file.
+Do not modify or stage the local untracked `.codex/` directory.

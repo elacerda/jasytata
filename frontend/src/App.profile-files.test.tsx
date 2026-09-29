@@ -374,11 +374,12 @@ describe("minimal browser profile file controls", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south"));
     const input = screen.getByLabelText("Profile JSON file");
+    const beforeInstruments = session.registry!.listInstrumentProfiles();
     await user.upload(input, jsonFile("{"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Malformed profile JSON");
     await user.upload(input, jsonFile(JSON.stringify({ ...smallJson, instrument: { ...smallJson.instrument, footprint: { type: "circle", radius_deg: 0 } } })));
     expect(await screen.findByRole("alert")).toHaveTextContent("Circle radius");
-    expect(session.registry!.listInstrumentProfiles()).toHaveLength(1);
+    expect(session.registry!.listInstrumentProfiles()).toEqual(beforeInstruments);
     expect(screen.queryByRole("option", { name: "Small oblique survey" })).toBeNull();
     await user.upload(input, jsonFile(serializeProfile(session.registry!.resolveProfileDocument("splus-t80-south"))));
     expect(await screen.findByRole("alert")).toHaveTextContent('Instrument profile ID "t80-south" is already registered');
@@ -433,6 +434,8 @@ describe("minimal browser profile file controls", () => {
     const user = userEvent.setup(); render(<App />);
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n150,-30\n", "existing.csv"));
     const assignment = await screen.findByRole("combobox", { name: "Catalogue instrument for existing.csv" });
+    expect(assignment).toHaveValue("");
+    await user.selectOptions(assignment, "t80-south");
     expect(assignment).toHaveValue("t80-south");
     await user.click(screen.getByRole("button", { name: "Mock select region" })); await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
