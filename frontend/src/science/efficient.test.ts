@@ -57,7 +57,7 @@ function nextTileEfficiency(polygon: SkyPolygon, existing: TileRecord[], selecte
 }
 
 describe("v0.2.0 T80-South Efficient coverage contract", () => {
-  it.each(Object.entries(contract.plans))("matches %s without changing candidates or selected prefixes", (id, expected) => {
+  it.each(Object.entries(contract.plans))("matches %s while sharing candidate geometry", (id, expected) => {
     const { polygon, existing, profile } = fixtureInputs(id);
     const complete = planRegion(polygon, existing, profile ? "custom" : undefined, profile);
     const efficient = planRegion(polygon, existing, profile ? "custom" : undefined, profile, "efficient");
@@ -70,9 +70,13 @@ describe("v0.2.0 T80-South Efficient coverage contract", () => {
     expect(efficient.inference).toEqual(complete.inference);
     expect(efficient.solution).toBe(complete.solution);
     expect(efficient.generation_method).toBe(complete.generation_method);
-    expect(efficient.tiles.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg])).toEqual(
-      complete.tiles.slice(0, efficient.tiles.length).map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]),
-    );
+    expect(efficient.tiles.every((tile) => efficient.candidate_centers.some((center) =>
+      center.ra_deg === tile.ra_deg && center.dec_deg === tile.dec_deg))).toBe(true);
+    if (efficient.tiles.length < complete.tiles.length) {
+      expect(efficient.tiles.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg])).toEqual(
+        complete.tiles.slice(0, efficient.tiles.length).map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]),
+      );
+    }
     expect(efficient.tiles.every((tile) => tile.metadata.coverage_strategy === "efficient")).toBe(true);
     expect(efficient.metrics.remaining_uncovered_fraction).toBeCloseTo(1 - efficient.metrics.selected_region_coverage, 4);
     if (expected.efficient_coverage < 1) expect(efficient.metrics.remaining_uncovered_area_deg2).toBeGreaterThan(0);
@@ -83,15 +87,14 @@ describe("v0.2.0 T80-South Efficient coverage contract", () => {
     }
   });
 
-  it("stops primary selection after the floor when the next large-overlap gain is below 3%", () => {
+  it("uses only admissible S-PLUS sites when Complete exhausts the large-region lattice", () => {
     const { polygon, existing } = fixtureInputs("large_overlap");
     const complete = planRegion(polygon, existing);
     const efficient = planRegion(polygon, existing, undefined, undefined, "efficient");
-    const next = nextTileEfficiency(polygon, existing, efficient.tiles, complete.tiles[efficient.tiles.length], loadProfile());
-    expect(efficient.tiles).toHaveLength(20);
-    expect(next.coverage).toBeGreaterThanOrEqual(EFFICIENT_MIN_COVERAGE);
-    expect(next.efficiency).toBeCloseTo(0.029364, 5);
-    expect(next.efficiency).toBeLessThan(EFFICIENT_MIN_MARGINAL_EFFICIENCY);
+    expect(efficient.candidate_centers).toEqual(complete.candidate_centers);
+    expect(efficient.tiles.every((tile) => efficient.candidate_centers.some((center) =>
+      center.ra_deg === tile.ra_deg && center.dec_deg === tile.dec_deg))).toBe(true);
+    expect(efficient.metrics.remaining_uncovered_fraction).toBeGreaterThan(0);
     expect(efficient.diagnostics.some((line) => line.startsWith("Added "))).toBe(false);
     expect(planRegion(polygon, existing, undefined, undefined, "efficient")).toEqual(efficient);
   });
@@ -107,12 +110,18 @@ describe("v0.2.0 T80-South Efficient coverage contract", () => {
     expect(beforeFifteenth.efficiency).toBeLessThan(EFFICIENT_MIN_MARGINAL_EFFICIENCY);
   });
 
-  it("retains gap-fill and applies the stop in that stage", () => {
+  it("keeps Complete and Efficient on the same legacy S-PLUS candidate lattice", () => {
     const { polygon, existing } = fixtureInputs("splus_b_single");
     const complete = planRegion(polygon, existing);
     const efficient = planRegion(polygon, existing, undefined, undefined, "efficient");
-    expect(complete.diagnostics).toContainEqual(expect.stringMatching(/^Added 2 overlap-fill tiles/));
-    expect(efficient.diagnostics).toContainEqual(expect.stringMatching(/^Added 1 overlap-fill tile/));
+    expect(complete.candidate_centers).toEqual(efficient.candidate_centers);
+    expect(complete.metrics.remaining_uncovered_fraction).toBeGreaterThan(0);
+    expect(complete.diagnostics.some((line) => line.startsWith("Added "))).toBe(false);
+    for (const plan of [complete, efficient]) {
+      for (const tile of plan.tiles) {
+        expect(plan.candidate_centers.some((center) => center.ra_deg === tile.ra_deg && center.dec_deg === tile.dec_deg)).toBe(true);
+      }
+    }
   });
 
   it("uses a strict comparison at 0.03 and protects the coverage floor", () => {

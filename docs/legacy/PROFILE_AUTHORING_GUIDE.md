@@ -109,8 +109,10 @@ Give the survey its own ID/name and an instrument reference. Choose:
 - **Manual** for supplied pointings and coverage without automatic tiling.
 
 `legacy_splus` is an explicit compatibility algorithm for historical S-PLUS row
-geometry, grouping/inference and supplemental gap-fill. It is not a normal
-generic authoring preset. The browser create form offers lattice/manual;
+geometry and grouping/inference. Its inferred/profile lattice constrains automatic
+region candidates; sampled gaps may remain when no admissible site improves
+coverage. It does not synthesize a supplemental phase or dither. It is not a
+normal generic authoring preset. The browser create form offers lattice/manual;
 bundled and imported legacy configurations remain supported.
 
 A lattice is a repeating set of centers:

@@ -108,10 +108,14 @@ function planMatchesContract(actual: RegionPlanResponse, expected: {
     .toBeLessThan(Math.max(0.005, actual.metrics.selected_region_area_deg2 * 0.0001));
   expect(actual.metrics.sample_step_deg).toBe(contract.sample_step_deg);
   expect(actual.metrics.already_covered_fraction).toBe(contract.already_covered_fraction);
-  expect(actual.metrics.selected_region_coverage).toBe(1);
-  expect(actual.metrics.remaining_uncovered_fraction).toBe(0);
-  expect(actual.metrics.remaining_uncovered_area_deg2).toBe(0);
-  expect(actual.metrics.incremental_coverage).toBeCloseTo(1 - contract.already_covered_fraction, 4);
+  const selectedRegionCoverage = "selected_region_coverage" in contract ? contract.selected_region_coverage : 1;
+  const remainingUncoveredFraction = "remaining_uncovered_fraction" in contract ? contract.remaining_uncovered_fraction : 0;
+  const remainingUncoveredArea = "remaining_uncovered_area_deg2" in contract ? contract.remaining_uncovered_area_deg2 : 0;
+  expect(actual.metrics.selected_region_coverage).toBe(selectedRegionCoverage);
+  expect(actual.metrics.remaining_uncovered_fraction).toBe(remainingUncoveredFraction);
+  expect(actual.metrics.remaining_uncovered_area_deg2).toBe(remainingUncoveredArea);
+  expect(actual.metrics.incremental_coverage).toBeCloseTo(
+    actual.metrics.selected_region_coverage - contract.already_covered_fraction, 4);
   expect(actual.metrics.redundant_coverage).toBeGreaterThanOrEqual(0);
   expect(actual.metrics.redundant_coverage).toBeLessThanOrEqual(1);
   expect(actual.metrics.outside_region_coverage_deg2).toBeGreaterThanOrEqual(0);
@@ -135,11 +139,13 @@ describe("v0.2.0 T80-South planner contract with former Python lattice reference
     const fixture = golden.historical_holdout;
     const surrounding = fixture.surrounding_names.map((name) => byName.get(name)!);
     const plan = planRegion(fixture.polygon, surrounding);
+    const contract = currentContract.plans.historical_holdout;
     expect(plan.solution).toBe(fixture.solution);
     includesHistoricalCenters(plan.tiles, fixture.proposal_centers);
-    expect(plan.metrics.new_tiles).toBe(currentContract.plans.historical_holdout.new_tiles);
-    expect(plan.metrics.sample_step_deg).toBe(currentContract.plans.historical_holdout.sample_step_deg);
-    expect(plan.metrics.selected_region_coverage).toBe(1);
+    expect(plan.metrics.new_tiles).toBe(contract.new_tiles);
+    expect(plan.metrics.sample_step_deg).toBe(contract.sample_step_deg);
+    expect(plan.metrics.selected_region_coverage).toBe(contract.selected_region_coverage);
+    expect(plan.metrics.remaining_uncovered_fraction).toBe(contract.remaining_uncovered_fraction);
     expect(plan.inference.anchor_tile_ids.length).toBeGreaterThan(2);
   });
 
@@ -157,13 +163,15 @@ describe("v0.2.0 T80-South planner contract with former Python lattice reference
   it("uses actual 4,774 centers in the large overlap regression", () => {
     const fixture = golden.large_overlap;
     const plan = planRegion(fixture.polygon, catalogue);
+    const contract = currentContract.plans.large_overlap;
     expect(plan.solution).toBe(fixture.solution);
     expect(plan.inference.anchor_tile_ids).toHaveLength(fixture.anchor_count);
     includesHistoricalCenters(plan.tiles, fixture.proposal_centers);
-    expect(plan.metrics.new_tiles).toBe(currentContract.plans.large_overlap.new_tiles);
-    expect(plan.metrics.selected_region_area_deg2).toBe(currentContract.plans.large_overlap.selected_region_area_deg2);
-    expect(plan.metrics.sample_step_deg).toBe(currentContract.plans.large_overlap.sample_step_deg);
-    expect(plan.metrics.selected_region_coverage).toBe(1);
+    expect(plan.metrics.new_tiles).toBe(contract.new_tiles);
+    expect(plan.metrics.selected_region_area_deg2).toBe(contract.selected_region_area_deg2);
+    expect(plan.metrics.sample_step_deg).toBe(contract.sample_step_deg);
+    expect(plan.metrics.selected_region_coverage).toBe(contract.selected_region_coverage);
+    expect(plan.metrics.remaining_uncovered_fraction).toBe(contract.remaining_uncovered_fraction);
     const existingOnly = measureActiveCoverage(fixture.polygon, catalogue, []);
     expect(existingOnly.existing_tiles_contributing).toBe(88);
     expect(existingOnly.already_covered_fraction).toBe(currentContract.plans.large_overlap.already_covered_fraction);
@@ -322,5 +330,59 @@ describe("v0.2.0 T80-South scientific geometry and coverage contracts", () => {
       { ra_deg: 0, dec_deg: 2 }, { ra_deg: 2, dec_deg: 0 },
     ] };
     expect(() => planRegion(crossed, [])).toThrow();
+  });
+});
+
+/** Assert that selected proposal centers are members of the planner's admissible candidate lattice. */
+function expectProposalsOnCandidateLattice(plan: RegionPlanResponse): void {
+  expect(plan.candidate_centers.length).toBeGreaterThan(0);
+  for (const tile of plan.tiles) {
+    const nearestCandidate = plan.candidate_centers.reduce((nearest, candidate) =>
+      Math.min(nearest, angularSeparationDeg(tile.ra_deg, tile.dec_deg, candidate.ra_deg, candidate.dec_deg)), Infinity);
+    expect(nearestCandidate).toBeLessThan(1e-8);
+  }
+}
+
+describe("legacy S-PLUS region planning compatibility", () => {
+  const fixture = golden.large_overlap;
+
+  it("uses one regular candidate lattice for Complete and Efficient, with honest residual coverage", () => {
+    const complete = planRegion(fixture.polygon, catalogue, undefined, undefined, "complete");
+    const efficient = planRegion(fixture.polygon, catalogue, undefined, undefined, "efficient");
+
+    expect(complete.solution).toBe("extended_existing_grid");
+    expect(complete.candidate_centers).toEqual(efficient.candidate_centers);
+    expectProposalsOnCandidateLattice(complete);
+    expectProposalsOnCandidateLattice(efficient);
+    expect(complete.metrics.remaining_uncovered_fraction).toBeGreaterThan(0);
+    expect(complete.metrics.selected_region_coverage).toBeLessThan(1);
+    expect(complete.tiles.length).toBeLessThan(30);
+    expect(planRegion(fixture.polygon, catalogue, undefined, undefined, "complete")).toEqual(complete);
+  });
+
+  it("does not treat repeated rows at two positions as sufficient lattice evidence", () => {
+    const profile = loadProfile();
+    const dec = -34;
+    const physicalRaPitch = profile.tile_width_deg - profile.effective_overlap_arcsec / 3600;
+    const firstRa = 270;
+    const secondRa = firstRa + physicalRaPitch / Math.cos(dec * Math.PI / 180);
+    const originals: TileRecord[] = [firstRa, secondRa].map((ra, index) => ({
+      id: `catalogue-row-${index + 1}`,
+      name: `tile-${index + 1}`,
+      ra_deg: ra,
+      dec_deg: dec,
+      source: "original",
+      generation_method: null,
+      dataset_id: "same-catalogue",
+      group_id: "same-catalogue",
+      original_values: null,
+      metadata: {},
+    }));
+    const repeatedRows = originals.map((tile) => ({ ...tile, id: `repeat-${tile.id}` }));
+    const plan = planRegion(fixture.polygon, [...originals, ...repeatedRows]);
+
+    expect(plan.solution).toBe("profile_fallback");
+    expect(plan.inference.anchor_tile_ids).toEqual([]);
+    expect(plan.inference.compatible_neighbor_pairs).toBe(0);
   });
 });

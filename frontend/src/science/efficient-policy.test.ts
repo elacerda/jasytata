@@ -108,7 +108,7 @@ describe("Gate 6B profile-driven Efficient planning", () => {
     expect(plan.metrics.selected_region_coverage).toBe(1);
   });
 
-  it("consumes v2 legacy_splus policy in primary selection and supplemental gap-fill", () => {
+  it("consumes v2 legacy_splus Efficient policy on the primary lattice", () => {
     const registry = pairedSurveys(geometries[0].footprint,
       { min_coverage: 0, min_marginal_efficiency: 1 },
       { min_coverage: 1, min_marginal_efficiency: 0 });

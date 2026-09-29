@@ -284,7 +284,7 @@ describe("Gate 8 scientific workflow matrix", () => {
     expect(plan.solution).toBe(fixture.solution);
     expect(plan.metrics.new_tiles).toBe(contract.plans.historical_holdout.new_tiles);
     expect(plan.metrics.sample_step_deg).toBe(contract.plans.historical_holdout.sample_step_deg);
-    expect(plan.metrics.selected_region_coverage).toBe(1);
+    expect(plan.metrics.selected_region_coverage).toBe(contract.plans.historical_holdout.selected_region_coverage);
     for (const [ra, dec] of fixture.proposal_centers) expect(plan.tiles.some((t) => Math.abs(t.ra_deg - ra) < 1e-8 && Math.abs(t.dec_deg - dec) < 1e-8)).toBe(true);
     expect(measureActiveCoverage(fixture.polygon, rows, plan.tiles, document.survey.id, undefined, registry)).toEqual(plan.metrics);
     expect(plan).toEqual(planRegion(fixture.polygon, structuredClone(rows), document.survey.id, undefined, "complete", matrixRegistry()));
@@ -292,7 +292,7 @@ describe("Gate 8 scientific workflow matrix", () => {
       const survey = { ...document.survey, export: { ...document.survey.export, coordinate_format } };
       const csv = buildExportCsv(plan.tiles, survey), read = parseCatalogueCsv(new TextEncoder().encode(csv));
       expect(readCsv(csv)[0]).toEqual(["RA", "DEC", "EPOCH"]);
-      expect(read.tiles).toHaveLength(14);
+      expect(read.tiles).toHaveLength(plan.tiles.length);
       read.tiles.forEach((tile, i) => {
         expect(tile.ra_deg).toBeCloseTo(plan.tiles[i].ra_deg, coordinate_format === "decimal" ? 7 : 4);
         expect(tile.dec_deg).toBeCloseTo(plan.tiles[i].dec_deg, coordinate_format === "decimal" ? 7 : 5);

@@ -587,6 +587,18 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect((firstToggle as HTMLInputElement).checked).toBe(true);
   });
 
+  it("shows eight proposal preview centers and a compact remainder count", async () => {
+    const user = userEvent.setup();
+    apiMocks.planRegion.mockResolvedValue(makePlan(10));
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+
+    expect(await screen.findByText("Proposal preview")).toBeTruthy();
+    expect(document.querySelectorAll(".proposal-row")).toHaveLength(8);
+    expect(screen.getByText("+2 more preview centers")).toBeTruthy();
+  });
+
   it("keeps planning layer visibility independent from proposal, region, metrics, and export", async () => {
     const user = userEvent.setup();
     render(<App />);
