@@ -100,12 +100,13 @@ export function createFootprintContainmentTester(
 
 /** Generate closed local boundary paths for rendering each physical component.
  *
- * Circles use a deterministic display-only polygon with at least 12 segments;
- * containment and area remain analytic and do not use this sampling.
+ * Circles use a deterministic circumscribed display polygon with at least 12
+ * tangent sides and exact cardinal extrema. Containment, area, and region
+ * intersection remain analytic and do not use this sampling.
  *
  * @param footprint - Validated Schema v2 footprint centered on `(0, 0)`.
- * @param circleSegments - Requested circle display sampling; rounded down to a
- *   multiple of four so the cardinal extrema are included.
+ * @param circleSegments - Requested number of circle display tangent sides;
+ *   rounded down to a multiple of four so the cardinal extrema are included.
  * @returns One closed `[east, north]` boundary path per detector component.
  */
 export function footprintBoundary(
@@ -378,13 +379,28 @@ function primitiveBoundary(primitive: PrimitiveFootprint, circleSegments: number
   const shape = primitive.footprint;
   if (shape.type === "circle") {
     const points: LocalFootprintBoundary = [];
-    for (let index = 0; index <= circleSegments; index += 1) {
-      const angle = 2 * Math.PI * index / circleSegments;
+    const angularStep = 2 * Math.PI / circleSegments;
+    const tangentRadius = shape.radius_deg / Math.cos(angularStep / 2);
+    const cardinalInterval = circleSegments / 4;
+    for (let index = 0; index < circleSegments; index += 1) {
+      const angle = (index + 0.5) * angularStep;
       points.push([
-        primitive.center[0] + shape.radius_deg * Math.cos(angle),
-        primitive.center[1] + shape.radius_deg * Math.sin(angle),
+        primitive.center[0] + tangentRadius * Math.cos(angle),
+        primitive.center[1] + tangentRadius * Math.sin(angle),
       ]);
+      if ((index + 1) % cardinalInterval === 0) {
+        const cardinal = ((index + 1) / cardinalInterval) % 4;
+        const extreme: LocalFootprintPoint = cardinal === 1
+          ? [0, shape.radius_deg]
+          : cardinal === 2
+            ? [-shape.radius_deg, 0]
+            : cardinal === 3
+              ? [0, -shape.radius_deg]
+              : [shape.radius_deg, 0];
+        points.push(add(primitive.center, extreme));
+      }
     }
+    points.push([...points[0]]);
     return points;
   }
   const intrinsic: LocalFootprintPoint[] = shape.type === "rectangle"
@@ -403,7 +419,22 @@ function primitiveBoundary(primitive: PrimitiveFootprint, circleSegments: number
 }
 
 function primitiveIntersectsPolygon(primitive: PrimitiveFootprint, polygon: readonly LocalFootprintPoint[]): boolean {
-  if (polygon.some((point) => containsPrimitive(primitive, point, false))) return true;
+  // A sky-to-local round trip can move a mathematically touching vertex a few
+  // ulps inside an axis-aligned edge. Require clearance beyond the geometry
+  // tolerance before treating that vertex as positive-area evidence.
+  if (polygon.some((point) => signedClearance(primitive, point) > GEOMETRY_EPSILON)) return true;
+
+  // Display circles are circumscribed approximations. Keep their sampled
+  // vertices out of scientific intersection decisions and use exact distances.
+  if (primitive.footprint.type === "circle") {
+    if (pointInPolygon(primitive.center, polygon, false)) return true;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const start = polygon[index];
+      const end = polygon[(index + 1) % polygon.length];
+      if (distanceToSegment(primitive.center, start, end) < primitive.footprint.radius_deg - GEOMETRY_EPSILON) return true;
+    }
+    return false;
+  }
 
   const boundary = primitiveBoundary(primitive, DEFAULT_CIRCLE_SEGMENTS);
   if (boundary.slice(0, -1).some((point) => pointInPolygon(point, polygon, false))) return true;
@@ -414,15 +445,6 @@ function primitiveIntersectsPolygon(primitive: PrimitiveFootprint, polygon: read
     return polygonBoundariesOverlapArea(boundary, polygon);
   }
   if (pointInPolygon(primitive.center, polygon, false)) return true;
-
-  if (primitive.footprint.type === "circle") {
-    for (let index = 0; index < polygon.length; index += 1) {
-      const start = polygon[index];
-      const end = polygon[(index + 1) % polygon.length];
-      if (distanceToSegment(primitive.center, start, end) < primitive.footprint.radius_deg - GEOMETRY_EPSILON) return true;
-    }
-    return false;
-  }
 
   boundary.pop();
   return polygonBoundariesOverlapArea(boundary, polygon);

@@ -75,7 +75,10 @@ describe("Gate 8 native Aladin render integration", () => {
       const footprint = fixture.document.instrument.footprint;
       if (footprint.type !== "compound") throw new Error("Expected mosaic");
       expect(expected[0]).not.toEqual(tileFootprintBoundaries(accepted[0], { ...footprint, position_angle_deg: 11 })[0]);
-    } else if (fixture.key !== "t80") expect(expected.every((path) => path.length === 97)).toBe(true);
+    } else if (fixture.key !== "t80") {
+      // Circles render 96 tangent sides, four exact cardinal extrema, and a closing point.
+      expect(expected.every((path) => path.length === 101)).toBe(true);
+    }
     if (fixture.key === "circle") {
       expect(accepted.some((t) => t.ra_deg > 359)).toBe(true);
       expect(accepted.some((t) => t.ra_deg < 1)).toBe(true);

@@ -75,11 +75,18 @@ describe("Profile Schema v2", () => {
   it("validates polygon vertices, area, uniqueness, and simple boundaries", () => {
     const square = { type: "polygon", vertices_deg: [[-1, -1], [1, -1], [1, 1], [-1, 1]], position_angle_deg: 10 };
     expect(validateInstrumentProfileV2(instrumentWithFootprint(square)).footprint).toEqual(square);
+    const concave = {
+      type: "polygon",
+      vertices_deg: [[-2, -2], [-1, -2], [-1, -1], [1, -1], [1, -2], [2, -2], [2, 2], [-2, 2]],
+    };
+    expect(validateInstrumentProfileV2(instrumentWithFootprint(concave)).footprint).toEqual(concave);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "polygon", vertices_deg: [[0, 0], [1, 1]] }))).toThrow(/three vertices/);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "polygon", vertices_deg: [[0, 0], [1, 0], [2, 0]] }))).toThrow(/area/);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "polygon", vertices_deg: [[0, 0], [3, 2], [0, 3], [2, 0]] }))).toThrow(/self-intersect/);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "polygon", vertices_deg: [[0, 0], [1, 0], [1, 1], [0, 0]] }))).toThrow(/distinct/);
     expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "polygon", vertices_deg: [[0, 0], [1, 0], [0, Number.NaN]] }))).toThrow(/finite/);
+    expect(() => validateInstrumentProfileV2(instrumentWithFootprint({ type: "hexagon", circumradius_deg: 1 })))
+      .toThrow(/Unknown or unsupported footprint type/);
   });
 
   it("validates compound children and rejects empty or nested compounds", () => {

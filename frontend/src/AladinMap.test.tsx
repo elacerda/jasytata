@@ -123,7 +123,7 @@ describe("native Aladin catalogue layers", () => {
     render(<AladinMap {...base} />);
     await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(1));
     expect(aladinMocks.overlays[7].shapes).toHaveLength(1);
-    expect(aladinMocks.overlays[7].shapes[0]).toHaveLength(97);
+    expect(aladinMocks.overlays[7].shapes[0]).toHaveLength(101);
     aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
 
