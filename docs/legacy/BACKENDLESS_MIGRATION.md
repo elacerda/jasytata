@@ -25,8 +25,8 @@
   Save/select variants before planning because a survey change clears proposals.
 
 Profiles live only in the browser session and explicit JSON files. Save accepted
-pointings as CSV separately. Consult the [T80 observer guide](T80_SOUTH_USER_GUIDE.md)
-and [Schema v2 contract](PROFILE_SCHEMA_V2.md).
+pointings as CSV separately. Consult the [T80 observer guide](../T80_SOUTH_USER_GUIDE.md)
+and [Schema v2 contract](../PROFILE_SCHEMA.md).
 
 The sections below record the earlier backend removal; they are historical
 provenance, not current backend/Docker deployment instructions.

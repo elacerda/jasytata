@@ -48,8 +48,8 @@ survey's configured columns and representation, independently of input headers.
 Manual surveys support imported/manual pointings and coverage; automatic region
 tiling is intentionally unavailable.
 
-See the [generic workflow and authoring guide](docs/PROFILE_AUTHORING_GUIDE.md),
-[Schema v2 contract](docs/PROFILE_SCHEMA_V2.md) and
+See the [generic workflow and authoring guide](docs/legacy/PROFILE_AUTHORING_GUIDE.md),
+[Schema v2 contract](docs/PROFILE_SCHEMA.md) and
 [algorithms](docs/ALGORITHM.md) for the operating details.
 
 ## Bundled T80 compatibility behavior
@@ -77,21 +77,21 @@ exact threshold decisions can be sampling-sensitive. Geometry uses local
 tangent-plane approximations; large fields and extreme polar regimes do not
 have validated precision. Complete does not invent extra generic lattice sites
 to close gaps, and Efficient does not judge their scientific importance.
-A valid polygon excluding its local origin can currently cause a false-positive
-region intersection/contributor count; the
-[G9B blocker](docs/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive)
-records the reproducible contradiction without changing science in G9A.
+The polygon-origin false-positive in region intersection/contributor counts
+was repaired in G9B1; the
+[historical record](docs/legacy/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive)
+documents the reproduction and regression coverage.
 
 ## Validation evidence
 
-- [Gate 6C measured coverage validation](docs/GATE6C_COVERAGE_VALIDATION.md):
+- [Gate 6C measured coverage validation](docs/legacy/GATE6C_COVERAGE_VALIDATION.md):
   normal resolved fixtures meet the 0.5-percentage-point criterion against
   independent finer quadrature; unresolved gaps, budgets and polar limits remain.
-- [Gate 8 agnosticism validation](docs/GATE8_AGNOSTICISM_VALIDATION.md): T80,
+- [Gate 8 agnosticism validation](docs/legacy/GATE8_AGNOSTICISM_VALIDATION.md): T80,
   small circular FoV, rotated detector mosaic and triangular lattice through
   registry, planning, coverage, review and export.
 - Historical `frontend/src/data/golden.json` and current
   `frontend/src/data/planner-contract.json`: frozen compatibility evidence.
 
-Gate 9B release-candidate audit remains pending in the
-[roadmap](docs/V0.3.0_ROADMAP.md#gate-9--documentation-migration-and-release-candidate).
+Gate 9 is PASS with documented non-blocking limitations; see the
+[final audit](docs/legacy/GATE9_RELEASE_AUDIT.md).

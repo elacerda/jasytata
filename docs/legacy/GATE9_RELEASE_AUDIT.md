@@ -1,11 +1,13 @@
 # v0.3.0 release summary and Gate 9B2 audit
 
 **Gate 9B2 PASS; Gate 9 PASS. Verdict: READY WITH NON-BLOCKING LIMITATIONS.**
-Audited on 2026-09-28 at `7125181ccb5a4c48a1d8f4d47b86fc456ca051c0`
+Initially audited on 2026-09-28 at `7125181ccb5a4c48a1d8f4d47b86fc456ca051c0`
 on `v0.3.0` on `tufao`, including the completed G9B1 polygon-intersection repair.
-The release adjustments described here are uncommitted documentation/version
-changes on that HEAD. This is release readiness, not a published release:
-no commit, push, merge, tag or GitHub release was performed.
+Final local validation on 2026-09-29 uses the previously validated candidate
+`c37ad04943d8a93afd68f5da54ec6884abac2e71` plus the fullscreen stacking fix
+and documentation cleanup recorded below. This records readiness before the
+release-closure commit/push; no merge, tag, GitHub Release or deployment has
+been performed.
 
 ## Release summary
 
@@ -37,8 +39,8 @@ before reloading. This is not an observing scheduler. See the
 The canonical application version was still `0.2.0` in `frontend/package.json`
 and the two root-package entries of `frontend/package-lock.json`; all three now
 read **0.3.0**. There is no application-version literal/badge in the UI or
-workflow. README identifies this candidate and links this summary; its dynamic
-Release badge continues to describe published releases. Historical v0.2.0
+workflow. README describes the current product; its dynamic Release badge
+continues to describe published releases. Historical v0.2.0
 references describe compatibility, not the current application version.
 **Profile Schema stays 2** in bundled/imported profiles and validators.
 
@@ -62,18 +64,20 @@ No upgrades or new scanner were introduced; review the dev-tool advisories in
 a separate dependency-maintenance task before exposing such servers.
 
 Validation: `git diff --check`, `make test`, `make lint`, `make typecheck`,
-`make build`, and `make check` PASS. **461 tests across 28 files** remain green,
+`make build`, and `make check` PASS. **462 tests across 29 files** remain green,
 including all 24 G9B1 regressions and all four Gate 8 test files (44 tests).
 No scientific production code or fixture expectations changed in G9B2;
 an additional standalone Gate 8 rerun was therefore unnecessary. The normal
 full suite includes the matrix, T80 compatibility and bundled/imported-profile
-equivalence tests. No focused release tests were added; real-artifact smoke
-supplements the existing integration coverage.
+equivalence tests. The focused `frontend/src/styles.test.mjs` regression verifies
+that Aladin fullscreen stacks above the Jasytata topbar; real-artifact smoke
+supplements the existing integration coverage. The final fix changes only CSS
+stacking, with no scientific/planning behavior or fixture changes.
 
 ## Bundle decision
 
 Production output: JavaScript **2,688.09 kB / 932.71 kB gzip**, CSS
-**34.83 kB / 7.90 kB gzip**, and the logo **1,053.02 kB**.
+**34.86 kB / 7.92 kB gzip**, and the logo **1,053.02 kB**.
 Vite's 500 kB chunk warning is classification **A: acceptable known v0.3.0
 limitation**. A temporary Vite `generateBundle` diagnostic (no config edits)
 measured rendered modules before final chunk minification:
@@ -119,7 +123,15 @@ The static reference added 4,774 rows; the only application-level request during
 that action was `/jasytata/data/tiles_nc.csv`. Existing real-App integration
 tests also exercise generic planning/acceptance/export, mixed catalogues and
 the complete Gate 8 workflow matrix. This is automated headless validation,
-not a manual desktop usability review.
+not a manual desktop usability review. Subsequent manual local production-artifact
+validation found Aladin fullscreen below the topbar (`z-index: 5`): Aladin's
+fullscreen class had no stacking level. `.aladin-fullscreen { z-index: 1000; }`
+fixes the defect. Entering fullscreen, using its exit control and returning to
+the normal view were verified manually. The artifact was served by a plain
+Python HTTP server with dist copied into `/tmp/jasytata-local/jasytata/`, matching
+the production `/jasytata/` layout. `make preview` did not reliably reproduce
+that layout (HTML loaded but production JavaScript returned 404), so README
+now documents the mounted-artifact procedure. No backend calls were made.
 
 All requested error smokes ran against that production artifact:
 
@@ -163,7 +175,8 @@ its empty radius is not proof of no consumers. Direct manifest/build checks
 complete that gap. CRG also missed some imported-symbol relationships (for
 example `resolveProfile` is called by the planning bridge); exact source and
 tests take precedence. Final change/review queries and graph refresh cover the
-small docs/version-only change. CRG's radius estimate reports approximately
+original docs/version-only change. The final closure also reviews the CSS/test
+surface directly because CSS is not indexed. CRG's radius estimate reports approximately
 48,631 saved tokens against broad context; this is an indicative tool estimate,
 not measured net savings across the audit.
 
@@ -207,20 +220,22 @@ regions/exports rather than relying on truncation.
 
 ## Documentation and repository state
 
-This file is the single concise v0.3.0 release summary and detailed audit;
-no duplicate changelog was added. README, profile guide, Schema v2 guide,
-algorithm guide and roadmap now reflect the resolved polygon defect and final
-Gate 9 status. T80 observer and migration instructions remain consistent and
-unchanged. All 62 checked local documentation links/anchors resolve.
-Application metadata is 0.3.0; schema semantics remain v2. The final build emits
-the same JS/CSS/logo hashes as the production artifact exercised in Chrome.
+This file remains the v0.3.0 release summary and detailed audit under
+`docs/legacy/`, alongside the retained development evidence; no duplicate
+changelog was added. README now focuses on the product and links only the T80
+guide, Profile Schema and algorithms. `docs/PROFILE_SCHEMA.md` still documents
+Schema v2. Moved-document links and relative references are repaired; current
+T80 workflow content is preserved. All 56 local Markdown/HTML links and anchors resolve
+after the archive moves. Application metadata is 0.3.0; schema semantics remain
+v2. The final build retains `/jasytata/` and includes the fullscreen stacking CSS.
 
-Impeccable triage: **fixed: none; suppressed: none; left standing: Inter warning**.
+Impeccable triage: **fixed: fullscreen stacking issue; suppressed: none; left standing: Inter warning**.
 
 `frontend/dist` and `frontend/node_modules` are ignored and untracked by policy;
 temporary browser/analysis artifacts live under `/tmp`. The final tracked diff
-contains only the two package version files and five existing release documents,
-plus this new audit document. `.codex/` and `poly.txt` remain untracked and
+contains only the fullscreen CSS/regression, documentation moves/rename, README
+cleanup, necessary link/factual corrections and this final audit update.
+`.codex/` and `poly.txt` remain untracked and
 untouched. Known non-blocking limitations are bundle/cold-load size, dev-tool
 audit findings, external imagery availability, sampled/local-plane geometry,
 bounded inference, runtime caps and session-only persistence.

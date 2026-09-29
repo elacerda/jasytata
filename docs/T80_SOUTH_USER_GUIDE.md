@@ -228,7 +228,7 @@ no JSON e importe uma variante com IDs de instrumento/survey únicos, atualizand
 `survey.instrument_id` para o novo ID do instrumento. Selecione essa variante
 antes de gerar/aceitar os campos: trocar o survey invalida a proposta atual.
 As demais políticas podem ser mantidas para preservar o planejamento T80.
-Veja o [guia de perfis](PROFILE_AUTHORING_GUIDE.md#create-or-import-a-profile).
+Veja o [guia de perfis](legacy/PROFILE_AUTHORING_GUIDE.md#create-or-import-a-profile).
 
 Para o perfil do T80-South incluído, o epoch disponível é:
 

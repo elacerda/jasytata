@@ -28,7 +28,7 @@ These modest local regions deliberately stay within the published support model.
 sampling, inference, Efficient coverage and the first export row. It does not
 replace the independent reference coverage checks or frozen T80 expectations.
 Runtime logs print the same concise metrics. See
-[`docs/GATE8_AGNOSTICISM_VALIDATION.md`](../../../../docs/GATE8_AGNOSTICISM_VALIDATION.md)
+[`docs/legacy/GATE8_AGNOSTICISM_VALIDATION.md`](../../../../docs/legacy/GATE8_AGNOSTICISM_VALIDATION.md)
 for the integration results and limitations.
 
 Run the matrix from `frontend`:

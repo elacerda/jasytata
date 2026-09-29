@@ -10,7 +10,7 @@ Jasytata is a browser-based telescope/survey pointing and coverage planner. This
 - The legacy grid treats RA/DEC as longitude/latitude offsets with a local `cos(dec)` approximation. It does not use a gnomonic or great-circle lattice.
 - Generic instrument footprints are rectangles, circles, polygons or compound/mosaic unions in local `[east,north]` angular degrees. Camera PA and child rotations follow astronomical positive north-toward-east rotation.
 - The bundled T80 compatibility footprint is an axis-aligned 1.4° × 1.4° rectangle: ±0.7° in DEC and ±0.7° physical RA, where physical RA separation is `ΔRA × cos(tile_center_DEC)`. These dimensions are not a generic product assumption.
-- Camera footprint PA and lattice orientation are independent. Basis vectors encode lattice orientation; no separate lattice PA field exists. A PA 30° camera can use an east/north lattice, or a PA 0° camera can use a rotated lattice. See the [practical basis examples](PROFILE_AUTHORING_GUIDE.md#survey-placement-and-lattice-basis).
+- Camera footprint PA and lattice orientation are independent. Basis vectors encode lattice orientation; no separate lattice PA field exists. A PA 30° camera can use an east/north lattice, or a PA 0° camera can use a rotated lattice. See the [practical basis examples](legacy/PROFILE_AUTHORING_GUIDE.md#survey-placement-and-lattice-basis).
 
 ## 2. `SPLUS_LEGACY_GRID_V1` compatibility geometry
 
@@ -284,7 +284,7 @@ criterion, with reference refinement changes below 0.05 pp. The 256-fold scale
 experiment has only 0.01081 pp error spread; resolved rotated detector gaps pass,
 while a gap 0.75 of one sample step is missed (0.78125 pp error). Very tight
 budgets and polar geometry remain diagnostic exceptions. See the
-[measured matrix and limitations](GATE6C_COVERAGE_VALIDATION.md) for methodology,
+[measured matrix and limitations](legacy/GATE6C_COVERAGE_VALIDATION.md) for methodology,
 convergence, phase sensitivity, budget behavior and Complete/Efficient margins.
 This is empirical validation of the local model, not exact geometric coverage
 or an accuracy promise for arbitrary policies and thresholds.
@@ -367,17 +367,17 @@ never lattice orientation or inferred lattice rotation. Acceptance records an
 explicit top-level output footprint PA when needed; child rotations are detector
 geometry. Missing requested PA fails explicitly; no implicit zero is invented.
 An explicitly declared zero is valid. Columns, constants and accepted-row order
-are deterministic. See the [complete CSV contract](PROFILE_SCHEMA_V2.md#pointing-csv-contract-gate-7c)
+are deterministic. See the [complete CSV contract](PROFILE_SCHEMA.md#pointing-csv-contract-gate-7c)
 for numbering, epoch choices, escaping and limits. The bundled T80 default remains
 `RA,DEC,EPOCH=2000`; historical decimal and sexagesimal formatting stays protected.
 
 ## 6. Deliberate limitations
 
 The offset-polygon intersection blocker is
-[resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+[resolved in G9B1](legacy/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
 Contributor counting and candidate filtering now test physical polygon overlap
 without assuming local-origin containment. Gate 9B2 is PASS; see the
-[release audit](GATE9_RELEASE_AUDIT.md).
+[release audit](legacy/GATE9_RELEASE_AUDIT.md).
 
 - Coverage is a numerical sample estimate, not exact analytic or spherical
   geometry; 100% means all selected samples are covered.
@@ -400,9 +400,9 @@ without assuming local-origin containment. Gate 9B2 is PASS; see the
   Browser candidate/proposal/sample limits reject or coarsen work as documented,
   without silently truncating candidate sets.
 
-The [Gate 6C measured report](GATE6C_COVERAGE_VALIDATION.md) documents accuracy,
+The [Gate 6C measured report](legacy/GATE6C_COVERAGE_VALIDATION.md) documents accuracy,
 convergence, budgets and polar diagnostics. The
-[Gate 8 matrix](GATE8_AGNOSTICISM_VALIDATION.md) validates T80, small circular FoV,
+[Gate 8 matrix](legacy/GATE8_AGNOSTICISM_VALIDATION.md) validates T80, small circular FoV,
 rotated detector mosaic and non-orthogonal triangular lattice. Camera PA/lattice
 independence is exercised explicitly. These evidence artifacts retain their
 reproducible fixture results.
@@ -422,4 +422,4 @@ Jasytata remains browser-only with no API backend or database. It is not an
 observing scheduler: exposure-time optimization, filter sequencing, airmass, Moon
 constraints, weather, mount constraints, queue scheduling and observatory control
 are outside scope. Gate 9 is PASS; v0.3.0 is release ready with
-[documented non-blocking limitations](GATE9_RELEASE_AUDIT.md).
+[documented non-blocking limitations](legacy/GATE9_RELEASE_AUDIT.md).

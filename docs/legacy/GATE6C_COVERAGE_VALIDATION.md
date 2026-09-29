@@ -11,7 +11,7 @@ are explicit limitations, not silently relaxed acceptance fixtures.
 The executable matrix is `frontend/src/science/coverage-accuracy.test.ts`; the
 unrounded machine-readable results, including actual cell dimensions, refinement,
 budget sweeps and planning margins, are
-[`coverage-validation.json`](../frontend/src/data/coverage-validation.json).
+[`coverage-validation.json`](../../frontend/src/data/coverage-validation.json).
 
 ## Reference and acceptance criterion
 

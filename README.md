@@ -12,10 +12,6 @@ Extend an existing pointing catalogue or start a **new project with no initial
 catalogue**. S-PLUS/T80-South is the bundled reference/default profile;
 user-defined instrument and survey profiles supply other geometries and policies.
 
-**v0.3.0 release candidate:** ready with documented non-blocking limitations;
-see the [release summary and audit](docs/GATE9_RELEASE_AUDIT.md). This branch has
-not been tagged or published. The Release badge tracks published GitHub releases.
-
 **Live application:** <https://elacerda.github.io/jasytata/>
 
 React/TypeScript/Vite runs catalogue parsing, planning, coverage and export in
@@ -60,65 +56,55 @@ JSON and accepted pointings as CSV before reloading.
 
 Generic inference aligns existing centers to the profile's declared fundamental
 lattice; it does not discover an arbitrary lattice. The bundled T80 profile
-selects the explicit `legacy_splus` compatibility algorithm, preserving the
-observer workflow and historical grouping/inference behavior.
+preserves its established observer workflow and grouping/inference behavior.
 
 Coverage is a scale-aware, uniformly sampled local-plane estimate, **not exact
 analytic geometry**. Sub-pitch structure may be unresolved; extreme sample-budget
 coarsening reduces accuracy, and threshold decisions can depend on sampling.
 Local tangent-plane approximations limit large fields and extreme polar regimes,
 which are outside validated precision. Complete can still leave gaps when the
-available lattice sites cannot cover them. The offset-polygon intersection
-false-positive is [resolved in G9B1](docs/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive).
+available lattice sites cannot cover them.
 
 Jasytata is not an observing scheduler. Exposure-time optimization, filter
 sequencing, airmass, Moon constraints, weather, mount constraints, queue scheduling
 and observatory control are out of scope.
 
-The [Gate 8 validation report](docs/GATE8_AGNOSTICISM_VALIDATION.md) records T80,
-small circular FoV, rotated detector mosaic and non-orthogonal triangular-lattice
-workflows. The [Gate 6C report](docs/GATE6C_COVERAGE_VALIDATION.md) records measured
-sampling accuracy and limits; neither report promises accuracy for arbitrary
-user profiles.
-
 ## Development
 
 Requirements: Node.js 24 LTS (or a compatible supported Node.js release) and npm.
 
+From the repository root:
+
 ```bash
-git clone https://github.com/elacerda/jasytata.git
-cd jasytata
-cd frontend
-npm ci
-npm run dev
+make setup
+make dev
+make check
 ```
 
-Vite prints the local URL, normally <http://localhost:5173/>. The dev server uses `/` as its base; production builds use `/jasytata/` for GitHub Pages. To run the repository-level checks from the root:
+Development runs at <http://localhost:5173/>. To test the production artifact
+with the GitHub Pages path layout:
 
 ```bash
-make test
-make lint
-make typecheck
 make build
+rm -rf /tmp/jasytata-local
+mkdir -p /tmp/jasytata-local/jasytata
+cp -a frontend/dist/. /tmp/jasytata-local/jasytata/
+cd /tmp/jasytata-local
+python3 -m http.server 4173
 ```
 
-`make check` runs all four checks. `make preview` builds the production site and serves it locally; open the `/jasytata/` path on the preview server.
+Open <http://localhost:4173/jasytata/>. Production builds use `/jasytata/`.
 
 ## Deployment
 
-A GitHub Actions workflow tests and builds the static site when changes are pushed to `main`, then deploys only `frontend/dist` to GitHub Pages. It also supports manual runs with `workflow_dispatch`. The production site is <https://elacerda.github.io/jasytata/>.
+GitHub Actions validates and builds pushes to `main`, then deploys
+`frontend/dist` to GitHub Pages.
 
 ## Documentation
 
-- [Generic workflow and profile authoring guide](docs/PROFILE_AUTHORING_GUIDE.md)
-- [Product definition and invariants](PRODUCT.md)
-- [Profile Schema v2 file contract](docs/PROFILE_SCHEMA_V2.md)
+- [User guide — T80-South](docs/T80_SOUTH_USER_GUIDE.md)
+- [Profile Schema](docs/PROFILE_SCHEMA.md)
 - [Scientific and planning algorithms](docs/ALGORITHM.md)
-- [T80-South observer guide](docs/T80_SOUTH_USER_GUIDE.md)
-- [v0.2.x → v0.3.0 migration](docs/BACKENDLESS_MIGRATION.md#v02x-to-v030)
-- [Release roadmap](docs/V0.3.0_ROADMAP.md)
-- [Run C historical acceptance](docs/RUN_C_ACCEPTANCE.md) and
-  [overlap regression](docs/RUN_C_OVERLAP_REGRESSION.md)
 
 ## License
 

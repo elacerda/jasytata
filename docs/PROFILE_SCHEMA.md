@@ -5,7 +5,7 @@ and data policies. An instrument profile describes the camera and its footprint;
 a survey profile references an instrument and describes tiling, inference,
 coverage, and export choices. This lets one instrument support multiple survey
 policies without duplicating its geometry. For a practical workflow and examples,
-see the [profile authoring guide](PROFILE_AUTHORING_GUIDE.md).
+see the [profile authoring guide](legacy/PROFILE_AUTHORING_GUIDE.md).
 
 ## Coordinates and footprints
 
@@ -58,8 +58,8 @@ is supported. Contributor/candidate intersection requires positive-area overlap;
 contact only at an edge or vertex is excluded, while point containment remains
 boundary-inclusive. The existing local geometry tolerance is `1e-12`.
 The offset-polygon false-positive blocker is
-[resolved in G9B1](V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive);
-Gate 9B2 is PASS; see the [release audit](GATE9_RELEASE_AUDIT.md).
+[resolved in G9B1](legacy/V0.3.0_ROADMAP.md#g9b-blocker--polygon-intersection-false-positive);
+Gate 9B2 is PASS; see the [release audit](legacy/GATE9_RELEASE_AUDIT.md).
 
 ## Survey policies
 
@@ -177,7 +177,7 @@ normal 64-per-axis fixtures against independent fine quadrature within 0.5
 percentage point; this is a tested policy, not a generic default or a guarantee
 for arbitrary caps or unresolved features. A 0.75-cell gap produces 0.78125 pp
 error; strong budget coarsening and near-pole geometry retain explicit limits.
-See [coverage validation](GATE6C_COVERAGE_VALIDATION.md) for measured scale,
+See [coverage validation](legacy/GATE6C_COVERAGE_VALIDATION.md) for measured scale,
 declination, convergence, phase and budget results. Exact spherical coverage
 and adaptive refinement are not implemented.
 
@@ -561,6 +561,6 @@ profile-ID branch in export resolution, row construction or CSV serialization.
 The v1 compatibility adapter's historical CSV-shape guard is confined to that
 legacy adapter; registered v2 runtime export does not pass through it.
 
-See the [Gate 8 validation matrix](GATE8_AGNOSTICISM_VALIDATION.md) and
-[generic profile authoring guide](PROFILE_AUTHORING_GUIDE.md). Gate 9 is PASS; v0.3.0 is release ready with
-[documented non-blocking limitations](GATE9_RELEASE_AUDIT.md).
+See the [Gate 8 validation matrix](legacy/GATE8_AGNOSTICISM_VALIDATION.md) and
+[generic profile authoring guide](legacy/PROFILE_AUTHORING_GUIDE.md). Gate 9 is PASS; v0.3.0 is release ready with
+[documented non-blocking limitations](legacy/GATE9_RELEASE_AUDIT.md).

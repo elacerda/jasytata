@@ -39,7 +39,7 @@ not affect science. Inference participation is separate:
 
 Groups are fitted independently by dataset/instrument identity, not merged into
 one cloud. PID is not required. The bundled `legacy_splus` strategy retains its
-historical grouping rules; see the [compatibility boundary](PROFILE_SCHEMA_V2.md#remaining-pidgroup-compatibility-boundary).
+historical grouping rules; see the [compatibility boundary](../PROFILE_SCHEMA.md#remaining-pidgroup-compatibility-boundary).
 Changing an instrument assignment or the active survey invalidates generated
 proposals, so choose them before accepting a plan.
 
@@ -67,9 +67,9 @@ values. This is not a general extension mechanism.
 Duplicate instrument or survey IDs are rejected atomically, even for identical
 configuration. Bundled profiles cannot be overwritten. Change both IDs and the
 survey reference when importing a variant into the same session. The
-[Schema v2 contract](PROFILE_SCHEMA_V2.md) is authoritative for exact fields,
+[Schema v2 contract](../PROFILE_SCHEMA.md) is authoritative for exact fields,
 validation, serialization and runtime exclusions. A complete example is the
-[small-camera profile](../frontend/src/profiles/fixtures/small-camera.json);
+[small-camera profile](../../frontend/src/profiles/fixtures/small-camera.json);
 its values are an example rather than universal defaults.
 
 Bundled, imported and authored profiles all converge to the same validated
@@ -172,7 +172,7 @@ with only larger separations can lack usable evidence. Outliers, symmetry and
 bounded hypothesis searches limit robustness. An attempted generic fit with
 insufficient/incompatible evidence fails explicitly rather than silently resetting
 phase. Disabled inference or no usable centers uses the declared placement.
-See [alignment details](ALGORITHM.md#generic-existing-grid-alignment-gate-5).
+See [alignment details](../ALGORITHM.md#generic-existing-grid-alignment-gate-5).
 
 ## Survey: coverage and Efficient policy
 
@@ -189,7 +189,7 @@ If the natural grid exceeds `max_samples`, the **effective step** coarsens to fi
 the browser budget. The budget counts the full bounding rectangular grid,
 including cells outside the polygon. Actual cell widths can be smaller than the
 requested step because integer rows/columns evenly subdivide the bounds.
-The [sampling contract](PROFILE_SCHEMA_V2.md#coverage-sampling-policy-gate-6a)
+The [sampling contract](../PROFILE_SCHEMA.md#coverage-sampling-policy-gate-6a)
 describes metadata and the separate legacy layout.
 
 **Complete** targets all selected samples, stopping at completion, candidate
@@ -248,5 +248,5 @@ row order are deterministic; repeated downloads of identical accepted state,
 policy and epoch are identical. For identical profiles, datasets, region and
 strategy, planning is intended to be deterministic in the same software version;
 this does not promise bitwise reproducibility across arbitrary future versions.
-See the [CSV contract](PROFILE_SCHEMA_V2.md#pointing-csv-contract-gate-7c) for exact
+See the [CSV contract](../PROFILE_SCHEMA.md#pointing-csv-contract-gate-7c) for exact
 ordering, escaping, identifier numbering and limits.

@@ -22,7 +22,7 @@ The published v0.2.0 T80-South/S-PLUS behavior is a regression-protected compati
 
 Do not change scientific behavior, constants, fixture expectations, coordinate semantics, coverage semantics, or T80 compatibility unless the current task explicitly authorizes that change.
 
-For v0.3.0 work, follow the current gate and acceptance criteria in `docs/V0.3.0_ROADMAP.md`. Do not implement later gates opportunistically.
+For v0.3.0 work, follow the current gate and acceptance criteria in `docs/legacy/V0.3.0_ROADMAP.md`. Do not implement later gates opportunistically.
 
 ## Validation
 
