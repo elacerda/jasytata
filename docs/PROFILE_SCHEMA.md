@@ -601,5 +601,6 @@ The v1 compatibility adapter's historical CSV-shape guard is confined to that
 legacy adapter; registered v2 runtime export does not pass through it.
 
 See the [Gate 8 validation matrix](legacy/GATE8_AGNOSTICISM_VALIDATION.md) and
-[generic profile authoring guide](legacy/PROFILE_AUTHORING_GUIDE.md). Gate 9 is PASS; v0.3.0 is release ready with
-[documented non-blocking limitations](legacy/GATE9_RELEASE_AUDIT.md).
+[generic profile authoring guide](legacy/PROFILE_AUTHORING_GUIDE.md). The
+archived [v0.3.0 release audit](legacy/GATE9_RELEASE_AUDIT.md) records the
+historical Gate 9 disposition and its non-blocking limitations.

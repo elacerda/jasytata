@@ -12,6 +12,11 @@ Extend an existing pointing catalogue or start a **new project with no initial
 catalogue**. S-PLUS/T80-South is the bundled reference/default profile;
 user-defined instrument and survey profiles supply other geometries and policies.
 
+The v0.4.0 release candidate includes 22 selected Schema v3 instrument profiles
+and seven named strategies. The T80-South/S-PLUS pair remains the protected
+Schema v2 default. The [release ledger](docs/V0.4.0_RELEASE_VALIDATION.md)
+records the supported profiles, workflows, evidence, and limits.
+
 **Live application:** <https://elacerda.github.io/jasytata/>
 
 React/TypeScript/Vite runs catalogue parsing, planning, coverage and export in
@@ -33,9 +38,9 @@ Jasytata takes its name from a Kaiowá word recorded for “star”.
   of their use as inference evidence.
 - **Complete coverage** targeting every selected sample, or **Efficient coverage**
   stopping according to the active survey's coverage/marginal-efficiency policy.
-- Browser profile authoring, strict Schema v2 JSON import/export, reversible
-  proposal review, and CSV export of enabled accepted pointings using the active
-  survey's column/coordinate/epoch/PA/identifier/constant-field policy.
+- Browser profile authoring, strict Schema v2 and selective Schema v3 JSON
+  import/export, reversible proposal review, and CSV export of accepted
+  pointings using the active strategy policy or generic standalone ICRS centers.
 
 ## Typical workflow
 
@@ -58,16 +63,28 @@ Generic inference aligns existing centers to the profile's declared fundamental
 lattice; it does not discover an arbitrary lattice. The bundled T80 profile
 preserves its established observer workflow and grouping/inference behavior.
 
-Coverage is a scale-aware, uniformly sampled local-plane estimate, **not exact
-analytic geometry**. Sub-pitch structure may be unresolved; extreme sample-budget
-coarsening reduces accuracy, and threshold decisions can depend on sampling.
+Schema v3 distinguishes `observed_area`, `nominal_envelope`, and `target_access`
+roles and preserves exact versus approximate fidelity. Only observed-area
+profiles contribute to observed-area coverage. Envelope metrics are explicitly
+non-authoritative diagnostics; target-access profiles cannot produce observed
+area or fibre-allocation claims. The protected T80/S-PLUS v2 profile retains its
+legacy coverage semantics.
+
+Generic coverage is a scale-aware, uniformly sampled local-plane estimate, not
+exact analytic geometry. If the required pitch cannot fit within `max_samples`,
+the result is `under_resolved` and publishes no authoritative fraction or
+completion claim. Resolved estimates still have sampling limits: sub-pitch
+structure may remain unresolved, and threshold decisions can depend on sampling.
 Local tangent-plane approximations limit large fields and extreme polar regimes,
 which are outside validated precision. Complete can still leave gaps when the
-available lattice sites cannot cover them.
+available lattice sites cannot cover them. Effective sequence geometry is a
+geometric union and does not imply depth or completeness.
 
 Jasytata is not an observing scheduler. Exposure-time optimization, filter
 sequencing, airmass, Moon constraints, weather, mount constraints, queue scheduling
-and observatory control are out of scope.
+and observatory control are out of scope. Approximate profiles do not provide
+exact detector masks; Hector/SAMI full-plate workflows and fibre allocation are
+not supported.
 
 ## Development
 

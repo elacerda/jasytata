@@ -269,6 +269,49 @@ describe("minimal browser profile file controls", () => {
     expect(screen.getByText("0 generated · 0 enabled · 0 disabled")).toBeTruthy();
   });
 
+  it.each([
+    { id: "keck-kcwi-small", summary: /Exact observed-area geometry/, pa: "0.00000000", requiredPa: null },
+    { id: "sdss-lvm-i-science-ifu", summary: /Nominal envelope · Approximate/, pa: null, requiredPa: null },
+    { id: "subaru-pfs-target-access", summary: /not observed coverage/, pa: "51.00000000", requiredPa: "51" },
+  ])("completes a no-catalogue standalone workflow for $id and exports only ICRS centers", async ({ id, summary, pa, requiredPa }) => {
+    const user = userEvent.setup();
+    const downloads = captureCsvDownloads("manual_centers.csv");
+    render(<App />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), `instrument:${id}`);
+    const instrumentSummary = screen.getByLabelText("Active instrument summary");
+    expect(within(instrumentSummary).getByText(summary)).toBeTruthy();
+
+    if (requiredPa !== null) {
+      const paInput = screen.getByRole("spinbutton", { name: "Required pointing PA in degrees east of north" });
+      expect(paInput).toBeRequired();
+      await user.type(paInput, requiredPa);
+    } else {
+      expect(screen.queryByRole("spinbutton", { name: "Required pointing PA in degrees east of north" })).toBeNull();
+    }
+    await user.click(screen.getByRole("button", { name: /^Single tile/ }));
+    await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+    expect(await screen.findByText("Proposal preview")).toBeTruthy();
+    expect(document.querySelector(".proposal-row")).toHaveTextContent("150.5000°");
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    expect(screen.getByText("1 generated · 1 enabled · 0 disabled")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Download manual_centers.csv" }));
+
+    expect(downloads.click).toHaveBeenCalledOnce();
+    const rows = readCsv(await blobText(downloads.blobs[0]));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual([
+      "POINTING_ID", "RA_ICRS_DEG", "DEC_ICRS_DEG", "INSTRUMENT_PROFILE_ID", "PLACEMENT_ORIGIN",
+      ...(pa === null && requiredPa === null ? [] : ["POSITION_ANGLE_DEG"]),
+    ]);
+    expect(rows[1]).toEqual([
+      "POINTING_0001", "150.50000000", "-24.25000000", id, "manual",
+      ...(pa === null ? [] : [pa]),
+    ]);
+    for (const unsupported of ["SURVEY_ID", "STRATEGY_ID", "EXPOSURE_ID", "EPOCH"]) {
+      expect(rows[0]).not.toContain(unsupported);
+    }
+  });
+
   it("requires an explicit PA before MUSE manual geometry, then restores instrument-pinned pointings", async () => {
     const user = userEvent.setup();
     render(<App />);

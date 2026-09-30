@@ -379,5 +379,5 @@ There is no claim of bitwise reproducibility across arbitrary future versions.
 Jasytata remains browser-only with no API backend or database. It is not an
 observing scheduler: exposure-time optimization, filter sequencing, airmass, Moon
 constraints, weather, mount constraints, queue scheduling and observatory control
-are outside scope. Gate 9 is PASS; v0.3.0 is release ready with
-[documented non-blocking limitations](legacy/GATE9_RELEASE_AUDIT.md).
+are outside scope. The archived [v0.3.0 release audit](legacy/GATE9_RELEASE_AUDIT.md)
+records that version's historical Gate 9 disposition and limitations.

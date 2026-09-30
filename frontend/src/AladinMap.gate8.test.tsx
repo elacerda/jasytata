@@ -3,12 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
 import { cases, cameraPa, matrixRegistry } from "./data/gate8/fixtures";
 import { resolvePlanningProfile } from "./profiles/planning";
-import type { ProfileRegistry } from "./profiles/registry";
+import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { createDataset } from "./datasets";
-import { parseCatalogueCsv } from "./science/catalogue";
+import { makeCenterProposals, parseCatalogueCsv } from "./science/catalogue";
+import { coverageGeometryContext } from "./science/coverage-semantics";
 import { planRegion } from "./science/planner";
+import { resolvePointingGeometries } from "./science/pointing-geometry";
 import { tileFootprintBoundaries } from "./sky";
-import type { SkyPolygon } from "./types";
+import type { PointingGeometryContext } from "./science/pointing-geometry";
+import type { SkyPolygon, TileRecord, TilingProfile } from "./types";
 
 const native = vi.hoisted(() => {
   const overlays: Array<{ shapes: unknown[]; add: (shape: unknown) => void; removeAll: () => void; reportChange: () => void }> = [];
@@ -90,5 +93,60 @@ describe("Gate 8 native Aladin render integration", () => {
     view.rerender(<AladinMap {...base} tiles={[...sourceRows, ...accepted]} selectedPolygon={region} planningLayers={{ ...base.planningLayers, anchors: true }} />);
     expect(native.overlays[1].shapes).toEqual(expected);
     expect(base.onError).not.toHaveBeenCalled();
+  }, 15000);
+
+  it("renders persisted production footprints through registry, pointing, effective geometry, and map boundary", async () => {
+    const registry = createBundledProfileRegistry();
+    native.registry = registry;
+    native.instance.getRaDec.mockReturnValue([150.25, -30]);
+    const cases = [
+      { name: "T80/S-PLUS", instrumentId: "t80-south", strategyId: "splus-t80-south", profileId: "splus-t80-south" },
+      { name: "KCWI", instrumentId: "keck-kcwi-small" },
+      { name: "MaNGA", instrumentId: "sdss-manga-61-fiber", strategyId: "sdss-manga-61-three-point", profileId: "sdss-manga-61-three-point" },
+      { name: "CALIFA/PPAK", instrumentId: "califa-pmas-ppak-331", strategyId: "califa-ppak-three-point", profileId: "califa-ppak-three-point" },
+      { name: "Rubin area-equivalent circle", instrumentId: "rubin-lsstcam-area-equivalent" },
+      { name: "MUSE WFM", instrumentId: "vlt-muse-wfm", positionAngle: 37 },
+      { name: "PFS target access", instrumentId: "subaru-pfs-target-access", positionAngle: 51 },
+      { name: "SAMI strategy", instrumentId: "aat-sami-61core-15arcsec", strategyId: "sami-dr1-seven-position", profileId: "sami-dr1-seven-position" },
+    ];
+
+    for (const item of cases) {
+      native.overlays.length = 0;
+      const instrument = registry.resolveInstrumentProfile(item.instrumentId);
+      const profile = item.profileId ? resolvePlanningProfile(item.profileId, undefined, registry).profile : null;
+      const tile: TileRecord = {
+        ...makeCenterProposals([{ ra_deg: 150.25, dec_deg: -30 }], "manual")[0],
+        instrument_profile_id: item.instrumentId,
+        ...(item.strategyId ? { output_strategy_id: item.strategyId } : {}),
+        ...(item.positionAngle === undefined ? {} : { position_angle_deg: item.positionAngle }),
+      };
+      let context: PointingGeometryContext | undefined;
+      if (item.strategyId && item.profileId !== "splus-t80-south") {
+        context = coverageGeometryContext([tile], profile as TilingProfile, registry);
+      } else if (instrument.schema_version === 3) {
+        context = {
+          coverageBasis: "single_exposure",
+          orientationPolicyForTile: () => ({ policy: instrument.position_angle.mode, required: instrument.position_angle.required }),
+        };
+      }
+      const geometries = resolvePointingGeometries(tile, profile, registry, context);
+      const expected = geometries.flatMap((geometry) => tileFootprintBoundaries(
+        { ra_deg: geometry.center[0], dec_deg: geometry.center[1] }, geometry.footprint,
+      ));
+      const base = {
+        profile, datasets: [], tiles: [tile], mode: "idle" as const, selectingRegion: false,
+        selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+        anchorTileIds: [], candidateCenters: [], planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+        onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+        ...(context ? { pointingGeometryContext: context } : {}),
+      };
+      const view = render(<AladinMap {...base} />);
+      await waitFor(() => expect(native.overlays).toHaveLength(7));
+      await waitFor(() => expect(native.overlays[1].shapes).toEqual(expected));
+      expect(native.overlays[1].shapes).toHaveLength(geometries.length);
+      expect(native.overlays[1].shapes.every((path) => Array.isArray(path))).toBe(true);
+      expect(base.onError).not.toHaveBeenCalled();
+      view.unmount();
+    }
   }, 15000);
 });
