@@ -807,6 +807,424 @@
         "mode": "per_pointing",
         "required": true
       }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-19-fiber",
+      "display_name": "SDSS-IV MaNGA 19-fiber bundle",
+      "description": "Approximate nominal 19-fiber hexagonal bundle envelope; not a plate footprint or fiber-aperture map.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.0016666666666666668
+          ],
+          [
+            0.0014433756729740645,
+            0.0008333333333333336
+          ],
+          [
+            0.0014433756729740647,
+            -0.0008333333333333331
+          ],
+          [
+            0,
+            -0.0016666666666666668
+          ],
+          [
+            -0.001443375672974064,
+            -0.0008333333333333341
+          ],
+          [
+            -0.0014433756729740645,
+            0.0008333333333333336
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Ideal regular hexagonal bundle envelope derived from the rounded Table 4 Corner extent; it is not the union of individual fiber apertures."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/pdf/1412.1535",
+            "title": "Drory et al. 2015, MaNGA Integral Field Unit Fiber Feed System"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/pdf/1412.1535",
+            "note": "Table 4 gives 12 arcsec Corner and 10.4 arcsec Flat edge-to-edge active-core dimensions for 19 fibers (2 rings). Vertices use circumradius Corner/2 with the canonical vertex-on-north orientation and 3600 arcsec per degree; Flat is an independent regular-hexagon consistency check."
+          }
+        ],
+        "assumptions": [
+          "The 19-fiber bundle is represented as an ideal regular nominal hexagon using the rounded Table 4 Corner dimension of 12 arcsec; the Flat dimension is retained as a consistency check, not an independent fit.",
+          "Vertex-on-north, eastward-increasing local vertices are a coordinate convention only; no physical bundle PA is inferred."
+        ],
+        "limitations": [
+          "Table 4 dimensions are rounded, and the paper reports measured fiber-position deviations from the ideal hexagon; this polygon is approximate rather than an exact observed aperture union.",
+          "Individual fiber cores, gaps, fiber assignments, the 3 degree plate, allocation, and completeness are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-37-fiber",
+      "display_name": "SDSS-IV MaNGA 37-fiber bundle",
+      "description": "Approximate nominal 37-fiber hexagonal bundle envelope; not a plate footprint or fiber-aperture map.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.002361111111111111
+          ],
+          [
+            0.0020447822033799246,
+            0.0011805555555555558
+          ],
+          [
+            0.0020447822033799246,
+            -0.0011805555555555551
+          ],
+          [
+            0,
+            -0.002361111111111111
+          ],
+          [
+            -0.0020447822033799238,
+            -0.0011805555555555567
+          ],
+          [
+            -0.0020447822033799246,
+            0.0011805555555555558
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Ideal regular hexagonal bundle envelope derived from the rounded Table 4 Corner extent; it is not the union of individual fiber apertures."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/pdf/1412.1535",
+            "title": "Drory et al. 2015, MaNGA Integral Field Unit Fiber Feed System"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/pdf/1412.1535",
+            "note": "Table 4 gives 17 arcsec Corner and 14.7 arcsec Flat edge-to-edge active-core dimensions for 37 fibers (3 rings). Vertices use circumradius Corner/2 with the canonical vertex-on-north orientation and 3600 arcsec per degree; Flat is an independent regular-hexagon consistency check."
+          }
+        ],
+        "assumptions": [
+          "The 37-fiber bundle is represented as an ideal regular nominal hexagon using the rounded Table 4 Corner dimension of 17 arcsec; the Flat dimension is retained as a consistency check, not an independent fit.",
+          "Vertex-on-north, eastward-increasing local vertices are a coordinate convention only; no physical bundle PA is inferred."
+        ],
+        "limitations": [
+          "Table 4 dimensions are rounded, and the paper reports measured fiber-position deviations from the ideal hexagon; this polygon is approximate rather than an exact observed aperture union.",
+          "Individual fiber cores, gaps, fiber assignments, the 3 degree plate, allocation, and completeness are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-61-fiber",
+      "display_name": "SDSS-IV MaNGA 61-fiber bundle",
+      "description": "Approximate nominal 61-fiber hexagonal bundle envelope; not a plate footprint or fiber-aperture map.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.0030555555555555557
+          ],
+          [
+            0.0026461887337857846,
+            0.0015277777777777783
+          ],
+          [
+            0.002646188733785785,
+            -0.0015277777777777772
+          ],
+          [
+            0,
+            -0.0030555555555555557
+          ],
+          [
+            -0.002646188733785784,
+            -0.0015277777777777792
+          ],
+          [
+            -0.0026461887337857846,
+            0.0015277777777777783
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Ideal regular hexagonal bundle envelope derived from the rounded Table 4 Corner extent; it is not the union of individual fiber apertures."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/pdf/1412.1535",
+            "title": "Drory et al. 2015, MaNGA Integral Field Unit Fiber Feed System"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/pdf/1412.1535",
+            "note": "Table 4 gives 22 arcsec Corner and 19.0 arcsec Flat edge-to-edge active-core dimensions for 61 fibers (4 rings). Vertices use circumradius Corner/2 with the canonical vertex-on-north orientation and 3600 arcsec per degree; Flat is an independent regular-hexagon consistency check."
+          }
+        ],
+        "assumptions": [
+          "The 61-fiber bundle is represented as an ideal regular nominal hexagon using the rounded Table 4 Corner dimension of 22 arcsec; the Flat dimension is retained as a consistency check, not an independent fit.",
+          "Vertex-on-north, eastward-increasing local vertices are a coordinate convention only; no physical bundle PA is inferred."
+        ],
+        "limitations": [
+          "Table 4 dimensions are rounded, and the paper reports measured fiber-position deviations from the ideal hexagon; this polygon is approximate rather than an exact observed aperture union.",
+          "Individual fiber cores, gaps, fiber assignments, the 3 degree plate, allocation, and completeness are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-91-fiber",
+      "display_name": "SDSS-IV MaNGA 91-fiber bundle",
+      "description": "Approximate nominal 91-fiber hexagonal bundle envelope; not a plate footprint or fiber-aperture map.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.00375
+          ],
+          [
+            0.0032475952641916445,
+            0.0018750000000000004
+          ],
+          [
+            0.003247595264191645,
+            -0.001874999999999999
+          ],
+          [
+            0,
+            -0.00375
+          ],
+          [
+            -0.0032475952641916436,
+            -0.0018750000000000017
+          ],
+          [
+            -0.0032475952641916445,
+            0.0018750000000000004
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Ideal regular hexagonal bundle envelope derived from the rounded Table 4 Corner extent; it is not the union of individual fiber apertures."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/pdf/1412.1535",
+            "title": "Drory et al. 2015, MaNGA Integral Field Unit Fiber Feed System"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/pdf/1412.1535",
+            "note": "Table 4 gives 27 arcsec Corner and 23.3 arcsec Flat edge-to-edge active-core dimensions for 91 fibers (5 rings). Vertices use circumradius Corner/2 with the canonical vertex-on-north orientation and 3600 arcsec per degree; Flat is an independent regular-hexagon consistency check."
+          }
+        ],
+        "assumptions": [
+          "The 91-fiber bundle is represented as an ideal regular nominal hexagon using the rounded Table 4 Corner dimension of 27 arcsec; the Flat dimension is retained as a consistency check, not an independent fit.",
+          "Vertex-on-north, eastward-increasing local vertices are a coordinate convention only; no physical bundle PA is inferred."
+        ],
+        "limitations": [
+          "Table 4 dimensions are rounded, and the paper reports measured fiber-position deviations from the ideal hexagon; this polygon is approximate rather than an exact observed aperture union.",
+          "Individual fiber cores, gaps, fiber assignments, the 3 degree plate, allocation, and completeness are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-127-fiber",
+      "display_name": "SDSS-IV MaNGA 127-fiber bundle",
+      "description": "Approximate nominal 127-fiber hexagonal bundle envelope; not a plate footprint or fiber-aperture map.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.0044444444444444444
+          ],
+          [
+            0.003849001794597505,
+            0.0022222222222222227
+          ],
+          [
+            0.0038490017945975053,
+            -0.0022222222222222214
+          ],
+          [
+            0,
+            -0.0044444444444444444
+          ],
+          [
+            -0.003849001794597504,
+            -0.0022222222222222244
+          ],
+          [
+            -0.003849001794597505,
+            0.0022222222222222227
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Ideal regular hexagonal bundle envelope derived from the rounded Table 4 Corner extent; it is not the union of individual fiber apertures."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/pdf/1412.1535",
+            "title": "Drory et al. 2015, MaNGA Integral Field Unit Fiber Feed System"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/pdf/1412.1535",
+            "note": "Table 4 gives 32 arcsec Corner and 27.7 arcsec Flat edge-to-edge active-core dimensions for 127 fibers (6 rings). Vertices use circumradius Corner/2 with the canonical vertex-on-north orientation and 3600 arcsec per degree; Flat is an independent regular-hexagon consistency check."
+          }
+        ],
+        "assumptions": [
+          "The 127-fiber bundle is represented as an ideal regular nominal hexagon using the rounded Table 4 Corner dimension of 32 arcsec; the Flat dimension is retained as a consistency check, not an independent fit.",
+          "Vertex-on-north, eastward-increasing local vertices are a coordinate convention only; no physical bundle PA is inferred."
+        ],
+        "limitations": [
+          "Table 4 dimensions are rounded, and the paper reports measured fiber-position deviations from the ideal hexagon; this polygon is approximate rather than an exact observed aperture union.",
+          "Individual fiber cores, gaps, fiber assignments, the 3 degree plate, allocation, and completeness are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "califa-pmas-ppak-331",
+      "display_name": "PMAS / PPAK CALIFA 331-science-fiber bundle",
+      "description": "Approximate nominal PPAK science-bundle envelope for one exposure; the CALIFA three-position sequence is a separate strategy.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.010277777777777778
+          ],
+          [
+            0.00890081665000673,
+            0.00513888888888889
+          ],
+          [
+            0.008900816650006731,
+            -0.005138888888888886
+          ],
+          [
+            0,
+            -0.010277777777777778
+          ],
+          [
+            -0.008900816650006728,
+            -0.005138888888888893
+          ],
+          [
+            -0.00890081665000673,
+            0.00513888888888889
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Ideal regular hexagonal nominal envelope from the primary source 74 arcsec maximum diameter; not the as-built fiber-aperture union or reconstructed CALIFA field."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/abs/astro-ph/0512557",
+            "title": "Kelz et al. 2006, PMAS/PPak instrument paper"
+          },
+          {
+            "url": "https://www.caha.es/pmas/PMAS_OVERVIEW/pmas_overview_Fig3b-x.html",
+            "title": "Calar Alto PMAS/PPak fiber-bundle geometry and size"
+          },
+          {
+            "url": "https://arxiv.org/html/1307.8130",
+            "title": "Martinsson et al. 2013, DiskMass Survey VI"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/abs/astro-ph/0512557",
+            "note": "Kelz et al. describe the 331-object-fiber center as a densely packed hexagonal grid with 74 arcsec maximum diameter. The nominal polygon uses circumradius 37 arcsec, vertices beginning at local north, and 3600 arcsec per degree; the published 64 arcsec secondary extent is a consistency check."
+          }
+        ],
+        "assumptions": [
+          "The selected planning object is the approximate ideal nominal hexagonal bundle envelope, not the union of 331 active fiber apertures.",
+          "Vertex-on-north, eastward-increasing local vertices are a canonical coordinate convention; no physical sky PA is attached to this envelope.",
+          "The PPAK single-exposure envelope and the CALIFA three-position strategy remain separate; their geometric union does not claim reconstructed-cube completeness."
+        ],
+        "limitations": [
+          "Published size and pitch values are approximate and not fully consistent: Kelz et al. report 3.6 arcsec pitch in Section II.2 and 3.5 arcsec in Table 5; the envelope is therefore anchored to the directly stated 74 arcsec maximum diameter, not reconstructed from pitch.",
+          "Kelz et al. report outer-row departures from the regular grid, and Martinsson et al. publish post-fabrication positions with visible irregularity; the ideal polygon is not the as-built fiber map.",
+          "The appendix position table is not used as an exact aperture mask; individual cores, gaps, vignetting, throughput, allocation, and CALIFA cube reconstruction/completeness are outside this nominal-envelope profile."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
     }
   ],
   "strategies": [
@@ -975,6 +1393,654 @@
         "limitations": [
           "Offsets are nominal guide-camera positions; atmospheric refraction and per-object measured offsets can change placements.",
           "Does not model fibre maps, cube reconstruction, depth, completeness, full 1 degree plate allocation or facility export."
+        ]
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "califa-ppak-three-point",
+      "display_name": "CALIFA / PPAK three-position strategy",
+      "description": "One manually centered PPAK bundle with the selected nominal three-position CALIFA sequence; not an observing command list or a claim of reconstructed completeness.",
+      "instrument_id": "califa-pmas-ppak-331",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "califa-ppak-three-point",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": 0,
+            "north_arcsec": 0
+          },
+          {
+            "order": 2,
+            "east_arcsec": -5.22,
+            "north_arcsec": -4.53
+          },
+          {
+            "order": 3,
+            "east_arcsec": -5.22,
+            "north_arcsec": 4.53
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "califa-pmas-ppak-331",
+          "STRATEGY_ID": "califa-ppak-three-point"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "title": "Sánchez et al. 2016, CALIFA DR3"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "note": "Source-backed nominal CALIFA three-position sky offset, in east/north arcseconds from the manually supplied galaxy center."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "note": "Source-backed nominal CALIFA three-position sky offset, in east/north arcseconds from the manually supplied galaxy center."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "note": "Source-backed nominal CALIFA three-position sky offset, in east/north arcseconds from the manually supplied galaxy center."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "note": "Source-backed nominal CALIFA three-position sky offset, in east/north arcseconds from the manually supplied galaxy center."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "note": "Source-backed nominal CALIFA three-position sky offset, in east/north arcseconds from the manually supplied galaxy center."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://openaccess.inaf.it/server/api/core/bitstreams/98310fc7-1b84-48e5-81c1-0010f6c9c85a/content",
+            "note": "Source-backed nominal CALIFA three-position sky offset, in east/north arcseconds from the manually supplied galaxy center."
+          }
+        ],
+        "assumptions": [
+          "The instrument geometry represents one exposure; ordered three-position offsets live on this separate selected strategy.",
+          "The sequence union is a nominal geometric envelope only and is not equivalent to the reconstructed CALIFA cube or scientific completeness.",
+          "Coverage sampling target N=8 and max_samples=90000 follow the frozen v0.4 project-level coverage contract."
+        ],
+        "limitations": [
+          "Individual observed offsets, V1200 subframes at each position, fiber-level sampling, cube reconstruction, vignetting, depth, completeness, and facility export are not modeled.",
+          "Manual galaxy centers are required; no survey lattice, overlap, or allocation is implied."
+        ]
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-19-three-point",
+      "display_name": "SDSS-IV MaNGA 19-fiber three-position strategy",
+      "description": "One manually centered 19-fiber MaNGA bundle with the selected N-S-E three-position sequence; not a plate allocation or command list.",
+      "instrument_id": "sdss-manga-19-fiber",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "sdss-manga-19-three-point",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": 0.72
+          },
+          {
+            "order": 2,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": -0.72
+          },
+          {
+            "order": 3,
+            "east_arcsec": 0.8313843876330611,
+            "north_arcsec": 0
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "sdss-manga-19-fiber",
+          "STRATEGY_ID": "sdss-manga-19-three-point"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "title": "Law et al. 2015, MaNGA observing strategy"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          }
+        ],
+        "assumptions": [
+          "The selected sequence is the frozen Gate 5 N-S-E three-exposure strategy; no sequence offsets, order, rotation, or repeat semantics are changed.",
+          "One manually centered configured bundle is modeled; the 3 degree plate and allocation are outside this strategy.",
+          "Coverage sampling target N=8 and max_samples=90000 follow the frozen v0.4 project-level coverage contract."
+        ],
+        "limitations": [
+          "Individual fiber apertures/gaps, plate allocation/completeness, seeing, atmospheric refraction/depth, actual observatory rotator PA, and facility export are not modeled.",
+          "Manual galaxy centers are required; no plate planning, tile lattice, or target allocation is implied."
+        ]
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-37-three-point",
+      "display_name": "SDSS-IV MaNGA 37-fiber three-position strategy",
+      "description": "One manually centered 37-fiber MaNGA bundle with the selected N-S-E three-position sequence; not a plate allocation or command list.",
+      "instrument_id": "sdss-manga-37-fiber",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "sdss-manga-37-three-point",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": 0.72
+          },
+          {
+            "order": 2,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": -0.72
+          },
+          {
+            "order": 3,
+            "east_arcsec": 0.8313843876330611,
+            "north_arcsec": 0
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "sdss-manga-37-fiber",
+          "STRATEGY_ID": "sdss-manga-37-three-point"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "title": "Law et al. 2015, MaNGA observing strategy"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          }
+        ],
+        "assumptions": [
+          "The selected sequence is the frozen Gate 5 N-S-E three-exposure strategy; no sequence offsets, order, rotation, or repeat semantics are changed.",
+          "One manually centered configured bundle is modeled; the 3 degree plate and allocation are outside this strategy.",
+          "Coverage sampling target N=8 and max_samples=90000 follow the frozen v0.4 project-level coverage contract."
+        ],
+        "limitations": [
+          "Individual fiber apertures/gaps, plate allocation/completeness, seeing, atmospheric refraction/depth, actual observatory rotator PA, and facility export are not modeled.",
+          "Manual galaxy centers are required; no plate planning, tile lattice, or target allocation is implied."
+        ]
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-61-three-point",
+      "display_name": "SDSS-IV MaNGA 61-fiber three-position strategy",
+      "description": "One manually centered 61-fiber MaNGA bundle with the selected N-S-E three-position sequence; not a plate allocation or command list.",
+      "instrument_id": "sdss-manga-61-fiber",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "sdss-manga-61-three-point",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": 0.72
+          },
+          {
+            "order": 2,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": -0.72
+          },
+          {
+            "order": 3,
+            "east_arcsec": 0.8313843876330611,
+            "north_arcsec": 0
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "sdss-manga-61-fiber",
+          "STRATEGY_ID": "sdss-manga-61-three-point"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "title": "Law et al. 2015, MaNGA observing strategy"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          }
+        ],
+        "assumptions": [
+          "The selected sequence is the frozen Gate 5 N-S-E three-exposure strategy; no sequence offsets, order, rotation, or repeat semantics are changed.",
+          "One manually centered configured bundle is modeled; the 3 degree plate and allocation are outside this strategy.",
+          "Coverage sampling target N=8 and max_samples=90000 follow the frozen v0.4 project-level coverage contract."
+        ],
+        "limitations": [
+          "Individual fiber apertures/gaps, plate allocation/completeness, seeing, atmospheric refraction/depth, actual observatory rotator PA, and facility export are not modeled.",
+          "Manual galaxy centers are required; no plate planning, tile lattice, or target allocation is implied."
+        ]
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-91-three-point",
+      "display_name": "SDSS-IV MaNGA 91-fiber three-position strategy",
+      "description": "One manually centered 91-fiber MaNGA bundle with the selected N-S-E three-position sequence; not a plate allocation or command list.",
+      "instrument_id": "sdss-manga-91-fiber",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "sdss-manga-91-three-point",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": 0.72
+          },
+          {
+            "order": 2,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": -0.72
+          },
+          {
+            "order": 3,
+            "east_arcsec": 0.8313843876330611,
+            "north_arcsec": 0
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "sdss-manga-91-fiber",
+          "STRATEGY_ID": "sdss-manga-91-three-point"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "title": "Law et al. 2015, MaNGA observing strategy"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          }
+        ],
+        "assumptions": [
+          "The selected sequence is the frozen Gate 5 N-S-E three-exposure strategy; no sequence offsets, order, rotation, or repeat semantics are changed.",
+          "One manually centered configured bundle is modeled; the 3 degree plate and allocation are outside this strategy.",
+          "Coverage sampling target N=8 and max_samples=90000 follow the frozen v0.4 project-level coverage contract."
+        ],
+        "limitations": [
+          "Individual fiber apertures/gaps, plate allocation/completeness, seeing, atmospheric refraction/depth, actual observatory rotator PA, and facility export are not modeled.",
+          "Manual galaxy centers are required; no plate planning, tile lattice, or target allocation is implied."
+        ]
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-manga-127-three-point",
+      "display_name": "SDSS-IV MaNGA 127-fiber three-position strategy",
+      "description": "One manually centered 127-fiber MaNGA bundle with the selected N-S-E three-position sequence; not a plate allocation or command list.",
+      "instrument_id": "sdss-manga-127-fiber",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "sdss-manga-127-three-point",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": 0.72
+          },
+          {
+            "order": 2,
+            "east_arcsec": -0.41569219381653055,
+            "north_arcsec": -0.72
+          },
+          {
+            "order": 3,
+            "east_arcsec": 0.8313843876330611,
+            "north_arcsec": 0
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "sdss-manga-127-fiber",
+          "STRATEGY_ID": "sdss-manga-127-three-point"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "title": "Law et al. 2015, MaNGA observing strategy"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://research-repository.st-andrews.ac.uk/bitstream/10023/6906/1/law2015aj19.pdf",
+            "note": "Derived from the frozen MaNGA equilateral N-S-E sequence with 1.44 arcsec side: N and S at (-a/(2 sqrt(3)), +/-a/2), followed by E at (a/sqrt(3), 0), in east/north arcseconds."
+          }
+        ],
+        "assumptions": [
+          "The selected sequence is the frozen Gate 5 N-S-E three-exposure strategy; no sequence offsets, order, rotation, or repeat semantics are changed.",
+          "One manually centered configured bundle is modeled; the 3 degree plate and allocation are outside this strategy.",
+          "Coverage sampling target N=8 and max_samples=90000 follow the frozen v0.4 project-level coverage contract."
+        ],
+        "limitations": [
+          "Individual fiber apertures/gaps, plate allocation/completeness, seeing, atmospheric refraction/depth, actual observatory rotator PA, and facility export are not modeled.",
+          "Manual galaxy centers are required; no plate planning, tile lattice, or target allocation is implied."
         ]
       }
     }

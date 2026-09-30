@@ -90,7 +90,7 @@ describe("empirical KCWI compatibility and v0.4 production profiles", () => {
       expect(compatibility.registerInstrumentProfile(raw)).toEqual(validateInstrumentProfileV2(raw));
       expect(compatibility.resolveInstrumentProfile(raw.id).schema_version).toBe(2);
     }
-    expect(registry.listAnyInstrumentProfiles()).toHaveLength(17);
+    expect(registry.listAnyInstrumentProfiles()).toHaveLength(23);
     expect(registry.resolveInstrumentProfile("t80-south")).toEqual(T80_SOUTH_INSTRUMENT_V2);
     expect(registry.resolveAnySurveyProfile("sami-dr1-seven-position").schema_version).toBe(3);
   });

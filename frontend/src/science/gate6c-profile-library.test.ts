@@ -15,11 +15,18 @@ import { requireResolvedCoverage } from "./test-support/resolved-coverage";
 
 const reference = "https://example.org/jasytata-gate6c-synthetic-geometry";
 const expectedProductionIds = [
-  "aat-hector-hr-61core-15arcsec", "aat-sami-61core-15arcsec", "cfht-megacam-40readout-envelope",
-  "cfht-sitelle", "ctio-decam-area-equivalent", "keck-kcwi-large", "keck-kcwi-medium",
-  "keck-kcwi-small", "sdss-lvm-i-science-ifu", "subaru-hsc-optical-envelope",
+  "aat-hector-hr-61core-15arcsec", "aat-sami-61core-15arcsec", "califa-pmas-ppak-331",
+  "cfht-megacam-40readout-envelope", "cfht-sitelle", "ctio-decam-area-equivalent",
+  "keck-kcwi-large", "keck-kcwi-medium", "keck-kcwi-small", "sdss-lvm-i-science-ifu",
+  "sdss-manga-19-fiber", "sdss-manga-37-fiber", "sdss-manga-61-fiber", "sdss-manga-91-fiber",
+  "sdss-manga-127-fiber", "subaru-hsc-optical-envelope",
   "subaru-pfs-target-access", "rubin-lsstcam-area-equivalent", "vista-4most-target-access",
   "vlt-muse-nfm", "vlt-muse-wfm", "vst-omegacam-1deg-envelope",
+].sort();
+const expectedStrategyIds = [
+  "califa-ppak-three-point", "sami-dr1-seven-position", "sdss-manga-19-three-point",
+  "sdss-manga-37-three-point", "sdss-manga-61-three-point", "sdss-manga-91-three-point",
+  "sdss-manga-127-three-point",
 ].sort();
 
 function region(width: number, height = width, ra = 150, dec = 0) {
@@ -36,6 +43,58 @@ function sourceTile(id: string, instrumentId: string, ra = 150, dec = 0): TileRe
     generation_method: null, original_values: null, metadata: {}, instrument_profile_id: instrumentId,
     placement_provenance: validatePlacementProvenance({ origin: "imported_unverified" }),
   };
+}
+
+function polygonAreaArcsec2(verticesDeg: readonly (readonly [number, number])[]): number {
+  const vertices = verticesDeg.map(([east, north]) => [east * 3600, north * 3600] as const);
+  return Math.abs(vertices.reduce((sum, [east, north], index) => {
+    const [nextEast, nextNorth] = vertices[(index + 1) % vertices.length];
+    return sum + east * nextNorth - nextEast * north;
+  }, 0)) / 2;
+}
+
+function assertRegularHexEnvelope(id: string, cornerArcsec: number, flatArcsec: number, sourceUrls: readonly string[]) {
+  const profile = createBundledProfileRegistry().resolveAnyInstrumentProfile(id);
+  if (profile.schema_version !== 3 || profile.footprint.type !== "polygon") throw new Error(`Expected v3 polygon profile ${id}`);
+  const vertices = profile.footprint.vertices_deg;
+  expect(vertices).toHaveLength(6);
+
+  const localArcsec = vertices.map(([east, north]) => [east * 3600, north * 3600] as const);
+  const radii = localArcsec.map(([east, north]) => Math.hypot(east, north));
+  const cornerSpan = Math.max(...localArcsec.flatMap(([east, north], index) =>
+    localArcsec.slice(index + 1).map(([otherEast, otherNorth]) => Math.hypot(east - otherEast, north - otherNorth))));
+  const flatSpan = Math.max(...localArcsec.map(([east]) => east)) - Math.min(...localArcsec.map(([east]) => east));
+  const expectedArea = 3 * Math.sqrt(3) * cornerArcsec ** 2 / 8;
+  const signedArea = vertices.reduce((sum, [east, north], index) => {
+    const [nextEast, nextNorth] = vertices[(index + 1) % vertices.length];
+    return sum + east * nextNorth - nextEast * north;
+  }, 0);
+  const orientation = Math.sign(signedArea);
+  const originEdgeCrossProducts = vertices.map(([east, north], index) => {
+    const [nextEast, nextNorth] = vertices[(index + 1) % vertices.length];
+    return (nextEast - east) * -north - (nextNorth - north) * -east;
+  });
+
+  expect(cornerSpan).toBeCloseTo(cornerArcsec, 10);
+  expect(flatSpan).toBeCloseTo(flatArcsec, 0);
+  expect(Math.abs(flatSpan - cornerArcsec * Math.sqrt(3) / 2)).toBeLessThan(0.1);
+  expect(polygonAreaArcsec2(vertices)).toBeCloseTo(expectedArea, 8);
+  for (const radius of radii) expect(radius).toBeCloseTo(cornerArcsec / 2, 10);
+  for (let index = 0; index < 3; index += 1) {
+    expect(localArcsec[index][0] + localArcsec[index + 3][0]).toBeCloseTo(0, 10);
+    expect(localArcsec[index][1] + localArcsec[index + 3][1]).toBeCloseTo(0, 10);
+  }
+  expect(vertices[0][0]).toBeCloseTo(0, 15);
+  expect(vertices[0][1]).toBeCloseTo(cornerArcsec / 2 / 3600, 15);
+  expect(originEdgeCrossProducts.every((cross) => Math.sign(cross) === orientation || Math.abs(cross) < 1e-15)).toBe(true);
+  expect(profile.footprint_semantics).toMatchObject({ role: "nominal_envelope", fidelity: "approximate" });
+  expect(profile.footprint_semantics.approximation_notice).toBeTruthy();
+  expect(profile.position_angle).toEqual({ mode: "not_applicable", required: false });
+  for (const url of sourceUrls) expect(profile.provenance.references.some((referenceItem) => referenceItem.url === url)).toBe(true);
+  expect(profile.provenance.parameter_sources).toContainEqual(expect.objectContaining({
+    parameter_path: "footprint.vertices_deg",
+    reference_url: sourceUrls[0],
+  }));
 }
 
 function geometryPaths(footprint: Footprint): string[] {
@@ -113,19 +172,31 @@ function mixedRegistry() {
 }
 
 describe("Gate 6C selected profile library", () => {
-  it("bundles every representable selected stable ID and no unselected or blocked profile", () => {
+  it("bundles every selected stable ID and keeps the instrument library selective", () => {
     const registry = createBundledProfileRegistry();
     const production = registry.listAnyInstrumentProfiles().filter((profile): profile is InstrumentProfileV3 => profile.schema_version === 3);
     expect(production.map(({ id }) => id)).toEqual(expectedProductionIds);
     expect(production.map(({ id }) => id)).toEqual(productionV3.instruments.map(({ id }) => id).sort());
-    expect(registry.listAnySurveyProfiles().filter((profile) => profile.schema_version === 3).map(({ id }) => id)).toEqual(["sami-dr1-seven-position"]);
-    for (const blocked of [
-      "califa-pmas-ppak-331", "sdss-manga-19-fiber", "sdss-manga-37-fiber", "sdss-manga-61-fiber",
-      "sdss-manga-91-fiber", "sdss-manga-127-fiber",
-    ]) expect(() => registry.resolveAnyInstrumentProfile(blocked)).toThrow(/Unknown instrument/);
-    for (const deferredStrategy of ["califa-ppak-three-point", "sdss-manga-19-three-point", "sdss-manga-37-three-point", "sdss-manga-61-three-point", "sdss-manga-91-three-point", "sdss-manga-127-three-point"]) {
-      expect(registry.findAnySurveyProfile(deferredStrategy)).toBeUndefined();
+    expect(registry.listAnySurveyProfiles().filter((profile) => profile.schema_version === 3).map(({ id }) => id)).toEqual(expectedStrategyIds);
+  });
+
+  it("independently validates MaNGA Table 4 nominal corner and flat dimensions for all bundle sizes", () => {
+    for (const [fibers, corner, flat] of [
+      [19, 12, 10.4], [37, 17, 14.7], [61, 22, 19.0], [91, 27, 23.3], [127, 32, 27.7],
+    ] as const) {
+      assertRegularHexEnvelope(
+        `sdss-manga-${fibers}-fiber`, corner, flat,
+        ["https://arxiv.org/pdf/1412.1535"],
+      );
     }
+  });
+
+  it("independently validates the sourced PPAK nominal 74-by-64 arcsec hex envelope", () => {
+    assertRegularHexEnvelope("califa-pmas-ppak-331", 74, 64, [
+      "https://arxiv.org/abs/astro-ph/0512557",
+      "https://www.caha.es/pmas/PMAS_OVERVIEW/pmas_overview_Fig3b-x.html",
+      "https://arxiv.org/html/1307.8130",
+    ]);
   });
 
   it("round-trips each instrument-only profile through canonical file lifecycle and manual source assignment", () => {
@@ -206,9 +277,58 @@ describe("Gate 6C selected profile library", () => {
     }
 
     const strategies = registry.listAnySurveyProfiles().filter((profile): profile is SurveyProfileV3 => profile.schema_version === 3);
-    expect(strategies.map(({ id }) => id)).toEqual(["sami-dr1-seven-position"]);
-    expect(strategies[0].observing_sequence?.exposures.map(({ order }) => order)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(strategies.map(({ id }) => id)).toEqual(expectedStrategyIds);
+    expect(strategies.find(({ id }) => id === "sami-dr1-seven-position")?.observing_sequence?.exposures.map(({ order }) => order)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(instruments.every(({ schema_version }) => schema_version === 3)).toBe(true);
+  });
+
+  it.each([
+    ["califa-ppak-three-point", "califa-pmas-ppak-331", [[0, 0], [-5.22, -4.53], [-5.22, 4.53]]],
+    ...([19, 37, 61, 91, 127] as const).map((fibers) => {
+      const side = 1.44;
+      return [`sdss-manga-${fibers}-three-point`, `sdss-manga-${fibers}-fiber`, [
+        [-side / (2 * Math.sqrt(3)), side / 2],
+        [-side / (2 * Math.sqrt(3)), -side / 2],
+        [side / Math.sqrt(3), 0],
+      ]] as const;
+    }),
+  ] as const)("round-trips %s and resolves single versus three-exposure geometry", (strategyId, instrumentId, expectedOffsets) => {
+    const bundled = createBundledProfileRegistry();
+    const document = bundled.resolveAnyProfileDocument(strategyId);
+    const restored = new ProfileRegistry();
+    restored.registerProfileDocument(parseProfileJson(serializeProfile(document)));
+
+    const strategy = restored.resolveAnySurveyProfile(strategyId);
+    if (strategy.schema_version !== 3 || !strategy.observing_sequence) throw new Error(`Expected v3 observing strategy ${strategyId}`);
+    expect(strategy.instrument_id).toBe(instrumentId);
+    expect(strategy.observing_sequence.id).toBe(strategyId);
+    expect(strategy.observing_sequence.exposures.map(({ order }) => order)).toEqual([1, 2, 3]);
+    expect(strategy.coverage_basis_default).toBe("effective_sequence");
+
+    const profile = resolvePlanningProfile(strategyId, undefined, restored).profile;
+    const proposal = makeCenterProposals([{ ra_deg: 150, dec_deg: -30 }], "manual")[0];
+    const effectiveContext = coverageGeometryContext([proposal], profile, restored);
+    const singleContext = coverageGeometryContext([proposal], profile, restored, { coverageBasis: "single_exposure" });
+    const effective = resolvePointingGeometries(proposal, profile, restored, effectiveContext);
+    const single = resolvePointingGeometries(proposal, profile, restored, singleContext);
+    const cosDec = Math.cos(proposal.dec_deg * Math.PI / 180);
+
+    expect(effective).toHaveLength(3);
+    expect(effective.map(({ order }) => order)).toEqual([1, 2, 3]);
+    expect(single).toHaveLength(1);
+    expect(single[0].center).toEqual([proposal.ra_deg, proposal.dec_deg]);
+    expect(effective.map(({ footprint }) => footprint)).toEqual(Array(3).fill(restored.resolveAnyInstrumentProfile(instrumentId).footprint));
+    for (const [index, [expectedEast, expectedNorth]] of expectedOffsets.entries()) {
+      expect(strategy.observing_sequence.exposures[index]).toMatchObject({
+        order: index + 1, east_arcsec: expectedEast, north_arcsec: expectedNorth,
+      });
+      const [ra, dec] = effective[index].center;
+      const eastArcsec = (ra - proposal.ra_deg) * cosDec * 3600;
+      const northArcsec = (dec - proposal.dec_deg) * 3600;
+      expect(eastArcsec).toBeCloseTo(expectedEast, 8);
+      expect(northArcsec).toBeCloseTo(expectedNorth, 8);
+      expect(effective[index].position_angle_deg).toBeUndefined();
+    }
   });
 
   it("keeps observed-area resolution, target access, nominal envelopes and sequence geometry separate", () => {
