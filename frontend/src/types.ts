@@ -7,6 +7,20 @@ export type CoverageStrategy = "complete" | "efficient";
 /** Whether a catalogue dataset may provide local-grid inference evidence. */
 export type InferenceRole = "auto" | "include" | "exclude";
 
+/** Scientific origin declared for one pointing center. */
+export type PlacementOrigin =
+  | "manual"
+  | "imported_unverified"
+  | "authoritative_import"
+  | "declared_profile_lattice"
+  | "local_inference";
+
+/** Per-pointing placement provenance; authoritative imports require a source reference. */
+export interface PlacementProvenance {
+  origin: PlacementOrigin;
+  source_reference?: ProfileReferenceV3;
+}
+
 /** Runtime policy controlling how a pointing obtains its astronomical PA. */
 export type PositionAnglePolicy = "fixed" | "user_selected" | "per_pointing" | "not_applicable";
 
@@ -39,6 +53,8 @@ export interface TileRecord {
   /** Declared camera PA in astronomical degrees east of north.
    * Absent when no orientation is declared; never inferred from lattice rotation. */
   position_angle_deg?: number;
+  /** Explicit center-origin declaration; absent legacy rows remain unclassified. */
+  placement_provenance?: PlacementProvenance;
   source: TileSource;
   /** Whether this proposed tile participates in the active solution. */
   enabled?: boolean;
@@ -295,6 +311,86 @@ export interface SurveyProfileV2 {
   inference: InferencePolicy;
   coverage: CoveragePolicy;
   export: ExportPolicy;
+}
+
+/** Canonical scientific reference used by a v3 profile. Exactly one locator is set. */
+export interface ProfileReferenceV3 {
+  url?: string;
+  doi?: string;
+  title?: string;
+  locator?: string;
+}
+
+/** Source association for one persisted physical or strategy geometry parameter. */
+export interface ParameterSourceV3 {
+  parameter_path: string;
+  reference_url?: string;
+  reference_doi?: string;
+  note?: string;
+}
+
+/** Small durable evidence set for a version 3 profile. */
+export interface ProfileProvenanceV3 {
+  references: ProfileReferenceV3[];
+  parameter_sources: ParameterSourceV3[];
+  assumptions: string[];
+  limitations: string[];
+}
+
+/** Declared semantics of an instrument mode's modeled footprint. */
+export interface FootprintSemanticsV3 {
+  role: "observed_area" | "nominal_envelope" | "target_access";
+  fidelity: "exact" | "approximate";
+  approximation_notice?: string;
+}
+
+/** Persisted instrument orientation policy; profile angle stays on its footprint. */
+export interface PersistedPositionAnglePolicyV3 {
+  mode: PositionAnglePolicy;
+  required: boolean;
+}
+
+/** Ordered local sky offset and relative rotation in a persisted v3 strategy sequence. */
+export interface ExposureOffsetV3 {
+  order: number;
+  east_arcsec: number;
+  north_arcsec: number;
+  rotation_deg?: number;
+}
+
+/** Stable identity and deterministic exposure order for a persisted strategy. */
+export interface ObservingSequenceV3 {
+  id: string;
+  exposures: ExposureOffsetV3[];
+}
+
+/** Explicit v0.4 instrument profile with footprint semantics and evidence. */
+export interface InstrumentProfileV3 {
+  schema_version: 3;
+  id: string;
+  display_name: string;
+  description?: string | null;
+  coordinate_frame: "icrs";
+  footprint: Footprint;
+  footprint_semantics: FootprintSemanticsV3;
+  provenance: ProfileProvenanceV3;
+  position_angle: PersistedPositionAnglePolicyV3;
+}
+
+/** Explicit v0.4 observing strategy retaining the established policies plus sequence semantics. */
+export interface SurveyProfileV3 {
+  schema_version: 3;
+  id: string;
+  display_name: string;
+  description?: string | null;
+  instrument_id: string;
+  tiling: TilingModel;
+  inference: InferencePolicy;
+  coverage: CoveragePolicy & { target_samples_per_footprint_axis: number };
+  coverage_basis_default: "single_exposure" | "effective_sequence";
+  observing_sequence?: ObservingSequenceV3;
+  export: ExportPolicy;
+  provenance: ProfileProvenanceV3;
 }
 
 /** Celestial position used by import and region-planning endpoints. */

@@ -1,4 +1,4 @@
-# Profile Schema v2
+# Profile Schemas v2 and v3
 
 Schema v2 separates an instrument's physical geometry from a survey's planning
 and data policies. An instrument profile describes the camera and its footprint;
@@ -144,6 +144,34 @@ Efficient, or export objects is a validation error. Unknown keys are not
 discarded or treated as extensions. The declared `export.constant_fields`
 object is intentionally free-form because its keys are output column names;
 that behavior applies only inside that object.
+
+### Selective Schema v3 (Gate 6A)
+
+Schema v2 remains the protected legacy format. Schema v3 is selected only when
+the document needs an accepted v0.4 semantic field or the instrument-only
+document shape; release version 0.4.0 does not itself trigger a version bump.
+The frozen S-PLUS profile and v2 imports remain v2. See the
+[Gate 6A validation contract](V0.4.0_SCHEMA_V3_VALIDATION.md) for v3 document
+shapes, strict dispatch, provenance, fidelity, footprint roles, PA policy,
+sequence persistence, and migration boundaries.
+
+V3 supports one instrument, one survey, or a matching instrument/survey pair.
+During registry integration, a survey-only document must resolve its
+`instrument_id` to a registered instrument. V2 retains its existing required
+pair. Mixed-version pairs, mismatched pair IDs, unknown schema versions, and
+undeclared fields fail validation. The only v2 free-form field map remains
+`export.constant_fields`.
+
+V2 data is read with legacy semantics: deserialization does not supply v3
+fidelity, footprint role, provenance, PA policy, sequence, or placement
+authority. Structural migration can copy unchanged values; adding absent
+scientific meaning requires an explicit choice. In particular, a target-access
+profile never defaults to an observed-area role.
+
+Gate 6A persists and exposes the v3 coverage role but does not change coverage
+metrics. Role-aware coverage and mixed-scale sampling correctness belong to Gate
+6B; completing and validating the selected real-instrument library belongs to
+Gate 6C.
 
 ### Coverage sampling policy (Gate 6A)
 

@@ -5,7 +5,7 @@ import contract from "../data/planner-contract.json";
 import results from "../data/gate8/results.json";
 import referenceCsv from "../../public/data/tiles_nc.csv?raw";
 import { createDataset } from "../datasets";
-import { parseProfileJson, serializeProfile } from "../profiles/document";
+import { parseProfileJsonV2, serializeProfile } from "../profiles/document";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText, readCsv } from "./catalogue";
 import { coveredMask, measureActiveCoverage, sampleRegion, tileMask } from "./coverage";
@@ -29,7 +29,7 @@ describe("Gate 8 scientific workflow matrix", () => {
     const run = () => {
       const registry = matrixRegistry();
       const { document, region } = fixture;
-      const roundtrip = parseProfileJson(serializeProfile(document));
+      const roundtrip = parseProfileJsonV2(serializeProfile(document));
       expect(roundtrip).toEqual(document);
       expect(serializeProfile(roundtrip)).toBe(serializeProfile(document));
       const plan = planRegion(region, [], document.survey.id, undefined, "complete", registry);
@@ -128,7 +128,7 @@ describe("Gate 8 scientific workflow matrix", () => {
     expect(efficient).toEqual(planRegion(region, [], document.survey.id, undefined, "efficient", matrixRegistry()));
     expect(efficient.tiles.length).toBeLessThan(complete.tiles.length);
     expect(efficient.metrics.selected_region_coverage).toBeGreaterThanOrEqual(document.survey.coverage.efficient!.min_coverage);
-    const variant = parseProfileJson(JSON.stringify({ ...document, survey: { ...document.survey, coverage: { ...document.survey.coverage, efficient: { min_coverage: 0, min_marginal_efficiency: 1 } } } }));
+    const variant = parseProfileJsonV2(JSON.stringify({ ...document, survey: { ...document.survey, coverage: { ...document.survey.coverage, efficient: { min_coverage: 0, min_marginal_efficiency: 1 } } } }));
     const isolated = matrixRegistry();
     variant.instrument.id += "-policy"; variant.survey.id += "-policy"; variant.survey.instrument_id = variant.instrument.id;
     isolated.registerProfileDocument(variant);
@@ -219,7 +219,7 @@ describe("Gate 8 scientific workflow matrix", () => {
   it("keeps disabled inference on declared tiling and explicitly refuses manual automatic planning", () => {
     for (const manual of [false, true]) {
       const fixture = cases[1];
-      const document = parseProfileJson(JSON.stringify({ ...fixture.document, instrument: { ...fixture.document.instrument, id: `g8-mode-${manual}` }, survey: { ...fixture.document.survey, id: `g8-mode-survey-${manual}`, instrument_id: `g8-mode-${manual}`, inference: { ...fixture.document.survey.inference, enabled: false }, tiling: manual ? { type: "manual" } : fixture.document.survey.tiling } }));
+      const document = parseProfileJsonV2(JSON.stringify({ ...fixture.document, instrument: { ...fixture.document.instrument, id: `g8-mode-${manual}` }, survey: { ...fixture.document.survey, id: `g8-mode-survey-${manual}`, instrument_id: `g8-mode-${manual}`, inference: { ...fixture.document.survey.inference, enabled: false }, tiling: manual ? { type: "manual" } : fixture.document.survey.tiling } }));
       const registry = matrixRegistry(); registry.registerProfileDocument(document);
       if (manual) expect(() => planRegion(fixture.region, [], document.survey.id, undefined, "complete", registry)).toThrow(/manual.*automatic tiling/);
       else {
@@ -245,7 +245,7 @@ describe("Gate 8 scientific workflow matrix", () => {
   it.each(cases.slice(1))("$key: scientific output is independent of profile spelling and legacy PID/group metadata", (fixture) => {
     const registry = matrixRegistry(), rows = sourceRows(fixture, registry);
     const original = planRegion(fixture.region, rows, fixture.document.survey.id, undefined, "complete", registry);
-    const renamed = parseProfileJson(JSON.stringify({ ...fixture.document,
+    const renamed = parseProfileJsonV2(JSON.stringify({ ...fixture.document,
       instrument: { ...fixture.document.instrument, id: `agnostic-${fixture.key}-camera` },
       survey: { ...fixture.document.survey, id: `agnostic-${fixture.key}`, instrument_id: `agnostic-${fixture.key}-camera` },
     }));

@@ -57,8 +57,11 @@ export function resolveProfile(id: string, inline?: TilingProfile): TilingProfil
 }
 
 export * from "./schema-v2";
+export * from "./schema-v3";
 export * from "./v2";
 export * from "./registry";
 
 export * from "./document";
 export * from "./errors";
+export * from "./migration";
+export * from "./placement-provenance";

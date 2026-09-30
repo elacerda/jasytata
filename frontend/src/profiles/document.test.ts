@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Footprint, SkyPolygon, TileRecord } from "../types";
 import { measureActiveCoverage } from "../science/coverage";
 import { planRegion } from "../science/planner";
-import { parseProfileJson, serializeProfile, validateProfileDocument } from "./document";
+import { parseProfileJsonV2, serializeProfile, validateProfileDocumentV2 } from "./document";
 import { ProfileError } from "./errors";
 import { outputFootprintForProfile } from "./footprints";
 import { resolvePlanningProfile } from "./planning";
@@ -16,7 +16,7 @@ const region: SkyPolygon = { vertices: [
 ] };
 
 function errorCode(value: unknown): string {
-  try { parseProfileJson(typeof value === "string" ? value : JSON.stringify(value)); }
+  try { parseProfileJsonV2(typeof value === "string" ? value : JSON.stringify(value)); }
   catch (error) {
     expect(error).toBeInstanceOf(ProfileError);
     expect((error as Error).message.length).toBeGreaterThan(10);
@@ -27,18 +27,18 @@ function errorCode(value: unknown): string {
 
 function importedRegistry(value: unknown): ProfileRegistry {
   const registry = new ProfileRegistry();
-  registry.registerProfileDocument(parseProfileJson(JSON.stringify(value)));
+  registry.registerProfileDocument(parseProfileJsonV2(JSON.stringify(value)));
   return registry;
 }
 
 describe("Schema v2 profile file lifecycle", () => {
   it("accepts the bundled T80 document through the shared v2 validators", () => {
-    expect(parseProfileJson(JSON.stringify(bundledJson))).toEqual(validateProfileDocument(bundledJson));
+    expect(parseProfileJsonV2(JSON.stringify(bundledJson))).toEqual(validateProfileDocumentV2(bundledJson));
     expect(errorCode("{oops")).toBe("invalid_json");
   });
 
   it("accepts a generic non-T80 document without applying bundled defaults", () => {
-    expect(parseProfileJson(JSON.stringify(smallJson))).toEqual(smallJson);
+    expect(parseProfileJsonV2(JSON.stringify(smallJson))).toEqual(smallJson);
   });
 
   it.each([
@@ -58,7 +58,7 @@ describe("Schema v2 profile file lifecycle", () => {
     ["export", "coordinate_formatt", { ...smallJson, survey: { ...smallJson.survey, export: { ...smallJson.survey.export, coordinate_formatt: "decimal" } } }],
     ["export epoch", "default_epoch", { ...smallJson, survey: { ...smallJson.survey, export: { ...smallJson.survey.export, epoch: { ...smallJson.survey.export.epoch, default_epoch: "2000" } } } }],
   ] as const)("rejects the unknown %s field", (_location, field, value) => {
-    const validate = () => parseProfileJson(JSON.stringify(value));
+    const validate = () => parseProfileJsonV2(JSON.stringify(value));
     expect(validate).toThrow(/unsupported field/i);
     expect(validate).toThrow(new RegExp(field));
   });
@@ -134,7 +134,7 @@ describe("Schema v2 profile file lifecycle", () => {
     const registry = importedRegistry(smallJson);
     const registered = registry.resolveProfileDocument(smallJson.survey.id);
     registered.instrument.footprint = { type: "circle", radius_deg: 80 };
-    expect(registry.resolveProfileDocument(smallJson.survey.id)).toEqual(validateProfileDocument(smallJson));
+    expect(registry.resolveProfileDocument(smallJson.survey.id)).toEqual(validateProfileDocumentV2(smallJson));
     registry.registerProfileDocument(bundledJson);
     expect(registry.listSurveyProfiles().map(({ id }) => id)).toEqual(["small-survey", "splus-t80-south"]);
   });
@@ -148,9 +148,9 @@ describe("Schema v2 profile file lifecycle", () => {
       { offset_deg: [0.1, 0], rotation_deg: 20, footprint: { type: "circle", radius_deg: 0.05 } },
     ] },
   ])("round-trips supported $type geometry and its planning/coverage behavior", (footprint) => {
-    const original = validateProfileDocument({ ...smallJson, instrument: { ...smallJson.instrument, footprint } });
+    const original = validateProfileDocumentV2({ ...smallJson, instrument: { ...smallJson.instrument, footprint } });
     const text = serializeProfile(original);
-    const reimported = parseProfileJson(text);
+    const reimported = parseProfileJsonV2(text);
     expect(reimported).toEqual(original);
     expect(serializeProfile(reimported)).toBe(text);
     const before = importedRegistry(original);
@@ -176,14 +176,14 @@ describe("Schema v2 profile file lifecycle", () => {
   });
 
   it("preserves free-form export constant fields and canonically reimports exported configuration", () => {
-    const document = validateProfileDocument({
+    const document = validateProfileDocumentV2({
       ...smallJson,
       survey: { ...smallJson.survey, export: { ...smallJson.survey.export, constant_fields: { Z: 2, A: "x" } } },
     });
     const text = serializeProfile(document);
-    expect(parseProfileJson(text)).toEqual(document);
-    expect(serializeProfile(parseProfileJson(text))).toBe(text);
-    const a = validateProfileDocument({ ...smallJson, survey: { ...smallJson.survey, export: { ...smallJson.survey.export, constant_fields: { Z: 2, A: "x" } } } });
+    expect(parseProfileJsonV2(text)).toEqual(document);
+    expect(serializeProfile(parseProfileJsonV2(text))).toBe(text);
+    const a = validateProfileDocumentV2({ ...smallJson, survey: { ...smallJson.survey, export: { ...smallJson.survey.export, constant_fields: { Z: 2, A: "x" } } } });
     const b = structuredClone(a);
     b.survey.export.constant_fields = { A: "x", Z: 2 };
     expect(serializeProfile(a)).toBe(serializeProfile(b));
@@ -217,7 +217,7 @@ describe("bundled/imported T80 scientific equivalence", () => {
     const bundled = createBundledProfileRegistry();
     const text = serializeProfile(bundled.resolveProfileDocument("splus-t80-south"));
     const imported = new ProfileRegistry();
-    imported.registerProfileDocument(parseProfileJson(text));
+    imported.registerProfileDocument(parseProfileJsonV2(text));
     const reference = bundled.resolveProfileDocument("splus-t80-south");
     const copy = imported.resolveProfileDocument("splus-t80-south");
     expect(copy.survey.tiling).toEqual(reference.survey.tiling);
@@ -237,7 +237,7 @@ describe("bundled/imported T80 scientific equivalence", () => {
   });
 
   it("dispatches legacy_splus under unrelated profile IDs and consumes changed policies", () => {
-    const renamed = validateProfileDocument({
+    const renamed = validateProfileDocumentV2({
       instrument: { ...bundledJson.instrument, id: "reference-camera" },
       survey: { ...bundledJson.survey, id: "reference-survey", instrument_id: "reference-camera" },
     });

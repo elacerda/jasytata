@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { RegionPlanResponse } from "./types";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
-import { parseProfileJson, serializeProfile } from "./profiles/document";
+import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import { planRegion as planRegionLocal } from "./science/planner";
 import { readCsv } from "./science/catalogue";
 import smallJson from "./profiles/fixtures/small-camera.json";
@@ -484,7 +484,7 @@ describe("minimal browser profile file controls", () => {
     expect(downloaded!.type).toBe("application/json; charset=utf-8");
     const text = await blobText(downloaded!);
     expect(text).toBe(serializeProfile(session.registry!.resolveProfileDocument("small-survey")));
-    expect(parseProfileJson(text).survey.id).toBe("small-survey");
+    expect(parseProfileJsonV2(text).survey.id).toBe("small-survey");
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:profile-test"));
     expect(document.querySelector('a[download]')).toBeNull();
   });
@@ -532,7 +532,7 @@ describe("minimal browser profile file controls", () => {
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
     expect(await blobText(downloads.blobs[1])).toBe(csv);
     const registered = session.registry!.resolveProfileDocument("export-survey");
-    expect(parseProfileJson(serializeProfile(registered)).survey.export).toEqual(registered.survey.export);
+    expect(parseProfileJsonV2(serializeProfile(registered)).survey.export).toEqual(registered.survey.export);
   });
 
   it("imports export policy and uses active output survey across mixed source instruments without exporting or changing source rows", async () => {

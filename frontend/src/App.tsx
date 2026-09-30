@@ -280,7 +280,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     await runBusy(() => uploadProfileFile(file, profileRegistry), (document) => {
       setInstrumentProfiles(profileRegistry.listInstrumentProfiles());
       setSurveyProfiles(profileRegistry.listSurveyProfiles());
-      setNotice(`Imported survey profile: ${document.survey.display_name}. Choose it as the active survey to plan with it.`);
+      if ("survey" in document && document.survey) {
+        setNotice(`Imported survey profile: ${document.survey.display_name}. Choose it as the active survey to plan with it.`);
+      } else if ("instrument" in document && document.instrument) {
+        setNotice(`Imported instrument profile: ${document.instrument.display_name}.`);
+      }
     });
     if (profileFileInputRef.current) profileFileInputRef.current.value = "";
   }

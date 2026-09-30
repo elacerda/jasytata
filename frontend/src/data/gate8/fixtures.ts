@@ -6,7 +6,7 @@ import mosaicCsv from "./mosaic.csv?raw";
 import triangularCsv from "./triangular.csv?raw";
 import bundled from "../../profiles/splus-t80-south.json";
 import golden from "../golden.json";
-import { parseProfileJson, type ProfileDocument } from "../../profiles/document";
+import { parseProfileJsonV2, type ProfileDocument } from "../../profiles/document";
 import { createBundledProfileRegistry } from "../../profiles/registry";
 import { localOffsetToSky } from "../../science/footprint-engine";
 import type { CenterInput, SkyPolygon } from "../../types";
@@ -26,13 +26,13 @@ export function localRegion(origin: CenterInput, width: number, height: number):
 
 /** Four documents enter science only via the user JSON parser, never typed casts. */
 export const cases = [
-  { key: "t80", document: parseProfileJson(JSON.stringify(bundled)), csv: null,
+  { key: "t80", document: parseProfileJsonV2(JSON.stringify(bundled)), csv: null,
     origin: { ra_deg: 152, dec_deg: -29 }, region: golden.planner_cases.find(({ id }) => id === "empty_rectangle")!.polygon, rotation: 0 },
-  { key: "circle", document: parseProfileJson(JSON.stringify(circle)), csv: circleCsv,
+  { key: "circle", document: parseProfileJsonV2(JSON.stringify(circle)), csv: circleCsv,
     origin: { ra_deg: 0, dec_deg: -32 }, region: localRegion({ ra_deg: 0, dec_deg: -32 }, 0.44, 0.36), rotation: 13 },
-  { key: "mosaic", document: parseProfileJson(JSON.stringify(mosaic)), csv: mosaicCsv,
+  { key: "mosaic", document: parseProfileJsonV2(JSON.stringify(mosaic)), csv: mosaicCsv,
     origin: { ra_deg: 150, dec_deg: -25 }, region: localRegion({ ra_deg: 150, dec_deg: -25 }, 0.9, 0.65), rotation: 7 },
-  { key: "triangular", document: parseProfileJson(JSON.stringify(triangular)), csv: triangularCsv,
+  { key: "triangular", document: parseProfileJsonV2(JSON.stringify(triangular)), csv: triangularCsv,
     origin: { ra_deg: 75, dec_deg: 42 }, region: localRegion({ ra_deg: 75, dec_deg: 42 }, 3.2, 2.6), rotation: 0 },
 ];
 

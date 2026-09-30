@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ExportPolicy, SurveyProfileV2, TileRecord } from "../types";
 import { SPLUS_SURVEY_V2 } from "../profiles/v2";
-import { parseProfileJson, serializeProfile } from "../profiles/document";
+import { parseProfileJsonV2, serializeProfile } from "../profiles/document";
 import { ProfileRegistry } from "../profiles/registry";
 import smallJson from "../profiles/fixtures/small-camera.json";
 import { makeCenterProposals, readCsv } from "./catalogue";
@@ -255,10 +255,10 @@ describe("survey-driven pointing export", () => {
   });
 
   it("preserves all export settings through strict profile JSON and registration", () => {
-    const document = parseProfileJson(JSON.stringify({ ...smallJson, survey: { ...smallJson.survey, export: { ...policy,
+    const document = parseProfileJsonV2(JSON.stringify({ ...smallJson, survey: { ...smallJson.survey, export: { ...policy,
       coordinate_format: "sexagesimal", identifiers: { id_column: "target", name_column: "label", group_column: "project" },
       epoch: { column: "equinox", default: "2000", allowed: ["2000"] }, position_angle_column: "pa", constant_fields: { flag: false, number: 42, label_const: 'a,"b"\nc' } } } }));
-    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJson(serializeProfile(document)));
+    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJsonV2(serializeProfile(document)));
     const tiles = [{ ...pointing, position_angle_deg: 12 }];
     expect(buildExportCsv(tiles, registry.resolveSurveyProfile(document.survey.id))).toBe(buildExportCsv(tiles, document.survey));
     expect(registry.resolveSurveyProfile(document.survey.id).export).toEqual(document.survey.export);

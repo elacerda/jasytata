@@ -113,7 +113,7 @@ describe("Gate 1 empirical KCWI instruments", () => {
 
   it("records the existing instrument-only browser-document gap without inventing a survey", () => {
     for (const instrument of kcwiInstruments) {
-      expect(() => validateProfileDocument({ instrument })).toThrow(/Survey profile/);
+      expect(() => validateProfileDocument({ instrument })).toThrow(/Schema v2 profile documents require both instrument and survey/);
     }
   });
 });

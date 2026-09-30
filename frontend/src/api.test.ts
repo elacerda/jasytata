@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRegionPlanRequest, downloadCatalogue, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentProfileJson, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue, uploadProfileFile } from "./api";
 import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/registry";
-import { parseProfileJson, serializeProfile } from "./profiles/document";
+import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import golden from "./data/golden.json";
 import type { TileRecord } from "./types";
 import { readCsv } from "./science/catalogue";
@@ -15,6 +15,12 @@ const proposal: TileRecord = {
 function csvFile(csv: string, name = "fixture.csv"): File {
   const file = new File([csv], name, { type: "text/csv" });
   Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(csv).buffer });
+  return file;
+}
+
+function profileFile(json: string, name = "instrument-v3.json"): File {
+  const file = new File([json], name, { type: "application/json" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(json).buffer });
   return file;
 }
 
@@ -43,6 +49,44 @@ describe("local facade and download", () => {
     expect((await loadDefaultProfile()).id).toBe("splus-t80-south");
     expect((await getProfiles()).profiles).toHaveLength(1);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("imports and exports an instrument-only v3 document through the core file lifecycle", async () => {
+    const instrument = {
+      schema_version: 3,
+      id: "standalone-camera-v3",
+      display_name: "Standalone camera",
+      coordinate_frame: "icrs",
+      footprint: { type: "circle", radius_deg: 0.1 },
+      footprint_semantics: { role: "observed_area", fidelity: "exact" },
+      provenance: {
+        references: [{ url: "https://example.org/camera", title: "Camera specification" }],
+        parameter_sources: [{ parameter_path: "footprint.radius_deg", reference_url: "https://example.org/camera" }],
+        assumptions: [],
+        limitations: [],
+      },
+      position_angle: { mode: "not_applicable", required: false },
+    };
+    const registry = new ProfileRegistry();
+    const imported = await uploadProfileFile(profileFile(JSON.stringify({ instrument })), registry);
+    expect(imported).toEqual({ instrument });
+    expect(registry.resolveAnyInstrumentProfile(instrument.id)).toEqual(instrument);
+
+    let downloaded: Blob | undefined;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:v3-instrument"; }) });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.download).toBe("standalone-camera-v3.json");
+      expect(this.href).toBe("blob:v3-instrument");
+    });
+    await downloadInstrumentProfileJson(instrument.id, registry);
+    expect(click).toHaveBeenCalledOnce();
+    const text = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(downloaded!);
+    });
+    expect(JSON.parse(text)).toEqual(imported);
   });
 
   it("parses mapped upload bytes without HTTP", async () => {
@@ -85,7 +129,7 @@ describe("local facade and download", () => {
   it("downloads imported T80 sexagesimal policy byte-for-byte like the frozen observer fixture", async () => {
     const document = createBundledProfileRegistry().resolveProfileDocument("splus-t80-south");
     document.survey.export.coordinate_format = "sexagesimal";
-    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJson(serializeProfile(document)));
+    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJsonV2(serializeProfile(document)));
     let downloaded: Blob | undefined;
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:t80"; }) });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });

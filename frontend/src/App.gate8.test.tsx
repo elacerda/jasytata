@@ -5,7 +5,7 @@ import App from "./App";
 import { cases, cameraPa, matrixRegistry } from "./data/gate8/fixtures";
 import type { ProfileRegistry } from "./profiles/registry";
 import { createBundledProfileRegistry } from "./profiles/registry";
-import { parseProfileJson, serializeProfile } from "./profiles/document";
+import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import { planRegion } from "./science/planner";
 import { measureActiveCoverage } from "./science/coverage";
 import { buildExportCsv } from "./science/export";
@@ -226,7 +226,7 @@ describe("Gate 8 real App workflow matrix", () => {
     expect(authored.survey.inference).toEqual(fixture.document.survey.inference);
     expect(authored.survey.coverage).toEqual(fixture.document.survey.coverage);
     expect(authored.survey.export).toEqual(fixture.document.survey.export);
-    expect(parseProfileJson(serializeProfile(authored))).toEqual(authored);
+    expect(parseProfileJsonV2(serializeProfile(authored))).toEqual(authored);
     await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), authored.survey.id);
     await user.click(screen.getByRole("button", { name: "Select G8 region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InstrumentProfileEditor } from "./InstrumentProfileEditor";
 import { SurveyProfileEditor } from "./SurveyProfileEditor";
-import { parseProfileJson, serializeProfile, validateProfileDocument, type ProfileDocument } from "./document";
+import { parseProfileJsonV2, serializeProfile, validateProfileDocument, type ProfileDocument } from "./document";
 import { createBundledProfileRegistry, ProfileRegistry } from "./registry";
 import { planRegion } from "../science/planner";
 import { measureActiveCoverage } from "../science/coverage";
@@ -110,7 +110,7 @@ describe("complete Schema v2 profile authoring", () => {
     await screen.findByText(/Profile JSON downloaded/);
     const json = await download.read();
     expect(download.click).toHaveBeenCalledOnce(); expect(register).not.toHaveBeenCalled(); expect(registry.listInstrumentProfiles()).toEqual([]);
-    const parsed = parseProfileJson(json);
+    const parsed = parseProfileJsonV2(json);
     expect(json).toBe(serializeProfile(parsed)); expect(validateProfileDocument(parsed)).toEqual(parsed);
     expect(parsed.instrument.footprint).toEqual({ type: "rectangle", width_deg: 0.9, height_deg: 0.7, position_angle_deg: 12 });
     expect(parsed.survey.instrument_id).toBe(parsed.instrument.id);
@@ -120,7 +120,7 @@ describe("complete Schema v2 profile authoring", () => {
     expect(parsed.survey.export).toEqual({ ra_column: "right_ascension", dec_column: "declination", coordinate_format: "sexagesimal", epoch: { column: "equinox", default: "J2016", allowed: ["J2000", "J2016"] }, position_angle_column: "pa", identifiers: { id_column: "id", name_column: "name", group_column: "group" }, constant_fields: Object.fromEntries([["release", "pilot"], ["exposure", 123.5], ["calibrated", true], ["__proto__", "ordinary metadata"]]) });
     const authored = await registerDraft(user, register);
     expect(authored).toEqual(parsed);
-    const imported = new ProfileRegistry(); imported.registerProfileDocument(parseProfileJson(json));
+    const imported = new ProfileRegistry(); imported.registerProfileDocument(parseProfileJsonV2(json));
     expect(imported.resolveProfileDocument(parsed.survey.id)).toEqual(registry.resolveProfileDocument(parsed.survey.id));
     const plan = planRegion(polygon, [], parsed.survey.id, undefined, "complete", registry);
     expect(plan.tiles.length).toBeGreaterThan(0); expect(plan.solution).toBe("declared_lattice");
@@ -173,7 +173,7 @@ describe("complete Schema v2 profile authoring", () => {
     expect(screen.queryByRole("checkbox", { name: "Enable lattice inference" })).toBeNull();
     const document = await registerDraft(user, register);
     expect(document.survey.tiling).toEqual({ type: "manual" }); expect(document.survey.inference.enabled).toBe(false); expect(document.survey.inference.allow_rotation).toBe(false);
-    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJson(serializeProfile(document)));
+    const registry = new ProfileRegistry(); registry.registerProfileDocument(parseProfileJsonV2(serializeProfile(document)));
     expect(() => planRegion(polygon, [], document.survey.id, undefined, "complete", registry)).toThrow("uses manual tiling and does not define an automatic tiling strategy");
     for (const method of ["manual", "imported_centers"] as const) {
       const tiles = makeCenterProposals([{ ra_deg: 151, dec_deg: -30 }], method);

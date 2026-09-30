@@ -8,7 +8,7 @@ import type {
   TileRecord,
   TilingProfile,
 } from "./types";
-import { loadProfile, listProfiles, validateProfile, parseProfileJson, serializeProfile, profileRegistry, type ProfileRegistry, type ProfileDocument, ProfileError } from "./profiles";
+import { loadProfile, listProfiles, validateProfile, parseProfileJson, serializeProfile, profileRegistry, type ProfileRegistry, type AnyProfileDocument, ProfileError } from "./profiles";
 import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
 import { buildExportCsv } from "./science/export";
@@ -182,46 +182,59 @@ export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRe
   return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile, profileRegistry, geometryContext);
 }
 
-/** Read and atomically register a browser-selected Schema v2 profile file.
+/** Read and atomically register a browser-selected Schema v2 or v3 profile file.
  * @param file - User-selected JSON file; its bytes are read only in the browser.
  * @param registry - Session registry, injectable for isolated tests.
  * @param occupiedInlineId - Optional ID held by an active legacy inline draft;
  *   ordinary file import must not create a conflicting active identity.
- * @returns Validated instrument/survey configuration registered as defensive copies.
+ * @returns Validated profile document registered as defensive copies.
  * @throws For non-JSON filenames, read failures, invalid data, or duplicate IDs.
  *   No registry entries are added unless the entire document passes.
  */
-export async function uploadProfileFile(file: File, registry: ProfileRegistry = profileRegistry, occupiedInlineId?: string): Promise<ProfileDocument> {
+export async function uploadProfileFile(file: File, registry: ProfileRegistry = profileRegistry, occupiedInlineId?: string): Promise<AnyProfileDocument> {
   if (!file.name.toLowerCase().endsWith(".json")) throw new Error("Choose a .json profile file");
   const text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
   const document = parseProfileJson(text);
-  if (document.survey.id === occupiedInlineId) {
+  if ("survey" in document && document.survey && document.survey.id === occupiedInlineId) {
     throw new ProfileError("duplicate_id", `Survey profile ID "${document.survey.id}" is already used by the active custom draft`);
   }
   return registry.registerProfileDocument(document);
 }
 
-/** Download a registered survey and instrument using the canonical serializer.
- * @param id - Exact registered survey ID; Schema v2 IDs are safe filename stems.
+/** Download a registered survey and its compatible instrument using canonical serialization.
+ * @param id - Exact registered survey ID.
  * @param registry - Session registry, injectable for isolated tests.
  * @returns Resolves after triggering the local JSON download; no storage is written.
  * @throws If the profile is unknown or serialization fails.
  */
 export async function downloadProfileJson(id: string, registry: ProfileRegistry = profileRegistry): Promise<void> {
-  return downloadProfileDocument(registry.resolveProfileDocument(id));
+  return downloadProfileDocument(registry.resolveAnyProfileDocument(id));
+}
+
+/** Download a registered v3 instrument as a standalone canonical JSON document.
+ * @param id - Exact registered v3 instrument ID.
+ * @param registry - Session registry, injectable for isolated tests.
+ * @returns Resolves after triggering the local JSON download.
+ * @throws If the ID is unknown or the instrument is v2 and therefore requires a survey document.
+ */
+export async function downloadInstrumentProfileJson(id: string, registry: ProfileRegistry = profileRegistry): Promise<void> {
+  return downloadProfileDocument(registry.resolveInstrumentProfileDocument(id));
 }
 
 /** Download a complete authored document without registering it.
- * @param profileDocument - Declarative instrument/survey configuration only.
+ * @param profileDocument - Declarative v2 pair or v3 standalone/matching document.
  * @returns Resolves after canonical validation and browser JSON download.
  * @throws If strict document validation or download fails. No registry is mutated.
  */
-export async function downloadProfileDocument(profileDocument: ProfileDocument): Promise<void> {
+export async function downloadProfileDocument(profileDocument: AnyProfileDocument): Promise<void> {
   const blob = new Blob([serializeProfile(profileDocument)], { type: "application/json; charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${profileDocument.survey.id}.json`;
+  const profileId = "survey" in profileDocument && profileDocument.survey
+    ? profileDocument.survey.id
+    : profileDocument.instrument.id;
+  link.download = `${profileId}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();

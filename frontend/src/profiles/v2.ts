@@ -1,10 +1,10 @@
 import type { InstrumentProfileV2, SurveyProfileV2, TilingProfile } from "../types";
 import { validateInstrumentProfileV2, validateSurveyProfileV2 } from "./schema-v2";
-import { validateProfileDocument } from "./document";
+import { validateProfileDocumentV2 } from "./document";
 import bundledProfile from "./splus-t80-south.json";
 
 /** Bundled file normalized by the same document validator as user imports. */
-export const BUNDLED_PROFILE_DOCUMENT = validateProfileDocument(bundledProfile);
+export const BUNDLED_PROFILE_DOCUMENT = validateProfileDocumentV2(bundledProfile);
 
 /** Bundled camera data loaded through the ordinary Schema v2 validator. */
 export const T80_SOUTH_INSTRUMENT_V2: InstrumentProfileV2 = BUNDLED_PROFILE_DOCUMENT.instrument;

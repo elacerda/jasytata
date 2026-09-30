@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { downloadProfileDocument } from "../api";
 import type { InstrumentProfileV2, SurveyProfileV2 } from "../types";
-import { validateProfileDocument, type ProfileDocument } from "./document";
+import { validateProfileDocumentV2, type ProfileDocument } from "./document";
 import { NumericField } from "./numeric-input";
 import { parsedNumber, replacePath, type NumericPath } from "./numeric-draft";
 
@@ -54,7 +54,7 @@ export function SurveyProfileEditor({ instrument, onBack, onCancel, onRegister }
   const validation = useMemo(() => {
     if (incompletePaths.length) return { document: null, error: "Finish the numeric field before validating the profile." };
     try {
-      return { document: validateProfileDocument({ instrument, survey: { ...surveyDraft, instrument_id: instrument.id } }), error: null };
+      return { document: validateProfileDocumentV2({ instrument, survey: { ...surveyDraft, instrument_id: instrument.id } }), error: null };
     } catch (caught) {
       return { document: null, error: caught instanceof Error ? caught.message : "Profile validation failed." };
     }
@@ -129,7 +129,7 @@ export function SurveyProfileEditor({ instrument, onBack, onCancel, onRegister }
   function register() {
     if (!validation.document || !onRegister) return;
     try {
-      onRegister(validateProfileDocument(validation.document));
+      onRegister(validateProfileDocumentV2(validation.document));
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "Profile registration failed.");
     }
