@@ -1,6 +1,6 @@
 import type {
   CenterInput, GenericLatticeTiling, InferencePolicy, LatticeAssignment, LatticeInferenceOutcome,
-  LatticeInferenceResult, SurveyProfileV2, TangentPlaneOffset, TileRecord,
+  LatticeInferenceResult, SurveyProfileV2, SurveyProfileV3, TangentPlaneOffset, TileRecord,
 } from "../types";
 import { localOffsetToSky, rotateLocalOffset, skyToLocalOffset } from "./footprint-engine";
 import { modulo } from "./math";
@@ -284,7 +284,7 @@ export function inferDeclaredLattice(tiles: readonly TileRecord[], tiling: Gener
  * Generic grouping uses dataset and instrument IDs, never CSV PID or PID-derived group_id.
  * All input tiles remain available to coverage, regardless of inference role/outcome.
  */
-export function inferSurveyLattice(tiles: readonly TileRecord[], survey: SurveyProfileV2, reference: CenterInput): LatticeInferenceOutcome {
+export function inferSurveyLattice(tiles: readonly TileRecord[], survey: SurveyProfileV2 | SurveyProfileV3, reference: CenterInput): LatticeInferenceOutcome {
   const empty = (status: Exclude<LatticeInferenceOutcome["status"], "success">): LatticeInferenceOutcome => ({ status, considered_tile_count: 0 });
   if (survey.tiling.type === "manual") return empty("manual_tiling");
   if (survey.tiling.type === "legacy_splus") return empty("legacy_strategy");

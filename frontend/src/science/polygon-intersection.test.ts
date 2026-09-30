@@ -1,9 +1,10 @@
+import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import { validateInstrumentProfileV2 } from "../profiles/schema-v2";
 import { createBundledProfileRegistry, SPLUS_SURVEY_V2 } from "../profiles";
 import type { CenterInput, Footprint, GenericLatticeTiling, SkyPolygon, TangentPlaneOffset } from "../types";
 import { makeCenterProposals } from "./catalogue";
-import { measureActiveCoverage } from "./coverage";
+import {} from "./coverage";
 import { footprintContainsPoint, footprintIntersectsRegion, localOffsetToSky, skyToLocalOffset } from "./footprint-engine";
 import { contributingTileCount } from "./geometry";
 import { generateLatticeCandidates } from "./lattice";
@@ -171,7 +172,7 @@ describe("Gate 9B1 offset polygon intersection", () => {
     const selected = ra_deg === 150 ? region : skyRegion(box(-0.05, -0.05, 0.05, 0.05), center);
     const { registry, survey, tiling } = diagnosticRegistry(center);
     const tiles = makeCenterProposals([center], "manual");
-    const metrics = measureActiveCoverage(selected, tiles, [], survey.id, undefined, registry);
+    const metrics = measureResolvedCoverage(selected, tiles, [], survey.id, undefined, registry);
     expect(metrics.existing_tiles_contributing).toBe(0);
     expect(metrics.already_covered_fraction).toBe(0);
     const candidates = generateLatticeCandidates(selected, tiling, footprint, 1200);

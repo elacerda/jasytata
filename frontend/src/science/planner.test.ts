@@ -1,9 +1,10 @@
+import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import golden from "../data/golden.json";
 import currentContract from "../data/planner-contract.json";
 import referenceCsv from "../../public/data/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
-import { measureActiveCoverage, sampleRegion, type CoverageGrid } from "./coverage";
+import { sampleRegion, type CoverageGrid } from "./coverage";
 import { contributingTileCount, angularSeparationDeg } from "./geometry";
 import { legacyGridCenters } from "./grid";
 import { roundDecimal } from "./math";
@@ -80,7 +81,7 @@ function planMatchesContract(actual: RegionPlanResponse, expected: {
   candidate_centers: number[][]; inference: {
     nearby_tile_count: number; anchor_tile_ids: string[]; compatible_neighbor_pairs: number;
     dec_spacing_deg: number | null; ra_spacing_deg: number | null;
-  }; diagnostics: string[]; metrics: RegionPlanResponse["metrics"];
+  }; diagnostics: string[]; metrics: Omit<RegionPlanResponse["metrics"], "coverage_basis" | "coverage_status">;
 }, id: keyof typeof currentContract.plans, existing: TileRecord[], polygon: SkyPolygon, profile?: TilingProfile): void {
   expect(actual.solution).toBe(expected.solution);
   expect(actual.generation_method).toBe(expected.generation_method);
@@ -119,7 +120,7 @@ function planMatchesContract(actual: RegionPlanResponse, expected: {
   expect(actual.metrics.redundant_coverage).toBeGreaterThanOrEqual(0);
   expect(actual.metrics.redundant_coverage).toBeLessThanOrEqual(1);
   expect(actual.metrics.outside_region_coverage_deg2).toBeGreaterThanOrEqual(0);
-  expect(measureActiveCoverage(polygon, existing, actual.tiles, profile ? "custom" : undefined, profile)).toEqual(actual.metrics);
+  expect(measureResolvedCoverage(polygon, existing, actual.tiles, profile ? "custom" : undefined, profile)).toEqual(actual.metrics);
 }
 
 describe("v0.2.0 T80-South planner contract with former Python lattice references", () => {
@@ -172,7 +173,7 @@ describe("v0.2.0 T80-South planner contract with former Python lattice reference
     expect(plan.metrics.sample_step_deg).toBe(contract.sample_step_deg);
     expect(plan.metrics.selected_region_coverage).toBe(contract.selected_region_coverage);
     expect(plan.metrics.remaining_uncovered_fraction).toBe(contract.remaining_uncovered_fraction);
-    const existingOnly = measureActiveCoverage(fixture.polygon, catalogue, []);
+    const existingOnly = measureResolvedCoverage(fixture.polygon, catalogue, []);
     expect(existingOnly.existing_tiles_contributing).toBe(88);
     expect(existingOnly.already_covered_fraction).toBe(currentContract.plans.large_overlap.already_covered_fraction);
     expect(existingOnly.sample_step_deg).toBe(currentContract.plans.large_overlap.sample_step_deg);
@@ -189,7 +190,7 @@ describe("v0.2.0 T80-South direct coverage contract", () => {
   it.each(golden.coverage_cases)("matches coverage case $id", (fixture) => {
     const existing = fixture.existing_tiles as unknown as TileRecord[];
     const proposed = fixture.proposed_tiles as unknown as TileRecord[];
-    const metrics = measureActiveCoverage(fixture.polygon, existing, proposed);
+    const metrics = measureResolvedCoverage(fixture.polygon, existing, proposed);
     const contract = currentContract.coverage[fixture.id as keyof typeof currentContract.coverage];
     expect(metrics.selected_region_area_deg2).toBe(contract.selected_region_area_deg2);
     expect(Math.abs(metrics.selected_region_area_deg2 - analyticPolygonAreaDeg2(fixture.polygon))).toBeLessThan(0.005);
@@ -309,14 +310,14 @@ describe("v0.2.0 T80-South scientific geometry and coverage contracts", () => {
       id: "p1", name: "", ra_deg: 151, dec_deg: -30, source: "proposed",
       generation_method: "manual", original_values: null, metadata: {}, enabled: true,
     };
-    const zero = measureActiveCoverage(polygon, [], []);
-    const partial = measureActiveCoverage(polygon, [], [tile]);
-    const removed = measureActiveCoverage(polygon, [], [{ ...tile, enabled: false }]);
+    const zero = measureResolvedCoverage(polygon, [], []);
+    const partial = measureResolvedCoverage(polygon, [], [tile]);
+    const removed = measureResolvedCoverage(polygon, [], [{ ...tile, enabled: false }]);
     expect(zero.selected_region_coverage).toBe(0);
     expect(partial.selected_region_coverage).toBeGreaterThan(0);
     expect(partial.selected_region_coverage).toBeLessThan(1);
     expect(removed).toEqual(zero);
-    expect(measureActiveCoverage(polygon, [], [tile])).toEqual(partial);
+    expect(measureResolvedCoverage(polygon, [], [tile])).toEqual(partial);
   });
 
   it("keeps valid tiny polygons measurable and rejects crossings", () => {

@@ -2,7 +2,7 @@ import type {
   CenterInput,
   CatalogueResponse,
   CoverageStrategy,
-  PlanMetrics,
+  CoverageResult,
   RegionPlanResponse,
   SkyPolygon,
   TileRecord,
@@ -175,10 +175,13 @@ export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileR
  * @param proposedTiles - Editable proposal records.
  * @param profileId - Active observing profile ID.
  * @param profile - Optional inline custom profile.
- * @param geometryContext - Optional Gate 5 nominal/effective geometry selection.
- * @returns Existing, incremental, and total coverage measurements.
+ * @param geometryContext - Scientific measurement basis and Gate 5 single/effective
+ *   exposure geometry; v2 retains its separate legacy interpretation.
+ * @returns Basis-labeled resolved measurements, or unavailable coverage without
+ *   numeric fractions when the requested basis/resolution cannot be measured.
+ * @throws On invalid region/profile, unknown instruments or invalid editable rows.
  */
-export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile, geometryContext?: PointingGeometryContext): Promise<PlanMetrics> {
+export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile, geometryContext?: PointingGeometryContext): Promise<CoverageResult> {
   return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile, profileRegistry, geometryContext);
 }
 

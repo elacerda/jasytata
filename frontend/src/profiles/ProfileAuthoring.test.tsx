@@ -1,3 +1,4 @@
+import { measureResolvedCoverage } from "../science/test-support/resolved-coverage";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,7 @@ import { SurveyProfileEditor } from "./SurveyProfileEditor";
 import { parseProfileJsonV2, serializeProfile, validateProfileDocument, type ProfileDocument } from "./document";
 import { createBundledProfileRegistry, ProfileRegistry } from "./registry";
 import { planRegion } from "../science/planner";
-import { measureActiveCoverage } from "../science/coverage";
+import {} from "../science/coverage";
 import { makeCenterProposals } from "../science/catalogue";
 import type { InstrumentProfileV2 } from "../types";
 import smallJson from "./fixtures/small-camera.json";
@@ -177,7 +178,7 @@ describe("complete Schema v2 profile authoring", () => {
     expect(() => planRegion(polygon, [], document.survey.id, undefined, "complete", registry)).toThrow("uses manual tiling and does not define an automatic tiling strategy");
     for (const method of ["manual", "imported_centers"] as const) {
       const tiles = makeCenterProposals([{ ra_deg: 151, dec_deg: -30 }], method);
-      const coverage = measureActiveCoverage(polygon, [], tiles, document.survey.id, undefined, registry);
+      const coverage = measureResolvedCoverage(polygon, [], tiles, document.survey.id, undefined, registry);
       expect(coverage.new_tiles).toBe(1); expect(coverage.incremental_coverage).toBeGreaterThan(0);
     }
   });
@@ -237,8 +238,7 @@ describe("complete Schema v2 profile authoring", () => {
     const complete = planRegion(region, [], document.survey.id, undefined, "complete", registry);
     expect(complete.tiles.length).toBeGreaterThan(0); expect(complete.metrics.sampling?.max_samples).toBe(143); expect(complete.metrics.sampling?.natural_step_deg).toBeCloseTo(1 / 24, 12);
     expect(planRegion(region, [], document.survey.id, undefined, "efficient", registry).tiles).toHaveLength(0);
-    const large = planRegion(polygon, [], document.survey.id, undefined, "complete", registry);
-    expect(large.metrics.sampling?.budget_limited).toBe(true); expect(large.metrics.sampling!.sample_count).toBeLessThanOrEqual(143);
+    expect(() => planRegion(polygon, [], document.survey.id, undefined, "complete", registry)).toThrow(/under_resolved/);
   });
 
   it("clears incomplete buffers when optional policies/constant fields or tiling branches are removed", async () => {

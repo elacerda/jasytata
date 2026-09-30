@@ -168,48 +168,44 @@ authority. Structural migration can copy unchanged values; adding absent
 scientific meaning requires an explicit choice. In particular, a target-access
 profile never defaults to an observed-area role.
 
-Gate 6A persists and exposes the v3 coverage role but does not change coverage
-metrics. Role-aware coverage and mixed-scale sampling correctness belong to Gate
-6B; completing and validating the selected real-instrument library belongs to
-Gate 6C.
+Gate 6A established persisted v3 roles. Gate 6B consumes them through explicit
+observed-area, envelope and legacy metric bases with hard-budget sampling. See
+[coverage-role validation](V0.4.0_COVERAGE_ROLE_SAMPLING_VALIDATION.md). The final
+selected instrument library remains Gate 6C.
 
-### Coverage sampling policy (Gate 6A)
+### Coverage roles and sampling (v0.4 Gate 6B)
 
-Both `sampling.target_samples_per_footprint_axis` and `sampling.max_samples`
-must be finite positive safe integers. There is no absolute `sample_step_deg`
-profile field. The generic natural step is the footprint characteristic scale
-in local degrees divided by the target samples per footprint axis. The scale
-is the smaller rectangle side, circle diameter, smaller positive intrinsic
-polygon bounding-box extent, or recursively the minimum child scale in a
-compound. Footprint position angles, child rotations, and mosaic separations
-do not enlarge that scale.
+`PointingGeometryContext.measurementBasis` selects `observed_area`,
+`nominal_envelope`, `target_access`, or separately interpreted `legacy_v2`.
+Observed metrics include only explicit v3 observed-area geometry; nominal
+metrics include only nominal envelopes and require explicit selection. Access
+area metrics/planning are unsupported. Legacy unions retain v2 geometry and may
+include v3 observed-area geometry; they exclude v3 envelopes/access. V2 profiles
+receive no inferred role or fidelity. `geometry_basis` separately names
+single-exposure or effective-sequence geometry.
 
-`max_samples` limits the actual full rectangular row-major grid, including
-zero-weight cells outside the selected polygon. It therefore bounds allocation
-and footprint-mask traversal, and is a conservative limit on positive-weight
-containment tests. Natural sampling that fits keeps its step exactly; otherwise
-the effective step coarsens analytically with inverse-square density, followed
-by deterministic integer-count correction. All selected-region bounds remain
-represented; no truncation or stochastic sampling is used.
+Generic pitch uses the smallest eligible positive-area contributor: shorter
+rectangle side, circle diameter, polygon minimum support-line width, or smallest
+compound/exposure constituent. V3 uses its declared N>=8; mixed v2 runs use the
+run-level default eight (optionally raised), without profile mutation. The east
+projection cosine is bounded over the region DEC range expanded by contributing
+north reach, enforcing local pitch in every contributor frame. Grid cells cover
+all bounds deterministically; no stochastic sampling/truncation is used.
 
-Full bounds are evenly subdivided at cell centers. The effective step is a
-maximum requested local pitch; integer subdivision can produce smaller actual
-cell widths. Generic metrics expose unrounded `sampling` metadata with
-characteristic/natural/effective steps, actual full-grid `sample_count`, the cap,
-budget-limited flag, and actual east/north cell widths. See
-[the sampling algorithm](ALGORITHM.md#scale-aware-sampling-gate-6a) for origin,
-RA unwrap, ordering, and boundary details.
+`max_samples` limits the full rectangular principal grid. If required pitch
+cannot fit, high-level results have `coverage_status: under_resolved` plus basis
+and sampling metadata, and no numeric coverage/remaining fractions or areas.
+Complete/Efficient throw a typed `CoverageUnavailableError` before scoring.
+Resolved results report characteristic scale, required/effective pitch,
+row/column and sample counts, budget, cell dimensions, cosine bound, roles and
+fidelity, and a conservative boundary-cell/weight quadrature bound. Physical and
+spherical projection error is explicitly unquantified. See the
+[derivation and independent numerical evidence](V0.4.0_COVERAGE_ROLE_SAMPLING_VALIDATION.md).
 
-Coverage remains a sampled estimate using the existing local-plane geometry
-and cos(DEC) weights. Small gaps or detectors can be missed at coarse resolution;
-a grid with no polygon-interior cell fails explicitly. Gate 6C validates the
-normal 64-per-axis fixtures against independent fine quadrature within 0.5
-percentage point; this is a tested policy, not a generic default or a guarantee
-for arbitrary caps or unresolved features. A 0.75-cell gap produces 0.78125 pp
-error; strong budget coarsening and near-pole geometry retain explicit limits.
-See [coverage validation](legacy/GATE6C_COVERAGE_VALIDATION.md) for measured scale,
-declination, convergence, phase and budget results. Exact spherical coverage
-and adaptive refinement are not implemented.
+Pure registered S-PLUS and inline-v1 compatibility retain historical layout and
+numbers, labeled `legacy_v2` / `legacy_compatible`; they acquire no observed-area
+authority or generic resolution promise. Historical v0.3 gate headings elsewhere
+in this document describe inherited behavior, not permission for v0.4 Gate 6C.
 
 ### Complete and Efficient policy (Gate 6B)
 

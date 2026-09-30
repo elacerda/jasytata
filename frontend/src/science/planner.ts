@@ -1,9 +1,10 @@
+import { coverageBasisForRun, coverageGeometryContext, tileContributesToBasis } from "./coverage-semantics";
 import type { CenterInput, CoveragePolicy, CoverageStrategy, Footprint, GenericLatticeTiling, InferencePolicy, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
-import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, sampleRegion, sampleLegacyRegion, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
+import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, prepareCoverageGrid, assertResolvedCoverage, CoverageUnavailableError, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
 import { generateLatticeCandidates, latticePlanningOrigin } from "./lattice";
@@ -212,7 +213,7 @@ function compareLattices(left: Lattice, right: Lattice, profile: TilingProfile):
 }
 
 function inferenceTileGroups(tiles: readonly TileRecord[], profile: TilingProfile, registry: ProfileRegistry): InferenceTileGroup[] {
-  const activeInstrumentId = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findSurveyProfile(profile.id)?.instrument_id;
+  const activeInstrumentId = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findAnySurveyProfile(profile.id)?.instrument_id;
   const sourceProfileCache = new Map<string, TilingProfile | null>();
   const sourceProfileFor = (instrumentProfileId: string): TilingProfile | null => {
     if (sourceProfileCache.has(instrumentProfileId)) return sourceProfileCache.get(instrumentProfileId)!;
@@ -580,7 +581,7 @@ function usefulPointingCenters(
     const physicalAreaDeg2 = sequence
       ? pointingGeometryUnionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
       : undefined;
-    useful.push({ center, mask, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) });
+    useful.push({ center, mask, boundaryGeometries: geometries, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) });
   }
   return useful;
 }
@@ -628,6 +629,11 @@ export function planRegion(
   if (strategy === "efficient" && !efficientPolicy) {
     throw new Error(`Survey profile "${profile.id}" requires coverage.efficient policy for Efficient planning.`);
   }
+  geometryContext = coverageGeometryContext(existingTiles, profile, registry, geometryContext);
+  const basis = coverageBasisForRun(profile, registry, geometryContext);
+  if (basis === "target_access" || !tileContributesToBasis({ source: "proposed" } as TileRecord, profile, registry, basis)) {
+    throw new CoverageUnavailableError({ coverage_basis: basis, coverage_status: "unsupported_basis" });
+  }
   // The published inline v1 RECT_GRID_V1 entry point has frozen fixtures.
   if (!inlineProfile && tiling.type === "lattice") return planDeclaredLattice(polygon, existingTiles, profile, tiling, strategy, registry, efficientPolicy, geometryContext);
   return planLegacyRegion(polygon, existingTiles, profile, strategy, registry, efficientPolicy, geometryContext);
@@ -646,7 +652,7 @@ function planLegacyRegion(
   const outputFootprint = outputFootprintForProfile(profile, registry);
   // Inline v1 custom rectangles retain the frozen bundled compatibility defaults;
   // every registered v2 survey supplies its own inference and sampling policies.
-  const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findSurveyProfile(profile.id);
+  const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findAnySurveyProfile(profile.id);
   const settings = legacyInferenceSettings(survey ? profile : DEFAULT_PROFILE, survey?.inference ?? SPLUS_SURVEY_V2.inference);
   if (profile.effective_overlap_arcsec / 3600 >= Math.min(profile.tile_width_deg, profile.tile_height_deg)) {
     throw new Error("Legacy overlap must be smaller than the footprint dimensions");
@@ -689,9 +695,9 @@ function planLegacyRegion(
   }
   if (rawCandidates.length > MAX_CANDIDATES) throw new Error(`This region produces ${rawCandidates.length} lattice candidates; reduce the selected area to at most ${MAX_CANDIDATES}.`);
   const uniqueCandidates = excludeOccupied(rawCandidates, activeTiles, settings.occupancyDeg);
-  const grid = survey?.tiling.type === "legacy_splus"
-    ? sampleLegacyRegion(polygon, survey.tiling.grid_extent_deg, survey.coverage)
-    : sampleRegion(polygon);
+  const grid = prepareCoverageGrid(polygon, activeTiles, profile, registry, geometryContext,
+    uniqueCandidates.map(([ra_deg, dec_deg]) => ({ id: "sampling-candidate", source: "proposed", ra_deg, dec_deg } as TileRecord)));
+  assertResolvedCoverage(grid);
   const existingMask = coveredMask(grid, activeTiles, profile, registry, geometryContext);
   const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry, geometryContext);
   const primaryCandidates = geometryContext
@@ -753,7 +759,7 @@ function planDeclaredLattice(
 ): RegionPlanResponse {
   const footprint = outputFootprintForProfile(profile, registry);
   const activeTiles = existingTiles.filter((tile) => tile.enabled !== false);
-  const survey = registry.resolveSurveyProfile(profile.id);
+  const survey = registry.resolveAnySurveyProfile(profile.id);
   const reference = latticePlanningOrigin(polygon, tiling);
   const vertices = polygon.vertices.map((point) => skyToLocalOffset(point, reference));
   const margin = latticeInferenceSearchRadius(tiling.basis_deg, survey.inference.spacing_tolerance_fraction);
@@ -775,7 +781,9 @@ function planDeclaredLattice(
     .filter((candidate) => !latticeSiteOccupied(candidate, activeTiles, projection, runtimeTiling.basis_deg, survey.inference.occupancy_tolerance_fraction));
   const solution = fit ? "extended_existing_grid" : "declared_lattice";
   const centers: Center[] = candidates.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]);
-  const grid = sampleRegion(polygon, footprint, survey.coverage);
+  const grid = prepareCoverageGrid(polygon, activeTiles, profile, registry, geometryContext,
+    centers.map(([ra_deg, dec_deg]) => ({ id: "sampling-candidate", source: "proposed", ra_deg, dec_deg } as TileRecord)));
+  assertResolvedCoverage(grid);
   const existingMask = coveredMask(grid, activeTiles, profile, registry, geometryContext);
   const useful = geometryContext
     ? usefulPointingCenters(centers, existingMask, grid, profile, registry, geometryContext)

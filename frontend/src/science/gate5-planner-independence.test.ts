@@ -24,7 +24,7 @@ function registryFor(footprint: Footprint, inference: InferencePolicy = {
   const registry = createBundledProfileRegistry();
   registry.registerInstrumentProfile({ ...T80_SOUTH_INSTRUMENT_V2, id: "gate5-camera", footprint });
   registry.registerSurveyProfile({
-    ...SPLUS_SURVEY_V2, id: "gate5-survey", instrument_id: "gate5-camera", tiling, inference,
+    ...SPLUS_SURVEY_V2, coverage: { ...SPLUS_SURVEY_V2.coverage, sampling: { target_samples_per_footprint_axis: 24, max_samples: 90_000 } }, id: "gate5-survey", instrument_id: "gate5-camera", tiling, inference,
   });
   return registry;
 }
@@ -121,7 +121,7 @@ describe("Gate 5 pointing, exposure, and lattice separation", () => {
     };
     const registry = createBundledProfileRegistry();
     registry.registerInstrumentProfile({ ...T80_SOUTH_INSTRUMENT_V2, id: "gate5-single-camera", footprint: { type: "circle", radius_deg: 0.2 } });
-    registry.registerSurveyProfile({ ...SPLUS_SURVEY_V2, id: "gate5-single-survey", instrument_id: "gate5-single-camera", tiling: singleTiling,
+    registry.registerSurveyProfile({ ...SPLUS_SURVEY_V2, coverage: { ...SPLUS_SURVEY_V2.coverage, sampling: { target_samples_per_footprint_axis: 24, max_samples: 90_000 } }, id: "gate5-single-survey", instrument_id: "gate5-single-camera", tiling: singleTiling,
       inference: { ...SPLUS_SURVEY_V2.inference, enabled: false } });
     const plan = planRegion(singleSiteRegion, [], "gate5-single-survey", undefined, "complete", registry);
 

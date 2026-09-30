@@ -1,4 +1,4 @@
-import type { CompoundFootprint, Footprint, NonCompoundFootprint, PositionAngleOptions, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CompoundFootprint, CoverageMeasurementBasis, Footprint, NonCompoundFootprint, PositionAngleOptions, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { deriveExposurePlacements, type ObservingSequence } from "./exposure-sequence";
 import { footprintArea, footprintIntersectsRegion, rotateLocalOffset, skyToLocalOffset } from "./footprint-engine";
 import type { CenterInput } from "../types";
@@ -28,6 +28,10 @@ export interface PointingGeometry {
  * depth or completeness model.
  */
 export interface PointingGeometryContext {
+  /** Scientific area basis, independent of single versus sequence geometry. */
+  measurementBasis?: CoverageMeasurementBasis;
+  /** Run-level density for v2 mixed geometry; never persisted into v2 profiles. */
+  targetSamplesPerFootprintAxis?: number;
   /** Resolve the PA policy independently for each tile. */
   orientationPolicyForTile?: (tile: TileRecord) => PositionAngleOptions | undefined;
   /** Return the optional ordered exposure sequence for a nominal tile. */

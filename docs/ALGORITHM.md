@@ -205,94 +205,46 @@ For the frozen T80 rectangle, containment remains:
 |wrapped(sample_RA − tile_RA) cos(tile_DEC)| ≤ 0.7 deg
 ```
 
-### Scale-aware sampling (Gate 6A)
+### Role-aware scale and budget (v0.4 Gate 6B)
 
-`footprintCharacteristicScale` returns an intrinsic local tangent-plane length:
+Coverage basis is explicit: `observed_area`, `nominal_envelope`, or unclassified
+compatibility `legacy_v2`. `target_access` area metrics are unsupported.
+Role filtering precedes effective PA/sequence geometry, positive-area intersection,
+resolution selection and mask union. Only v3 observed-area footprints enter
+observed metrics; envelope diagnostics require an explicit envelope request.
+V2 is never auto-classified. Sequence unions retain their instrument's role.
 
-- Rectangle: `min(width_deg, height_deg)`.
-- Circle: `2 * radius_deg`.
-- Polygon: the minimum positive east/north bounding-box extent of its intrinsic
-  vertices, before applying position angle; area alone is not used.
-- Compound/mosaic: recursively the minimum of all child characteristic scales.
-  Offsets, child rotations, and parent rotation do not change it. Large distances
-  between small detectors cannot turn their scale into the full mosaic span.
-  The current schema permits non-compound children only; the helper uses the
-  same recursive rule without extending the schema.
+The required local pitch is `s_min/N`, N>=8. The minimum is across all eligible
+intersecting source and output candidate exposure footprints. Characteristic
+scale is the shorter rectangle side, circle diameter, polygon minimum
+support-line width, or minimum compound child scale. Mosaic offsets, PA and
+sequence span do not replace constituent scale. V3 supplies declared N; v2 mixed
+runs use a run-level eight, optionally raised without profile mutation.
 
-For generic Schema v2 `lattice` and `manual` surveys:
+Generic rows use DEC span divided by required pitch. Columns use RA span times
+the maximum clamped cosine over the region DEC interval expanded by contributing
+footprint north reach. Ceiling subdivision guarantees pitch in every contributing
+pointing's local frame, while retaining the existing wrapped-RA/cos(DEC) model.
+All full-bound cells are enumerated row-major at half-cell centers; region
+membership remains strict ray crossing and weights remain per-row cos(DEC).
 
-```text
-natural_step_deg = characteristic_scale_deg / target_samples_per_footprint_axis
-rows = max(1, ceil(DEC_extent / effective_step_deg))
-cols = max(1, ceil(RA_extent * max(cos(midpoint_DEC), 0.01) / effective_step_deg))
-```
+The full rectangular cell count must fit `max_samples`. A bounded coarser grid
+can supply diagnostic pitch/count metadata, but becomes machine-readable
+`under_resolved`. Metrics publish no fractions/areas for it; Complete/Efficient
+and low-level metric/greedy functions refuse it through a typed error. No coarse
+answer is authoritative. Resolved results expose basis, geometry selection,
+contributing roles/fidelity, required/actual pitch, dimensions/count/budget/status
+and a conservative numerical bound. The bound covers boundary cells through
+segment/circle tubes plus midpoint-weight variation; physical/projection error
+is unquantified. See the [full proof, result shapes and references](V0.4.0_COVERAGE_ROLE_SAMPLING_VALIDATION.md).
 
-The step must be finite and positive. Policy density and `max_samples` are
-positive safe integers, validated both by the schema and the sampling entry
-point. There is no absolute generic pitch or private generic sample cap.
+Pure registered `legacy_splus` retains `legacySampleLayout`, policy-derived
+nominal pitch and cap, eight-cell minimum and historical numeric fields. Inline
+v1 retains its frozen layout and supplemental semantics. Their runtime result
+basis/status is `legacy_v2` / `legacy_compatible`, with no new generic sampling
+promise. Mixed scales or v3 geometry activate the generic correctness contract.
 
-`max_samples` bounds the **entire principal rectangular grid**: the actual
-length of each RA, DEC, weight, and footprint-mask array, including zero-weight
-polygon-exterior cells. This conservative choice bounds enumeration, memory,
-and each coverage loop even for a thin or concave region. It does not mean only
-the number of retained polygon-interior cells. Footprint containment runs only
-for cells with positive weight. Thus its invocation count is also bounded.
-
-When the natural grid fits, the effective step equals the natural step exactly.
-Otherwise, an analytic inverse-square density estimate starts coarsening:
-`max(natural_step, sqrt(local_width) * sqrt(height / max_samples))`. A one-cell
-budget uses at least the larger extent. Ceiling counts and long thin regions
-are corrected deterministically using the larger of the inverse-square count
-correction and the next row/column reduction threshold (with a floating-point
-roundoff allowance). Dimensions are recomputed until the cap is satisfied,
-before allocating arrays. The effective step is then strictly coarser than the
-natural step. No samples are randomly chosen or truncated from one region side.
-
-Rows and columns evenly subdivide **all** unwrapped bounds. The effective step
-is the requested maximum local cell pitch; actual east/north cell widths can
-be smaller because integer counts must span the bounds. The origin is the
-southwest bounding edge, the first sample is half a cell inward, rows increase
-DEC, and columns increase continuous RA. No cell center lies on a bounding-box
-edge. The existing strict ray-crossing predicate decides polygon membership;
-it retains lower/left versus upper/right half-open behavior on axis-aligned
-edges, with strict comparisons on slanted edges. RA is unwrapped through
-`polygonLocalGeometry` before enumeration and wrapped to `[0,360)` only when
-storing samples. No sky-projection convention changes.
-
-`CoverageGrid.sampling` and `PlanMetrics.sampling` expose unrounded
-`characteristic_scale_deg`, `natural_step_deg`, `effective_step_deg`,
-`sample_count`, `max_samples`, `budget_limited`, `cell_width_deg`, and
-`cell_height_deg`. `sample_count` is read from the actual principal array length,
-not a theoretical area-density estimate. Cell widths are local degrees at the
-bounding-box midpoint DEC. The historical rounded `sample_step_deg` metric
-remains; use the new unrounded metadata to audit small-footprint resolution.
-
-Registered `legacy_splus` surveys use `legacySampleLayout` (including linked
-nonrectangular compatibility cameras), deriving nominal step from the smaller
-legacy grid extent divided by policy density and reading the policy sample cap.
-The bundled T80 policy reproduces `0.01°` and `90_000`; the one-argument
-`sampleRegion` and inline v1 `RECT_GRID_V1` adapters inherit those frozen defaults.
-Minimum eight cells per axis and the metric shape without generic sampling
-metadata remain explicit legacy algorithm rules. These are not generic defaults.
-
-The grid remains a sampled local-plane estimate. The minimum child rule does
-not guarantee resolving gaps narrower than the resulting step; budget coarsening
-can miss small detectors or thin region features. If no cell belongs to the
-polygon, sampling fails explicitly rather than inventing selected coverage.
-Large fields and near-pole regions retain the existing cosine/wrapped-RA limits.
-There is no adaptive refinement or continuous/spherical coverage proof. Gate 6B
-adds profile-driven selection. Gate 6C measures coverage against independent
-fine uniform quadrature: normal validation fixtures meet a 0.5-percentage-point
-criterion, with reference refinement changes below 0.05 pp. The 256-fold scale
-experiment has only 0.01081 pp error spread; resolved rotated detector gaps pass,
-while a gap 0.75 of one sample step is missed (0.78125 pp error). Very tight
-budgets and polar geometry remain diagnostic exceptions. See the
-[measured matrix and limitations](legacy/GATE6C_COVERAGE_VALIDATION.md) for methodology,
-convergence, phase sensitivity, budget behavior and Complete/Efficient margins.
-This is empirical validation of the local model, not exact geometric coverage
-or an accuracy promise for arbitrary policies and thresholds.
-
-All actual existing original and already accepted enabled tile footprints are unioned before candidate selection. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" counts actual instrument footprints with positive geometric intersection against the polygon, independently of sample-cell hits, including boundary slivers smaller than the sample pitch. Pointing-center containment alone is not a universal contributor test: a mosaic can have a central gap and a polygon can exclude its local origin.
+All applicable actual existing original and already accepted enabled tile footprints are unioned before candidate selection, after scientific basis filtering. This stage reads the request's pointings directly, without filtering through anchor IDs, row phases, lattice candidates, or map visibility. A candidate's incremental coverage is the weighted selected-region sample area newly covered on top of existing and previously selected proposal footprints. "Existing contributors" counts actual instrument footprints with positive geometric intersection against the polygon, independently of sample-cell hits, including boundary slivers smaller than the sample pitch. Pointing-center containment alone is not a universal contributor test: a mosaic can have a central gap and a polygon can exclude its local origin.
 
 Polygon/rectangle intersection uses actual boundaries after PA and component
 translation: strict containment, proper crossings, coincident edges with
@@ -353,7 +305,7 @@ area; overlapping outside tile areas are summed rather than unioned.
 Efficient does not assess the topology or scientific importance of residual gaps.
 Select Complete when exhaustive sampled coverage is required.
 
-The reported 100% target means every selected sample is covered. It is an estimate based on the sample grid, not an exact continuous-polygon coverage proof; regions exceeding their applicable sample cap use a coarser grid and have correspondingly lower spatial resolution.
+The reported 100% target means every selected sample is covered under the applicable metric basis; it is not continuous gap-free or spectroscopic completeness. Generic runs exceeding their scientific-resolution budget publish no fraction or completion claim. Pure historical compatibility runs retain their separately labeled estimates.
 
 Returned coverage metrics include selected polygon area, existing footprints with positive geometric intersection, new tile count, already-covered and final coverage fractions, incremental proposal coverage, remaining uncovered fraction and area, redundant proposed footprint fraction, outside-polygon tile area, and sample pitch. Manual enable/disable changes call the browser-local coverage function to recompute these figures without replanning. There is no HTTP coverage endpoint. The displayed candidate lattice count comes from the planning response's candidate center list.
 
@@ -384,11 +336,12 @@ Contributor counting and candidate filtering now test physical polygon overlap
 without assuming local-origin containment. Gate 9B2 is PASS; see the
 [release audit](legacy/GATE9_RELEASE_AUDIT.md).
 
-- Coverage is a numerical sample estimate, not exact analytic or spherical
-  geometry; 100% means all selected samples are covered.
-- Sub-pitch gaps, thin regions and small detectors may be unresolved. Extreme
-  budget coarsening reduces accuracy; requesting more density while the budget
-  remains limiting cannot restore information.
+- Resolved coverage is a numerical estimate in the declared basis with a
+  conservative error bound; 100% means all selected samples are covered, not
+  proven gap-free detector coverage or depth/completeness.
+- Sub-pitch gaps and thin regions remain subject to the reported bound. Generic
+  budget coarsening yields an unavailable result without an authoritative
+  fraction. Pure legacy compatibility retains its historical numerical limits.
 - Exact coverage/marginal-efficiency threshold decisions can be sensitive to
   sampling. Measured ordinary validation margins are not a universal guarantee.
 - Geometry uses local wrapped-RA/cosine tangent approximations rather than full
@@ -402,8 +355,8 @@ without assuming local-origin containment. Gate 9B2 is PASS; see the
   near-axis-aligned T80/S-PLUS row algorithm; it does not infer lattice rotation.
 - Declared generic lattices do not add off-lattice centers to close gaps. Manual
   surveys intentionally support supplied pointings/coverage without auto-tiling.
-  Browser candidate/proposal/sample limits reject or coarsen work as documented,
-  without silently truncating candidate sets.
+  Browser candidate/proposal limits reject work without truncation. Generic
+  sampling budgets refuse authoritative metrics/planning when under-resolved.
 
 The [Gate 6C measured report](legacy/GATE6C_COVERAGE_VALIDATION.md) documents accuracy,
 convergence, budgets and polar diagnostics. The

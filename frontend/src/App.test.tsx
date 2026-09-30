@@ -134,7 +134,7 @@ function makePlan(count: number): RegionPlanResponse {
     },
     diagnostics: ["Extended the local grid using 12 compatible neighbor pairs and 5 anchor tiles."],
     metrics: {
-      existing_tiles_contributing: 2,
+      coverage_basis: "legacy_v2", coverage_status: "resolved",      existing_tiles_contributing: 2,
       new_tiles: count,
       selected_region_area_deg2: 59.91,
       already_covered_fraction: 0.64,
@@ -171,6 +171,19 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
   });
 
   afterEach(() => cleanup());
+
+  it("does not display an authoritative percentage for unavailable coverage", async () => {
+    const user = userEvent.setup();
+    apiMocks.measureCoverage.mockResolvedValue({ coverage_basis: "observed_area", coverage_status: "under_resolved" });
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(screen.getByText(/Coverage unavailable: under_resolved/)).toBeTruthy());
+    expect(screen.queryByText("Final region coverage")).toBeNull();
+    expect(screen.queryByText("Remaining uncovered")).toBeNull();
+    expect(screen.queryByText("100.0%")).toBeNull();
+  });
 
   it("starts with the bundled survey and resolves its output instrument", async () => {
     render(<App />);

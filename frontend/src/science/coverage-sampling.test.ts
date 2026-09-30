@@ -84,7 +84,7 @@ describe("scale-aware uniform coverage sampling", () => {
   });
   it("retains natural pitch below the budget and reports actual array lengths", () => {
     const grid = sampleRegion(box(1), rectangle, policy);
-    expect(grid.sampling).toEqual({ characteristic_scale_deg: 1, natural_step_deg: 0.125, effective_step_deg: 0.125,
+    expect(grid.sampling).toMatchObject({ characteristic_scale_deg: 1, natural_step_deg: 0.125, effective_step_deg: 0.125,
       sample_count: 64, max_samples: 10_000, budget_limited: false, cell_width_deg: 0.125, cell_height_deg: 0.125 });
     expect(grid.ra).toHaveLength(grid.sampling!.sample_count);
     expect(grid.dec).toHaveLength(grid.ra.length);
@@ -201,7 +201,7 @@ describe("scale-aware uniform coverage sampling", () => {
   });
   it("reports a clear failure if an extremely coarse grid has no selected cells", () => {
     const triangle: SkyPolygon = { vertices: [{ ra_deg: 0, dec_deg: 0 }, { ra_deg: 1, dec_deg: 0 }, { ra_deg: 0, dec_deg: 0.125 }] };
-    expect(() => sampleRegion(triangle, rectangle, withCap(1))).toThrow(/too small for the coverage sample resolution/);
+    expect(sampleRegion(triangle, rectangle, withCap(1)).sampling!.status).toBe("under_resolved");
   });
 });
 
@@ -221,12 +221,12 @@ describe("coverage sampling policy validation and integration", () => {
     expect(metrics.sampling!.sample_count).toBeLessThanOrEqual(100);
     expect(metrics.sampling!.budget_limited).toBe(true);
   });
-  it("uses identical sampling for declared-lattice planning and subsequent recalculation", () => {
+  it("refuses declared-lattice planning when its required grid exceeds the budget", () => {
     const registry = genericRegistry({ type: "lattice", basis_deg: [[1, 0], [0, 1]], origin: { type: "region_center" } });
-    const plan = planRegion(box(2), [], "sampling-survey", undefined, "complete", registry);
-    const metrics = measureActiveCoverage(box(2), [], plan.tiles, "sampling-survey", undefined, registry);
-    expect(plan.metrics.sampling).toEqual(sampleRegion(box(2), rectangle, withCap(100)).sampling);
-    expect(metrics).toEqual(plan.metrics);
+    expect(() => planRegion(box(2), [], "sampling-survey", undefined, "complete", registry)).toThrow(/under_resolved/);
+    const metrics = measureActiveCoverage(box(2), [], [], "sampling-survey", undefined, registry);
+    expect(metrics.coverage_status).toBe("under_resolved");
+    expect(metrics).not.toHaveProperty("selected_region_coverage");
   });
   it("keeps the frozen legacy adapter's result shape and numerical layout", () => {
     const grid = sampleRegion(box(1));

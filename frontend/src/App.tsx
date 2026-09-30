@@ -15,7 +15,7 @@ import type {
   CatalogueResponse,
   CoverageStrategy,
   InferenceDiagnostics,
-  PlanMetrics,
+  CoverageResult,
   SkyPolygon,
   RegionPlanResponse,
   SurveyProfileV2,
@@ -28,7 +28,7 @@ interface ProposalPreview {
   candidateCenters: CenterInput[];
   inference: InferenceDiagnostics | null;
   diagnostics: string[];
-  metrics: PlanMetrics | null;
+  metrics: CoverageResult | null;
   solution: string;
 }
 
@@ -76,7 +76,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
   const [proposalContext, setProposalContext] = useState<ProposalPreview | null>(null);
-  const [activeMetrics, setActiveMetrics] = useState<PlanMetrics | null>(null);
+  const [activeMetrics, setActiveMetrics] = useState<CoverageResult | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
@@ -360,7 +360,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         });
         setSelectedTileId(null);
         setNotice(
-          `${result.tiles.length} new tile${result.tiles.length === 1 ? "" : "s"} selected with ${Math.round(result.metrics.selected_region_coverage * 100)}% estimated area coverage.`,
+          `${result.tiles.length} new tile${result.tiles.length === 1 ? "" : "s"} selected with ${Math.round(result.metrics.selected_region_coverage * 100)}% ${result.metrics.coverage_basis === "nominal_envelope" ? "nominal envelope" : "estimated area"} coverage.`,
         );
       },
     );
@@ -967,8 +967,11 @@ function DetailField({ label, value }: { label: string; value: string }) {
 }
 
 function MetricsPanel({ metrics, inference, candidateCount }: {
-  metrics: PlanMetrics; inference: InferenceDiagnostics | null; candidateCount: number;
+  metrics: CoverageResult; inference: InferenceDiagnostics | null; candidateCount: number;
 }) {
+  if (metrics.coverage_status !== "resolved" && metrics.coverage_status !== "legacy_compatible") {
+    return <div className="metrics-panel">Coverage unavailable: {metrics.coverage_status} ({metrics.coverage_basis}).</div>;
+  }
   return (
     <div className="metrics-panel">
       <Metric label="Selected region" value={`${metrics.selected_region_area_deg2.toFixed(2)} deg²`} />
@@ -980,7 +983,7 @@ function MetricsPanel({ metrics, inference, candidateCount }: {
       </>}
       <Metric label="New tiles" value={String(metrics.new_tiles)} emphasis />
       <Metric label="Already covered" value={`${(metrics.already_covered_fraction * 100).toFixed(1)}%`} />
-      <Metric label="Final region coverage" value={`${(metrics.selected_region_coverage * 100).toFixed(1)}%`} emphasis />
+      <Metric label={metrics.coverage_basis === "nominal_envelope" ? "Nominal envelope overlap" : "Final region coverage"} value={`${(metrics.selected_region_coverage * 100).toFixed(1)}%`} emphasis />
       <Metric label="Incremental new coverage" value={`${(metrics.incremental_coverage * 100).toFixed(1)}%`} />
       <Metric label="Remaining uncovered" value={`${(metrics.remaining_uncovered_fraction * 100).toFixed(1)}% · ${metrics.remaining_uncovered_area_deg2.toFixed(2)} deg²`} />
       <Metric label="Redundant proposal coverage" value={`${(metrics.redundant_coverage * 100).toFixed(1)}%`} />

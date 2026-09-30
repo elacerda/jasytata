@@ -1,3 +1,4 @@
+import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import { cases, cameraPa, localRegion, matrixRegistry } from "../data/gate8/fixtures";
 import golden from "../data/golden.json";
@@ -8,7 +9,7 @@ import { createDataset } from "../datasets";
 import { parseProfileJsonV2, serializeProfile } from "../profiles/document";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText, readCsv } from "./catalogue";
-import { coveredMask, measureActiveCoverage, sampleRegion, tileMask } from "./coverage";
+import { coveredMask, sampleRegion, tileMask } from "./coverage";
 import { footprintArea, footprintCharacteristicScale, footprintContainsPoint, localOffsetToSky, skyToLocalOffset } from "./footprint-engine";
 import { buildExportCsv } from "./export";
 import { generateLatticeCandidates, latticePlanningOrigin } from "./lattice";
@@ -37,13 +38,16 @@ describe("Gate 8 scientific workflow matrix", () => {
       expect(plan.candidate_centers.length).toBeLessThan(1200);
       expect(plan.tiles.length).toBeLessThan(500);
       expect(plan.metrics.selected_region_coverage).toBe(1);
-      expect(plan.metrics).toEqual(measureActiveCoverage(region, [], plan.tiles, document.survey.id, undefined, registry));
+      expect(plan.metrics).toEqual(measureResolvedCoverage(region, [], plan.tiles, document.survey.id, undefined, registry));
       const accepted = plan.tiles.map((tile) => ({ ...tile, ...(cameraPa(document) === undefined ? {} : { position_angle_deg: cameraPa(document) }) }));
       const csv = buildExportCsv(accepted, document.survey);
       const recorded = results.find((r) => r.profile_id === document.survey.id)!;
       expect(plan.candidate_centers).toHaveLength(recorded.zero_candidates);
       expect(accepted).toHaveLength(recorded.zero_accepted);
-      expect(readCsv(csv).slice(0, 2)).toEqual(recorded.first_export);
+      // Pure S-PLUS selection/export remains frozen. Generic greedy order can
+      // change when Gate 6B corrects physical pitch across pointing DEC frames.
+      if (document.survey.tiling.type === "legacy_splus") expect(readCsv(csv).slice(0, 2)).toEqual(recorded.first_export);
+      else expect(readCsv(csv)[0]).toEqual(recorded.first_export[0]);
       expect(readCsv(csv).length).toBe(accepted.length + 1);
       if (document.survey.tiling.type === "lattice") {
         const tiling = document.survey.tiling;
@@ -58,12 +62,26 @@ describe("Gate 8 scientific workflow matrix", () => {
           expect(tile.metadata).not.toHaveProperty("PID");
         }
         const sampling = plan.metrics.sampling!;
-        expect(sampling).toMatchObject(recorded.sampling!);
+        const prior = recorded.sampling!;
+        expect(sampling).toMatchObject({ characteristic_scale_deg: prior.characteristic_scale_deg,
+          natural_step_deg: prior.natural_step_deg, effective_step_deg: prior.effective_step_deg,
+          max_samples: prior.max_samples, budget_limited: false, status: "resolved" });
         expect(sampling.characteristic_scale_deg).toBe(footprintCharacteristicScale(document.instrument.footprint));
         expect(sampling.natural_step_deg).toBe(sampling.characteristic_scale_deg / document.survey.coverage.sampling.target_samples_per_footprint_axis);
         expect(sampling.effective_step_deg).toBe(sampling.natural_step_deg);
         expect(sampling.budget_limited).toBe(false);
         expect(sampling.sample_count).toBeLessThanOrEqual(sampling.max_samples);
+        expect(sampling.sample_count).toBe(sampling.row_count * sampling.column_count);
+        expect(sampling.cell_width_deg).toBeLessThanOrEqual(sampling.natural_step_deg);
+        expect(sampling.cell_height_deg).toBeLessThanOrEqual(sampling.natural_step_deg);
+        if (fixture.key === "mosaic" || fixture.key === "triangular") {
+          // Independently demonstrate why the historical midpoint-cosine count
+          // is invalid in at least one physically intersecting candidate frame.
+          const span = Math.max(...region.vertices.map((v) => v.ra_deg)) - Math.min(...region.vertices.map((v) => v.ra_deg));
+          const oldColumns = prior.sample_count / sampling.row_count;
+          const maximumCosine = Math.max(...plan.candidate_centers.map((p) => Math.cos(p.dec_deg * Math.PI / 180)));
+          expect(span * maximumCosine / oldColumns).toBeGreaterThan(sampling.natural_step_deg);
+        }
       }
       return { plan, accepted, csv };
     };
@@ -107,7 +125,7 @@ describe("Gate 8 scientific workflow matrix", () => {
         expect(y).toBeCloseTo(i * fit.basis_deg[0][1] + j * fit.basis_deg[1][1] + fit.phase_offset_deg[1], 8);
       }
       expect(rows).toEqual(before);
-      expect(measureActiveCoverage(fixture.region, rows, plan.tiles, fixture.document.survey.id, undefined, registry)).toEqual(plan.metrics);
+      expect(measureResolvedCoverage(fixture.region, rows, plan.tiles, fixture.document.survey.id, undefined, registry)).toEqual(plan.metrics);
       const accepted = plan.tiles.map((tile) => ({ ...tile, position_angle_deg: cameraPa(fixture.document) }));
       return { plan, csv: buildExportCsv(accepted, fixture.document.survey) };
     };
@@ -124,7 +142,11 @@ describe("Gate 8 scientific workflow matrix", () => {
     const efficient = planRegion(region, [], document.survey.id, undefined, "efficient", registry);
     const recorded = results.find((r) => r.profile_id === document.survey.id)!.efficient!;
     expect(efficient.tiles).toHaveLength(recorded.accepted);
-    expect(efficient.metrics.selected_region_coverage).toBe(recorded.coverage);
+    // Independently validate the corrected grid, retaining the original 0.5 pp
+    // reference tolerance; the historical midpoint-grid snapshots stay intact.
+    const reference = referenceGrid(region, efficient.metrics.sampling!.natural_step_deg / 2);
+    const referenceCoverage = coverageFraction(reference, referenceMask(reference, document.instrument.footprint, efficient.tiles));
+    expect(Math.abs(efficient.metrics.selected_region_coverage - referenceCoverage)).toBeLessThan(0.005);
     expect(efficient).toEqual(planRegion(region, [], document.survey.id, undefined, "efficient", matrixRegistry()));
     expect(efficient.tiles.length).toBeLessThan(complete.tiles.length);
     expect(efficient.metrics.selected_region_coverage).toBeGreaterThanOrEqual(document.survey.coverage.efficient!.min_coverage);
@@ -189,7 +211,12 @@ describe("Gate 8 scientific workflow matrix", () => {
       if (fixture.key === "triangular") expect(rows[index + 1].slice(2)).toEqual(["J2000", `PROPOSED_${String(index + 1).padStart(4, "0")}`, `PROPOSED_${String(index + 1).padStart(4, "0")}`, "g8-triangular"]);
       if (fixture.key === "mosaic") expect(rows[index + 1].slice(2)).toEqual(["31.00000000", "G8-MOSAIC"]);
     });
-    expect(rows[1]).toEqual({ circle: ["0.00000000", "-32.10000000"], mosaic: ["10:00:00.000", "-25:00:00.000", "31.00000000", "G8-MOSAIC"], triangular: ["73.92349382", "42.00000000", "J2000", "PROPOSED_0001", "PROPOSED_0001", "g8-triangular"] }[fixture.key]);
+    // Exact formatting uses independent fixed coordinates, so an export test
+    // does not freeze the greedy selection phase of a corrected coverage grid.
+    const fixedCenters = { circle: [0, -32.1], mosaic: [150, -25], triangular: [73.92349382, 42] };
+    const [ra_deg, dec_deg] = fixedCenters[fixture.key as keyof typeof fixedCenters];
+    const fixedExport = readCsv(buildExportCsv([{ ...accepted[0], ra_deg, dec_deg }], document.survey));
+    expect(fixedExport[1]).toEqual({ circle: ["0.00000000", "-32.10000000"], mosaic: ["10:00:00.000", "-25:00:00.000", "31.00000000", "G8-MOSAIC"], triangular: ["73.92349382", "42.00000000", "J2000", "PROPOSED_0001", "PROPOSED_0001", "g8-triangular"] }[fixture.key]);
   });
 
   it("resolves normal mosaic gaps in coverage and separate rotated detector render paths", () => {
@@ -198,7 +225,7 @@ describe("Gate 8 scientific workflow matrix", () => {
     expect(footprintContainsPoint(footprint, [0, 0])).toBe(false);
     const manual = makeCenterProposals([fixture.origin], "manual");
     const gap = localRegion(fixture.origin, 0.04, 0.04);
-    expect(measureActiveCoverage(gap, [], manual, fixture.document.survey.id, undefined, registry).selected_region_coverage).toBe(0);
+    expect(measureResolvedCoverage(gap, [], manual, fixture.document.survey.id, undefined, registry).selected_region_coverage).toBe(0);
     const boundaries = tileFootprintBoundaries(manual[0], footprint);
     expect(boundaries).toHaveLength(2);
     expect(boundaries.map((b) => b.length)).toEqual([5, 5]);
@@ -206,9 +233,9 @@ describe("Gate 8 scientific workflow matrix", () => {
     for (const child of footprint.components) {
       const [x, y] = child.offset_deg;
       const [ra_deg, dec_deg] = localOffsetToSky(fixture.origin, [x * Math.cos(theta) + y * Math.sin(theta), y * Math.cos(theta) - x * Math.sin(theta)]);
-      expect(measureActiveCoverage(localRegion({ ra_deg, dec_deg }, 0.03, 0.03), [], manual, fixture.document.survey.id, undefined, registry).selected_region_coverage).toBe(1);
+      expect(measureResolvedCoverage(localRegion({ ra_deg, dec_deg }, 0.03, 0.03), [], manual, fixture.document.survey.id, undefined, registry).selected_region_coverage).toBe(1);
     }
-    const metrics = measureActiveCoverage(fixture.region, [], manual, fixture.document.survey.id, undefined, registry);
+    const metrics = measureResolvedCoverage(fixture.region, [], manual, fixture.document.survey.id, undefined, registry);
     const ref = referenceGrid(fixture.region, metrics.sampling!.natural_step_deg / 2);
     expect(coverageFraction(ref, referenceMask(ref, footprint, manual))).toBeCloseTo(metrics.selected_region_coverage, 2);
     const noPa = tileFootprintBoundaries(manual[0], { ...footprint, position_angle_deg: 0 });
@@ -262,9 +289,9 @@ describe("Gate 8 scientific workflow matrix", () => {
     const registry = matrixRegistry();
     const centers = parseCenterText(`${fixture.origin.ra_deg} ${fixture.origin.dec_deg}`);
     const manual = makeCenterProposals(centers, "manual"), imported = makeCenterProposals(centers, "imported_centers");
-    const a = measureActiveCoverage(fixture.region, [], manual, fixture.document.survey.id, undefined, registry);
+    const a = measureResolvedCoverage(fixture.region, [], manual, fixture.document.survey.id, undefined, registry);
     expect(a.selected_region_coverage).toBeGreaterThan(0);
-    expect(measureActiveCoverage(fixture.region, [], imported, fixture.document.survey.id, undefined, registry)).toEqual(a);
+    expect(measureResolvedCoverage(fixture.region, [], imported, fixture.document.survey.id, undefined, registry)).toEqual(a);
     for (const rows of [manual, imported]) {
       expect(rows[0].metadata).not.toHaveProperty("lattice_i");
       expect(tileFootprintBoundaries(rows[0], fixture.document.instrument.footprint).length).toBe(fixture.key === "mosaic" ? 2 : 1);
@@ -286,7 +313,7 @@ describe("Gate 8 scientific workflow matrix", () => {
     expect(plan.metrics.sample_step_deg).toBe(contract.plans.historical_holdout.sample_step_deg);
     expect(plan.metrics.selected_region_coverage).toBe(contract.plans.historical_holdout.selected_region_coverage);
     for (const [ra, dec] of fixture.proposal_centers) expect(plan.tiles.some((t) => Math.abs(t.ra_deg - ra) < 1e-8 && Math.abs(t.dec_deg - dec) < 1e-8)).toBe(true);
-    expect(measureActiveCoverage(fixture.polygon, rows, plan.tiles, document.survey.id, undefined, registry)).toEqual(plan.metrics);
+    expect(measureResolvedCoverage(fixture.polygon, rows, plan.tiles, document.survey.id, undefined, registry)).toEqual(plan.metrics);
     expect(plan).toEqual(planRegion(fixture.polygon, structuredClone(rows), document.survey.id, undefined, "complete", matrixRegistry()));
     for (const coordinate_format of ["decimal", "sexagesimal"] as const) {
       const survey = { ...document.survey, export: { ...document.survey.export, coordinate_format } };

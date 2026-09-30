@@ -9,7 +9,7 @@ import { profileRegistry, type ProfileRegistry } from "./registry";
 
 /** Resolve the physical footprint for the currently selected survey profile.
  *
- * Schema v2 survey profiles link to an instrument geometry by ID. Session-only
+ * Schema v2/v3 survey profiles link to an instrument geometry by ID. Session-only
  * v1 profiles have no such link and retain their rectangular dimensions.
  *
  * @param profile - Active planner profile, whose ID selects a registered survey when present.
@@ -22,7 +22,7 @@ export function outputFootprintForProfile(
   registry: ProfileRegistry = profileRegistry,
 ): Footprint {
   // An explicit v1 bridge is geometry, independent of any equal registry ID.
-  const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findSurveyProfile(profile.id);
+  const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findAnySurveyProfile(profile.id);
   if (survey) return registry.resolveInstrumentProfile(survey.instrument_id).footprint;
   return { type: "rectangle", width_deg: profile.tile_width_deg, height_deg: profile.tile_height_deg };
 }

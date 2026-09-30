@@ -102,8 +102,12 @@ function evaluate(test: AccuracyCase, referenceDensity = test.name.startsWith("t
   }
   const reference = cached.fraction;
   const error = Math.abs(production - reference);
-  const metrics = measureMetrics([], mask, grid, 1, test.footprint);
-  expect(Math.abs(metrics.selected_region_coverage - production)).toBeLessThanOrEqual(0.0000051);
+  if (grid.sampling?.status === "under_resolved") {
+    expect(() => measureMetrics([], mask, grid, 1, test.footprint)).toThrow(/under_resolved/);
+  } else {
+    const metrics = measureMetrics([], mask, grid, 1, test.footprint);
+    expect(Math.abs(metrics.selected_region_coverage - production)).toBeLessThanOrEqual(0.0000051);
+  }
   const rows = grid.sampling ? 0 : new Set(grid.dec).size;
   const row = { case: test.name, scale, natural_step: grid.sampling?.natural_step_deg ?? 0.01,
     effective_step: grid.stepDeg, cell_width: grid.sampling?.cell_width_deg ??
@@ -236,7 +240,9 @@ describe("Gate 6C measured coverage accuracy", () => {
     expect(measurements[3].production).toBeCloseTo(measurements[0].production, 10);
     expect(measurements[3].reference).toBeCloseTo(measurements[0].reference, 10);
     for (const measurement of measurements.slice(4, 6)) {
-      expect(Math.abs(measurement.production - measurements[0].production)).toBeLessThan(0.0002);
+      // Contributor-frame cosine bounds can change integer column counts and
+      // sample phase. Validate each result against its own independent reference.
+      expect(Math.abs(measurement.production - measurement.reference)).toBeLessThan(ACCURACY_TOLERANCE);
       expect(Math.abs(measurement.reference - measurements[0].reference)).toBeLessThan(0.0002);
     }
     // Diagnostic only: resolution agreement cannot validate the polar model.

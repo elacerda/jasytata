@@ -1,8 +1,9 @@
+import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PROFILE, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
 import { createBundledProfileRegistry } from "../profiles/registry";
 import type { Footprint, SkyPolygon, TileRecord } from "../types";
-import { coveredMask, contributingTileCountForTiles, measureActiveCoverage, sampleRegion, tileMask } from "./coverage";
+import { coveredMask, contributingTileCountForTiles, sampleRegion, tileMask } from "./coverage";
 import { footprintContainsPoint, footprintIntersectsRegion, rotateLocalOffset } from "./footprint-engine";
 import { pointingGeometryUnionArea, resolvePointingGeometries, type PointingGeometry } from "./pointing-geometry";
 import type { ObservingSequence } from "./exposure-sequence";
@@ -231,7 +232,7 @@ describe("sequence coverage and physical union area", () => {
       { order: 1, east_arcsec: -3600, north_arcsec: 0 },
       { order: 2, east_arcsec: 3600, north_arcsec: 0 },
     ] };
-    const metrics = measureActiveCoverage(squareAt(150, 0, 0.01), [], [proposal], "custom", profile, createBundledProfileRegistry(), sequenceContext(disjoint, "effective_sequence"));
+    const metrics = measureResolvedCoverage(squareAt(150, 0, 0.01), [], [proposal], "custom", profile, createBundledProfileRegistry(), sequenceContext(disjoint, "effective_sequence"));
 
     expect(metrics.outside_region_coverage_deg2).toBe(0.0004);
   });

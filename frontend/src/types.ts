@@ -267,6 +267,11 @@ export interface CoveragePolicy {
 
 /** Unrounded generic sampling resolution; all lengths are local-plane degrees. */
 export interface CoverageSamplingMetadata {
+  status: "resolved" | "under_resolved";
+  /** Null when the theoretical grid cannot be represented as a safe integer. */
+  required_sample_count: number | null;
+  row_count: number;
+  column_count: number;
   characteristic_scale_deg: number;
   natural_step_deg: number;
   /** Requested maximum cell pitch after coarsening; full bounds are subdivided evenly. */
@@ -275,7 +280,9 @@ export interface CoverageSamplingMetadata {
   sample_count: number;
   max_samples: number;
   budget_limited: boolean;
-  /** Actual east/north cell widths at the bounding-box midpoint declination. */
+  /** North width and conservative east width across contributing pointing frames. */
+  /** East projection scale bounding every contributing pointing frame. */
+  east_projection_cosine: number;
   cell_width_deg: number;
   cell_height_deg: number;
 }
@@ -409,6 +416,15 @@ export interface SkyPolygon {
 
 /** Deterministic sampled-coverage measurements independent of inference. */
 export interface PlanMetrics {
+  /** Scientific measurement basis; v2 is explicitly unclassified legacy geometry. */
+  coverage_basis: CoverageMeasurementBasis;
+  coverage_status: "resolved" | "legacy_compatible";
+  /** Only true for resolved explicit v3 science-active geometry. */
+  authoritative_observed_area?: boolean;
+  geometry_basis?: "single_exposure" | "effective_sequence";
+  contributing_semantics?: { role: CoverageMeasurementBasis; fidelity: "exact" | "approximate" | null }[];
+  /** Guaranteed quadrature error in the modeled cos(DEC)-weighted plane. */
+  error_bound?: CoverageErrorBound;
   existing_tiles_contributing: number;
   new_tiles: number;
   selected_region_area_deg2: number;
@@ -423,6 +439,28 @@ export interface PlanMetrics {
   /** Gate 6A audit data; absent on the frozen legacy sampling path. */
   sampling?: CoverageSamplingMetadata;
 }
+
+/** V2 retains its unclassified geometric interpretation; v3 roles are explicit. */
+export type CoverageMeasurementBasis = FootprintSemanticsV3["role"] | "legacy_v2";
+
+/** Numerical guarantees exclude unsourced physical/projection approximation. */
+export interface CoverageErrorBound {
+  boundary_cell_area_upper_bound_deg2: number;
+  area_error_upper_bound_deg2: number;
+  fraction_error_upper_bound: number;
+  geometry_projection_error_bound_deg2: null;
+  model: "cos_dec_weighted_ra_dec";
+}
+
+/** No area/fraction fields exist when the requested science cannot be measured. */
+export interface UnavailableCoverage {
+  coverage_basis: CoverageMeasurementBasis;
+  coverage_status: "under_resolved" | "no_contributors" | "unsupported_basis";
+  sampling?: CoverageSamplingMetadata;
+}
+
+/** Consumers must narrow unavailable results before reading numeric metrics. */
+export type CoverageResult = PlanMetrics | UnavailableCoverage;
 
 /** Nearby candidates and matched catalogue centers supporting a fitted grid. */
 export interface InferenceDiagnostics {

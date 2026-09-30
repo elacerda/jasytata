@@ -1,10 +1,10 @@
+import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import type { Footprint, InferencePolicy, SkyPolygon, TilingModel } from "../types";
 import bundle from "../profiles/splus-t80-south.json";
 import { createBundledProfileRegistry, DEFAULT_PROFILE, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { makeCenterProposals } from "./catalogue";
-import { measureActiveCoverage } from "./coverage";
 import { generateLatticeCandidates } from "./lattice";
 import { localOffsetToSky, skyToLocalOffset } from "./footprint-engine";
 import { planRegion } from "./planner";
@@ -17,7 +17,9 @@ const tiling: TilingModel = { type: "lattice", basis_deg: [[0.5, 0], [0.25, 0.5]
 function registryFor(geometry: Footprint, policy: TilingModel = tiling, inference: InferencePolicy = SPLUS_SURVEY_V2.inference) {
   const registry = createBundledProfileRegistry();
   registry.registerInstrumentProfile({ ...T80_SOUTH_INSTRUMENT_V2, id: "generic-camera", footprint: geometry });
-  registry.registerSurveyProfile({ ...SPLUS_SURVEY_V2, id: "generic-survey", instrument_id: "generic-camera", tiling: policy, inference });
+  registry.registerSurveyProfile({
+    // Resolve this geometry fixture within its budget; no implicit coarsening.
+ ...SPLUS_SURVEY_V2, coverage: { ...SPLUS_SURVEY_V2.coverage, sampling: { target_samples_per_footprint_axis: 24, max_samples: 90_000 } }, id: "generic-survey", instrument_id: "generic-camera", tiling: policy, inference });
   return registry;
 }
 
@@ -196,10 +198,10 @@ describe("Gate 4 planner tiling dispatch", () => {
     expect(() => planRegion(region, [], "generic-survey", undefined, "complete", registry)).toThrow(/generic-survey.*manual.*automatic tiling/);
     const manual = makeCenterProposals([{ ra_deg: 150, dec_deg: 0 }], "manual");
     const imported = makeCenterProposals([{ ra_deg: 150, dec_deg: 0 }], "imported_centers");
-    const metrics = measureActiveCoverage(region, [], manual, "generic-survey", undefined, registry);
+    const metrics = measureResolvedCoverage(region, [], manual, "generic-survey", undefined, registry);
     expect(metrics.selected_region_coverage).toBe(1);
-    expect(measureActiveCoverage(region, [], imported, "generic-survey", undefined, registry)).toEqual(metrics);
-    expect(measureActiveCoverage(region, [], [{ ...manual[0], enabled: false }], "generic-survey", undefined, registry).selected_region_coverage).toBe(0);
+    expect(measureResolvedCoverage(region, [], imported, "generic-survey", undefined, registry)).toEqual(metrics);
+    expect(measureResolvedCoverage(region, [], [{ ...manual[0], enabled: false }], "generic-survey", undefined, registry).selected_region_coverage).toBe(0);
   });
 
   it("exposes a basis for v1 authoring while retaining the frozen custom rectangle entry point", () => {
@@ -213,7 +215,9 @@ describe("Gate 4 planner tiling dispatch", () => {
   it("keeps the bundled strategy and an ordinary imported copy scientifically equivalent", () => {
     const registry = createBundledProfileRegistry();
     registry.registerInstrumentProfile({ ...JSON.parse(JSON.stringify(bundle.instrument)), id: "imported-camera" });
-    registry.registerSurveyProfile({ ...JSON.parse(JSON.stringify(bundle.survey)), id: "imported-survey", instrument_id: "imported-camera" });
+    registry.registerSurveyProfile({
+    // Resolve this geometry fixture within its budget; no implicit coarsening.
+ ...JSON.parse(JSON.stringify(bundle.survey)), id: "imported-survey", instrument_id: "imported-camera" });
     expect(resolvePlanningProfile(DEFAULT_PROFILE.id).tiling.type).toBe("legacy_splus");
     const original = planRegion(region, []);
     const imported = planRegion(region, [], "imported-survey", undefined, "complete", registry);

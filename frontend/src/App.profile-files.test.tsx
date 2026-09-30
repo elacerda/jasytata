@@ -51,7 +51,7 @@ const regionPlan: RegionPlanResponse = {
   inference: { nearby_tile_count: 0, anchor_tile_ids: [], compatible_neighbor_pairs: 0, dec_spacing_deg: null, ra_spacing_deg: null },
   diagnostics: [],
   metrics: {
-    existing_tiles_contributing: 0, new_tiles: 1, selected_region_area_deg2: 1,
+      coverage_basis: "legacy_v2", coverage_status: "resolved",    existing_tiles_contributing: 0, new_tiles: 1, selected_region_area_deg2: 1,
     already_covered_fraction: 0, selected_region_coverage: 1, incremental_coverage: 1,
     remaining_uncovered_fraction: 0, remaining_uncovered_area_deg2: 0,
     redundant_coverage: 0, outside_region_coverage_deg2: 0, sample_step_deg: 0.01,

@@ -1,6 +1,8 @@
-import type { CoveragePolicy, CoverageSamplingMetadata, CoverageStrategy, Footprint, PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CoverageMeasurementBasis, CoveragePolicy, CoverageResult, CoverageSamplingMetadata, UnavailableCoverage, CoverageStrategy, Footprint, PlanMetrics, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { polygonLocalGeometry, validatePolygon, type PolygonLocalGeometry } from "./geometry";
 import { createFootprintContainmentTester, createSkyToLocalProjector, footprintArea, footprintCharacteristicScale, footprintIntersectsRegion, footprintLocalBounds } from "./footprint-engine";
+import { coverageBasisForRun, coverageGeometryContext, coverageSemanticsForTile, tileContributesToBasis } from "./coverage-semantics";
+import { coverageErrorBound } from "./coverage-error";
 import type { Center } from "./grid";
 import { modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
 import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
@@ -12,6 +14,9 @@ import { pointingGeometriesIntersectRegion, pointingGeometryUnionArea, resolvePo
 // Minimum eight cells per axis is a frozen compatibility algorithm rule.
 // Scientific resolution and budget come from the validated survey profile.
 const LEGACY_MIN_POLYGON_SAMPLES_PER_AXIS = 8;
+type BoundaryGeometry = { center: Center; footprint: Footprint };
+const maskGeometries = new WeakMap<Uint8Array, BoundaryGeometry[]>();
+const gridPolygons = new WeakMap<CoverageGrid, SkyPolygon>();
 const MIN_INCREMENTAL_GAIN = 1e-10;
 type FootprintGeometry = Footprint | Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">;
 
@@ -30,6 +35,12 @@ export interface CoverageGrid {
   cellAreaDeg2: number;
   /** Unrounded generic resolution; absent on the compatibility path. */
   sampling?: CoverageSamplingMetadata;
+  coverageBasis?: CoverageMeasurementBasis;
+  geometryBasis?: "single_exposure" | "effective_sequence";
+  contributingSemantics?: PlanMetrics["contributing_semantics"];
+  outputSemantics?: { role: CoverageMeasurementBasis; fidelity: "exact" | "approximate" | null };
+  /** Boundary geometries used for the deterministic numerical bound. */
+  boundaryGeometries?: { center: Center; footprint: Footprint }[];
 }
 
 /** One chosen center and its selected-region footprint mask. */
@@ -38,6 +49,7 @@ export interface MaskedCenter {
   mask: Uint8Array;
   /** Physical area used for outside-region metrics when this is a sequence union. */
   physicalAreaDeg2?: number;
+  boundaryGeometries?: { center: Center; footprint: Footprint }[];
 }
 
 /** Sample an ICRS region with footprint-relative resolution and a bounded grid.
@@ -47,20 +59,22 @@ export interface MaskedCenter {
  * Cells evenly subdivide the full unwrapped bounds, with centers at half a cell
  * from the southwest edge. Rows increase DEC; columns increase unwrapped RA.
  * The existing strict ray-crossing polygon mask and cos(DEC) weights are retained.
- * Cell widths are at most the effective pitch in the midpoint local plane.
+ * Cell widths are at most the effective pitch in every contributing local frame.
  *
  * @param polygon - Validated ordered ICRS vertices in decimal-degree RA/DEC.
  * @param footprint - Output footprint in local degrees. Omit only for frozen legacy callers.
- * @param policy - Schema v2 numerical policy; required with a footprint.
+ * @param policy - Validated numerical policy; required with a footprint, density >= 8.
+ * @param contributingFootprints - Basis-filtered positive-area footprints, including
+ *   individual effective exposures; their minimum scale controls resolution.
  * @returns Weighted grid and unrounded audit metadata for generic sampling.
  *   The one-argument compatibility adapter retains the historical 0.01° layout.
  * @throws If arguments are unpaired, resolution/policy is invalid, or no cell is selected.
  */
-export function sampleRegion(polygon: SkyPolygon, footprint?: Footprint, policy?: CoveragePolicy): CoverageGrid {
+export function sampleRegion(polygon: SkyPolygon, footprint?: Footprint, policy?: CoveragePolicy, contributingFootprints?: readonly Footprint[]): CoverageGrid {
   if (Boolean(footprint) !== Boolean(policy)) throw new Error("Coverage sampling requires both footprint and policy");
   const geometry = polygonLocalGeometry(polygon);
   const layout = footprint && policy
-    ? scaleAwareSampleLayout(geometry, footprint, policy)
+    ? scaleAwareSampleLayout(geometry, footprint, policy, contributingFootprints)
     : legacySampleLayout(geometry, DEFAULT_PROFILE.tile_width_deg / SPLUS_SURVEY_V2.coverage.sampling.target_samples_per_footprint_axis, SPLUS_SURVEY_V2.coverage.sampling.max_samples);
   return sampleBounds(geometry, polygon, layout);
 }
@@ -91,21 +105,33 @@ interface SampleLayout {
   sampling?: CoverageSamplingMetadata;
 }
 
-/** Coarsen only the numerical pitch; allocate nothing until the full grid fits. */
-function scaleAwareSampleLayout({ bounds }: PolygonLocalGeometry, footprint: Footprint, policy: CoveragePolicy): SampleLayout {
+/** Fit a diagnostic grid within the cap; flag any loss of required resolution. */
+function scaleAwareSampleLayout({ bounds }: PolygonLocalGeometry, footprint: Footprint, policy: CoveragePolicy, contributors: readonly Footprint[] = [footprint]): SampleLayout {
   const { target_samples_per_footprint_axis: density, max_samples: maxSamples } = policy.sampling;
-  if (!Number.isSafeInteger(density) || density <= 0) throw new Error("Target samples per footprint axis must be a positive finite integer");
+  if (!Number.isSafeInteger(density) || density < 8) throw new Error("Target samples per footprint axis must be a positive finite integer >= 8");
   if (!Number.isSafeInteger(maxSamples) || maxSamples <= 0) throw new Error("Maximum coverage samples must be a positive finite integer");
-  const scale = footprintCharacteristicScale(footprint);
+  const scale = contributors.reduce((minimum, item) => Math.min(minimum, footprintCharacteristicScale(item)), Infinity);
   const naturalStep = scale / density;
   if (!Number.isFinite(naturalStep) || naturalStep <= 0) throw new Error("Natural coverage sample step must be finite and positive");
-  const centerDec = (bounds.dec_min_deg + bounds.dec_max_deg) / 2;
-  const width = bounds.ra_span_deg * Math.max(Math.cos(radians(centerDec)), 0.01);
+  // A footprint intersecting the region has its center within the region DEC
+  // range expanded by its rotated north reach. Use the largest cosine in that
+  // interval, so RA cells meet the required east pitch in every contributor's
+  // own frame, including pointings outside the polygon. Cos(DEC) weighting and
+  // the sky/local mapping are unchanged.
+  const northReach = contributors.reduce((maximum, item) => {
+    const extent = footprintLocalBounds(item);
+    return Math.max(maximum, Math.abs(extent.min_north_deg), Math.abs(extent.max_north_deg));
+  }, 0);
+  const low = Math.max(-90, bounds.dec_min_deg - northReach);
+  const high = Math.min(90, bounds.dec_max_deg + northReach);
+  const eastCosine = low <= 0 && high >= 0 ? 1 : Math.max(Math.cos(radians(low)), Math.cos(radians(high)), 0.01);
+  const width = bounds.ra_span_deg * eastCosine;
   const height = bounds.dec_max_deg - bounds.dec_min_deg;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) throw new Error("Coverage sample bounds must have finite positive extents");
   const dimensions = (step: number) => ({ rows: Math.max(1, Math.ceil(height / step)), cols: Math.max(1, Math.ceil(width / step)) });
   let step = naturalStep;
   let { rows, cols } = dimensions(step);
+  const requiredCount = rows * cols;
   const budgetLimited = rows > maxSamples / cols;
   if (budgetLimited) {
     // Inverse-square density estimate, with a separate one-cell case. Taking
@@ -121,9 +147,10 @@ function scaleAwareSampleLayout({ bounds }: PolygonLocalGeometry, footprint: Foo
     }
   }
   return { rows, cols, step, sampling: {
+    status: budgetLimited ? "under_resolved" : "resolved", required_sample_count: Number.isSafeInteger(requiredCount) ? requiredCount : null, row_count: rows, column_count: cols,
     characteristic_scale_deg: scale, natural_step_deg: naturalStep, effective_step_deg: step,
     sample_count: rows * cols, max_samples: maxSamples, budget_limited: budgetLimited,
-    cell_width_deg: width / cols, cell_height_deg: height / rows,
+    east_projection_cosine: eastCosine, cell_width_deg: width / cols, cell_height_deg: height / rows,
   } };
 }
 
@@ -183,8 +210,8 @@ function sampleBounds(
       if (inside) { weights[index] = weight; totalWeight += weight; selectedSamples += 1; }
     }
   }
-  if (!selectedSamples) throw new Error("Polygon is too small for the coverage sample resolution");
-  return {
+  if (!selectedSamples && sampling?.status !== "under_resolved") throw new Error("Polygon is too small for the coverage sample resolution");
+  const grid: CoverageGrid = {
     ra, dec, weights, totalWeight, stepDeg: step,
     ...(sampling ? { sampling: { ...sampling, sample_count: ra.length } } : {}),
     centerRaDeg: modulo(originRaDeg + bounds.ra_span_deg / 2, 360),
@@ -192,6 +219,8 @@ function sampleBounds(
     decMinDeg: bounds.dec_min_deg, decMaxDeg: bounds.dec_max_deg,
     cellAreaDeg2: (bounds.ra_span_deg / cols) * (heightDeg / rows),
   };
+  gridPolygons.set(grid, polygon);
+  return grid;
 }
 
 /** Flag selected sample cells inside a physical Schema v2 footprint.
@@ -209,6 +238,7 @@ export function tileMask(
 ): Uint8Array {
   const footprint = toFootprint(geometry);
   const mask = new Uint8Array(grid.ra.length);
+  maskGeometries.set(mask, [{ center: [raDeg, decDeg], footprint }]);
   const pointing = { ra_deg: raDeg, dec_deg: decDeg };
   const project = createSkyToLocalProjector(pointing);
   const contains = createFootprintContainmentTester(footprint);
@@ -257,7 +287,10 @@ export function coveredMask(
   let selectedSampleCount = 0;
   for (const weight of grid.weights) if (weight > 0) selectedSampleCount += 1;
   let coveredCount = 0;
+  const boundaries: BoundaryGeometry[] = [];
+  maskGeometries.set(covered, boundaries);
   for (const tile of tiles) {
+    if (!tileContributesToBasis(tile, profile, registry, grid.coverageBasis ?? coverageBasisForRun(profile, registry, geometryContext))) continue;
     let footprint = outputFootprint;
     if (tile.source === "original" && tile.instrument_profile_id) {
       const cached = footprints.get(tile.instrument_profile_id);
@@ -268,6 +301,7 @@ export function coveredMask(
       ? resolvePointingGeometries(tile, profile, registry, geometryContext)
       : [{ center: [tile.ra_deg, tile.dec_deg] as [number, number], footprint }];
     for (const geometry of geometries) {
+      boundaries.push(geometry);
       const mask = tileMask(grid, geometry.center[0], geometry.center[1], geometry.footprint);
       for (let index = 0; index < mask.length; index += 1) {
         if (mask[index] && !covered[index]) { covered[index] = 1; coveredCount += 1; }
@@ -298,6 +332,7 @@ export function contributingTileCountForTiles(
   const outputFootprint = outputFootprintForProfile(profile, registry);
   let total = 0;
   for (const tile of tiles) {
+    if (!tileContributesToBasis(tile, profile, registry, coverageBasisForRun(profile, registry, geometryContext))) continue;
     let footprint = outputFootprint;
     if (tile.source === "original" && tile.instrument_profile_id) {
       const cached = footprints.get(tile.instrument_profile_id);
@@ -345,6 +380,7 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, physicalAreaDeg2:
  * @throws If Efficient is requested without explicit policy.
  */
 export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete", efficientPolicy?: CoveragePolicy["efficient"]): MaskedCenter[] {
+  assertResolvedCoverage(grid);
   if (strategy === "efficient" && !efficientPolicy) throw new Error("Efficient selection requires coverage.efficient policy");
   const footprint = toFootprint(geometry);
   const physicalAreaDeg2 = footprintArea(footprint);
@@ -398,9 +434,12 @@ function compareScore(left: readonly number[], right: readonly number[]): number
  * @param geometry - Schema v2 output footprint or legacy rectangular tile dimensions.
  *   Its physical area is the fallback for each selected mask; effective-sequence
  *   proposals may carry their own overlap-aware union area.
- * @returns Current declination-weighted sampled fractions, areas in square degrees, and counts.
+ * @returns Applicable-basis fractions, areas in square degrees, counts and generic
+ *   numerical bounds; pure historical grids retain separately labeled metrics.
+ * @throws {CoverageUnavailableError} If required generic resolution exceeds the cap.
  */
 export function measureMetrics(selected: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, contributing: number, geometry: FootprintGeometry): PlanMetrics {
+  assertResolvedCoverage(grid);
   const footprint = toFootprint(geometry);
   const physicalAreaDeg2 = footprintArea(footprint);
   const covered = existingMask.slice();
@@ -422,7 +461,20 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
   const incremental = weightSum(grid, newCovered) / total;
   const redundant = selected.length ? redundantSampleWeight / Math.max(proposedSampleWeight, 1e-12) : 0;
   const area = grid.totalWeight * grid.cellAreaDeg2;
+  const unknownBoundary = (!maskGeometries.has(existingMask) && existingMask.some(Boolean)) ||
+    selected.some((item) => !item.boundaryGeometries && !maskGeometries.has(item.mask) && item.mask.some(Boolean));
+  const boundaries = [
+    ...(maskGeometries.get(existingMask) ?? grid.boundaryGeometries ?? []),
+    ...selected.flatMap((item) => item.boundaryGeometries ?? maskGeometries.get(item.mask) ?? [{ center: item.center, footprint }]),
+  ];
+  const errorBound = grid.sampling && gridPolygons.has(grid)
+    ? coverageErrorBound(grid, gridPolygons.get(grid)!, boundaries, unknownBoundary) : undefined;
   return {
+    coverage_basis: grid.coverageBasis ?? "legacy_v2", coverage_status: grid.sampling ? "resolved" : "legacy_compatible",
+    authoritative_observed_area: grid.coverageBasis === "observed_area" && grid.sampling?.status === "resolved",
+    geometry_basis: grid.geometryBasis ?? "single_exposure",
+    ...(grid.contributingSemantics ? { contributing_semantics: uniqueSemantics([...grid.contributingSemantics, ...(selected.length && grid.outputSemantics ? [grid.outputSemantics] : [])]) } : {}),
+    ...(errorBound ? { error_bound: errorBound } : {}),
     existing_tiles_contributing: contributing, new_tiles: selected.length,
     selected_region_area_deg2: roundDecimal(area, 4),
     already_covered_fraction: roundDecimal(alreadyCovered, 5),
@@ -445,7 +497,8 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
  * @param inlineProfile - Session-only custom profile, if any.
  * @param registry - Session-local registry used to resolve source instrument profiles.
  * @param geometryContext - Optional PA and single/effective-sequence coverage basis.
- * @returns Current sampled-coverage metrics for enabled existing and proposed footprints.
+ * @returns Resolved basis-labeled metrics, or a machine-readable unavailable result
+ *   with no numeric area/fraction fields. Target access is never an area metric.
  * @throws On invalid polygon/profile, unknown instrument ID,
  *   or non-proposal editable record.
  */
@@ -457,20 +510,26 @@ export function measureActiveCoverage(
   inlineProfile?: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
   geometryContext?: PointingGeometryContext,
-): PlanMetrics {
+): CoverageResult {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000 || proposedTiles.length > 500) throw new Error("Too many tile records");
   if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Coverage edits may contain only proposed tiles");
-  const { profile, tiling } = resolvePlanningProfile(profileId, inlineProfile, registry);
+  const { profile } = resolvePlanningProfile(profileId, inlineProfile, registry);
   const outputFootprint = outputFootprintForProfile(profile, registry);
-  const grid = inlineProfile
-    ? sampleRegion(polygon)
-    : tiling.type === "legacy_splus"
-      ? sampleLegacyRegion(polygon, tiling.grid_extent_deg, registry.resolveSurveyProfile(profile.id).coverage)
-      : sampleRegion(polygon, outputFootprint, registry.resolveSurveyProfile(profile.id).coverage);
   const activeExisting = existingTiles.filter((tile) => tile.enabled !== false);
+  const activeProposed = proposedTiles.filter((tile) => tile.enabled !== false);
+  const context = coverageGeometryContext([...activeExisting, ...activeProposed], profile, registry, geometryContext);
+  geometryContext = context;
+  const basis = coverageBasisForRun(profile, registry, context);
+  if (basis === "target_access") return { coverage_basis: basis, coverage_status: "unsupported_basis" };
+  if (![...activeExisting, ...activeProposed].some((tile) => tileContributesToBasis(tile, profile, registry, basis)) &&
+    ([...activeExisting, ...activeProposed].length || !tileContributesToBasis({ source: "proposed" } as TileRecord, profile, registry, basis))) {
+    return { coverage_basis: basis, coverage_status: "no_contributors" };
+  }
+  const grid = prepareCoverageGrid(polygon, activeExisting, profile, registry, context, activeProposed);
+  if (grid.sampling?.status === "under_resolved") return unavailableCoverage(grid);
   const existing = coveredMask(grid, activeExisting, profile, registry, geometryContext);
-  const selected = proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => {
+  const selected = activeProposed.filter((tile) => tileContributesToBasis(tile, profile, registry, basis)).map((tile) => {
     if (!geometryContext) {
       return { center: [tile.ra_deg, tile.dec_deg] as Center, mask: tileMask(grid, tile.ra_deg, tile.dec_deg, outputFootprint) };
     }
@@ -489,7 +548,107 @@ export function measureActiveCoverage(
     const physicalAreaDeg2 = sequence
       ? pointingGeometryUnionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
       : undefined;
-    return { center: [tile.ra_deg, tile.dec_deg] as Center, mask, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) };
+    return { center: [tile.ra_deg, tile.dec_deg] as Center, mask, boundaryGeometries: geometries, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) };
   });
   return measureMetrics(selected, existing, grid, contributingTileCountForTiles(polygon, activeExisting, profile, registry, geometryContext), outputFootprint);
+}
+
+/** Machine-readable scientific refusal, also used by Complete/Efficient planning. */
+export class CoverageUnavailableError extends Error {
+  /**
+   * @param result - Unavailable metric, containing no numeric coverage claims.
+   */
+  constructor(public readonly result: UnavailableCoverage) {
+    super(`Coverage status: ${result.coverage_status} (${result.coverage_basis}); no authoritative area fraction is available.`);
+    this.name = "CoverageUnavailableError";
+  }
+}
+
+/** Extract budget metadata without publishing diagnostic coarse fractions.
+ * @param grid - Generic diagnostic grid.
+ * @returns Explicit unavailable result without fraction or completion fields.
+ */
+export function unavailableCoverage(grid: CoverageGrid): UnavailableCoverage {
+  return { coverage_basis: grid.coverageBasis ?? "legacy_v2", coverage_status: "under_resolved", sampling: grid.sampling };
+}
+
+/** Refuse using an unresolved grid for metrics or greedy selection.
+ * @param grid - Grid whose resolution was decided before allocation.
+ * @throws {CoverageUnavailableError} If the correctness pitch exceeds the budget.
+ */
+export function assertResolvedCoverage(grid: CoverageGrid): void {
+  if (grid.sampling?.status === "under_resolved") throw new CoverageUnavailableError(unavailableCoverage(grid));
+}
+
+/** Construct a basis-filtered grid from all positive-area effective contributors.
+ *
+ * Pure compatibility geometry retains its historical layout. Mixed scales and
+ * any v3 geometry use the generic hard-budget contract; v2 stays unclassified.
+ * Candidate geometry participates for planning, independently of source masks.
+ *
+ * @param polygon - Validated ICRS region in degrees.
+ * @param tiles - Enabled actual pointings, before greedy selection.
+ * @param profile - Registered survey bridge or inline legacy rectangle.
+ * @param registry - Session profiles; no persisted profile is mutated.
+ * @param context - Scientific basis and Gate 5 geometry choices.
+ * @param candidates - Optional nominal output pointings for planning resolution.
+ * @returns Weighted grid, basis, and boundary geometries for error bounds.
+ */
+export function prepareCoverageGrid(
+  polygon: SkyPolygon, tiles: readonly TileRecord[], profile: TilingProfile,
+  registry: ProfileRegistry = profileRegistry, context?: PointingGeometryContext,
+  candidates: readonly TileRecord[] = [],
+): CoverageGrid {
+  const basis = coverageBasisForRun(profile, registry, context);
+  context = coverageGeometryContext([...tiles, ...candidates], profile, registry, context);
+  const footprint = outputFootprintForProfile(profile, registry);
+  const survey = profile.id === "custom" && profile.algorithm === "RECT_GRID_V1" ? undefined : registry.findAnySurveyProfile(profile.id);
+  const all = [...tiles, ...candidates];
+  const sourceSet = new Set(tiles);
+  const candidateSet = new Set(candidates);
+  const eligible = all.filter((tile) => tileContributesToBasis(tile, profile, registry, basis));
+  const resolved = eligible.map((tile) => ({ tile, geometries: resolveSamplingGeometries(tile, profile, registry, context, candidateSet.has(tile))
+    .filter((geometry) => footprintIntersectsRegion(geometry.footprint, { ra_deg: geometry.center[0], dec_deg: geometry.center[1] }, polygon)) }));
+  const geometries = resolved.flatMap((item) => item.geometries);
+  const scales = geometries.map((geometry) => footprintCharacteristicScale(geometry.footprint));
+  const outputScale = footprintCharacteristicScale(footprint);
+  const mixedScale = scales.some((scale) => scale !== outputScale);
+  const hasV3 = survey?.schema_version === 3 || coverageSemanticsForTile({ source: "proposed" } as TileRecord, profile, registry) !== undefined ||
+    all.some((tile) => coverageSemanticsForTile(tile, profile, registry) !== undefined);
+  const compatibility = basis === "legacy_v2" && !mixedScale && !hasV3 && (!survey || survey.tiling.type === "legacy_splus");
+  const policy = survey?.coverage ?? SPLUS_SURVEY_V2.coverage;
+  if (context?.targetSamplesPerFootprintAxis !== undefined && (!Number.isSafeInteger(context.targetSamplesPerFootprintAxis) || context.targetSamplesPerFootprintAxis < 8)) throw new Error("Run-level coverage density must be an integer >= 8");
+  const density = survey?.schema_version === 3 ? survey.coverage.target_samples_per_footprint_axis
+    : mixedScale || hasV3 ? Math.max(8, context?.targetSamplesPerFootprintAxis ?? 8)
+      : Math.max(8, policy.sampling.target_samples_per_footprint_axis);
+  if (!Number.isSafeInteger(density) || density < 8) throw new Error("Coverage density must be an integer >= 8");
+  const grid = compatibility
+    ? survey?.tiling.type === "legacy_splus" ? sampleLegacyRegion(polygon, survey.tiling.grid_extent_deg, policy) : sampleRegion(polygon)
+    : sampleRegion(polygon, footprint, { ...policy, sampling: { ...policy.sampling, target_samples_per_footprint_axis: density } },
+      geometries.length ? geometries.map((geometry) => geometry.footprint) : [footprint]);
+  grid.coverageBasis = basis;
+  grid.geometryBasis = context?.coverageBasis ?? "single_exposure";
+  const outputSemantics = coverageSemanticsForTile({ source: "proposed" } as TileRecord, profile, registry);
+  grid.outputSemantics = { role: outputSemantics?.role ?? "legacy_v2", fidelity: outputSemantics?.fidelity ?? null };
+  grid.contributingSemantics = [...new Map(resolved.filter((item) => item.geometries.length && sourceSet.has(item.tile)).map(({ tile }) => {
+    const semantics = coverageSemanticsForTile(tile, profile, registry);
+    const value = { role: semantics?.role ?? "legacy_v2" as const, fidelity: semantics?.fidelity ?? null };
+    return [JSON.stringify(value), value] as const;
+  })).values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  grid.boundaryGeometries = resolved.filter((item) => sourceSet.has(item.tile)).flatMap((item) => item.geometries);
+  return grid;
+}
+
+function resolveSamplingGeometries(tile: TileRecord, profile: TilingProfile, registry: ProfileRegistry, context: PointingGeometryContext | undefined, candidate: boolean) {
+  try { return resolvePointingGeometries(tile, profile, registry, context); }
+  catch (error) {
+    if (candidate && error instanceof Error && /per-pointing PA policy requires/i.test(error.message)) {
+      throw new Error("Automatic planner proposals cannot satisfy required per-pointing PA; select PA for each proposed pointing before planning.");
+    }
+    throw error;
+  }
+}
+
+function uniqueSemantics(values: NonNullable<PlanMetrics["contributing_semantics"]>): NonNullable<PlanMetrics["contributing_semantics"]> {
+  return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }

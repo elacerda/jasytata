@@ -35,7 +35,7 @@ function polygonAround(ra: number, dec: number, halfEast: number, halfNorth: num
 function registryFor(footprint: Footprint, tiling: GenericLatticeTiling) {
   const registry = createBundledProfileRegistry();
   registry.registerInstrumentProfile({ ...T80_SOUTH_INSTRUMENT_V2, id: "gate4-camera", footprint });
-  registry.registerSurveyProfile({ ...SPLUS_SURVEY_V2, id: "gate4-survey", instrument_id: "gate4-camera", tiling,
+  registry.registerSurveyProfile({ ...SPLUS_SURVEY_V2, coverage: { ...SPLUS_SURVEY_V2.coverage, sampling: { target_samples_per_footprint_axis: 24, max_samples: 90_000 } }, id: "gate4-survey", instrument_id: "gate4-camera", tiling,
     inference: { ...SPLUS_SURVEY_V2.inference, enabled: false } });
   return registry;
 }
@@ -214,7 +214,7 @@ describe("v0.4 Gate 4 admissible sites and plans", () => {
 
     const registered = createBundledProfileRegistry();
     registered.registerInstrumentProfile({ ...T80_SOUTH_INSTRUMENT_V2, id: "gate4-small-camera", footprint: { type: "rectangle", width_deg: 0.4, height_deg: 0.4 } });
-    registered.registerSurveyProfile({ ...SPLUS_SURVEY_V2, id: "gate4-legacy", instrument_id: "gate4-small-camera",
+    registered.registerSurveyProfile({ ...SPLUS_SURVEY_V2, coverage: { ...SPLUS_SURVEY_V2.coverage, sampling: { target_samples_per_footprint_axis: 24, max_samples: 90_000 } }, id: "gate4-legacy", instrument_id: "gate4-small-camera",
       tiling: { type: "legacy_splus", grid_extent_deg: [0.4, 0.4], effective_overlap_arcsec: 0 },
       inference: { ...SPLUS_SURVEY_V2.inference, enabled: false } });
     const v2 = planRegion(region, [], "gate4-legacy", undefined, "complete", registered);

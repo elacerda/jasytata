@@ -22,7 +22,9 @@ function registryFor(cameraFootprint: Footprint = footprint) {
   const registry = createBundledProfileRegistry();
   registry.registerInstrumentProfile({ ...T80_SOUTH_INSTRUMENT_V2, id: "gate5-planner-camera", footprint: cameraFootprint });
   registry.registerSurveyProfile({
-    ...SPLUS_SURVEY_V2, id: "gate5-planner-survey", instrument_id: "gate5-planner-camera", tiling, inference,
+    // Resolve this geometry fixture within its budget; no implicit coarsening.
+
+    ...SPLUS_SURVEY_V2, coverage: { ...SPLUS_SURVEY_V2.coverage, sampling: { target_samples_per_footprint_axis: 24, max_samples: 90_000 } }, id: "gate5-planner-survey", instrument_id: "gate5-planner-camera", tiling, inference,
   });
   return registry;
 }

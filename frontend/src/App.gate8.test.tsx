@@ -1,3 +1,4 @@
+import { measureResolvedCoverage } from "./science/test-support/resolved-coverage";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +8,7 @@ import type { ProfileRegistry } from "./profiles/registry";
 import { createBundledProfileRegistry } from "./profiles/registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import { planRegion } from "./science/planner";
-import { measureActiveCoverage } from "./science/coverage";
+import {} from "./science/coverage";
 import { buildExportCsv } from "./science/export";
 import { readCsv } from "./science/catalogue";
 import { outputFootprintForProfile } from "./profiles/footprints";
@@ -100,7 +101,7 @@ describe("Gate 8 real App workflow matrix", () => {
       expect(footprint).toEqual(fixture.document.instrument.footprint);
       expect(tileFootprintBoundaries(accepted[0], footprint)).toHaveLength(fixture.key === "mosaic" ? 2 : 1);
       expect(accepted.every((t) => t.position_angle_deg === cameraPa(fixture.document))).toBe(true);
-      expect(measureActiveCoverage(fixture.region, [], accepted, fixture.document.survey.id, undefined, session.registry!).selected_region_coverage).toBe(1);
+      expect(measureResolvedCoverage(fixture.region, [], accepted, fixture.document.survey.id, undefined, session.registry!).selected_region_coverage).toBe(1);
       await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
       const csv = await blobText(downloads.at(-1)!);
       expect(csv).toBe(buildExportCsv(accepted, fixture.document.survey));
@@ -136,7 +137,7 @@ describe("Gate 8 real App workflow matrix", () => {
     expect(rows.map((t) => t.generation_method)).toEqual(["manual", "imported_centers"]);
     expect(rows.every((t) => t.ra_deg === fixture.origin.ra_deg && t.dec_deg === fixture.origin.dec_deg && !Object.hasOwn(t.metadata, "lattice_i"))).toBe(true);
     expect(rows.every((t) => t.position_angle_deg === cameraPa(fixture.document))).toBe(true);
-    const metrics = measureActiveCoverage(fixture.region, [], rows, fixture.document.survey.id, undefined, session.registry!);
+    const metrics = measureResolvedCoverage(fixture.region, [], rows, fixture.document.survey.id, undefined, session.registry!);
     expect(metrics.selected_region_coverage).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
     expect(await blobText(downloads.at(-1)!)).toBe(buildExportCsv(rows, fixture.document.survey));
@@ -160,7 +161,7 @@ describe("Gate 8 real App workflow matrix", () => {
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
     const accepted = session.map!.tiles.filter((t) => t.source === "proposed");
     expect(accepted.length).toBeGreaterThan(0);
-    const coverage = () => measureActiveCoverage(mosaic.region, sources, session.map!.tiles.filter((t) => t.source === "proposed"), mosaic.document.survey.id, undefined, session.registry!);
+    const coverage = () => measureResolvedCoverage(mosaic.region, sources, session.map!.tiles.filter((t) => t.source === "proposed"), mosaic.document.survey.id, undefined, session.registry!);
     const enabledCoverage = coverage(); expect(enabledCoverage.selected_region_coverage).toBe(1);
     await user.click(screen.getByRole("button", { name: "Disable all" }));
     expect(coverage().selected_region_coverage).toBeLessThan(enabledCoverage.selected_region_coverage);
@@ -254,7 +255,7 @@ describe("Gate 8 real App workflow matrix", () => {
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
     const accepted = session.map!.tiles.filter((t) => t.source === "proposed");
     expect(accepted).toHaveLength(plannerContract.plans.historical_holdout.new_tiles);
-    expect(measureActiveCoverage(fixture.polygon, sources, accepted).selected_region_coverage)
+    expect(measureResolvedCoverage(fixture.polygon, sources, accepted).selected_region_coverage)
       .toBe(plannerContract.plans.historical_holdout.selected_region_coverage);
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
     expect(await blobText(downloads.at(-1)!)).toBe(buildExportCsv(accepted, cases[0].document.survey));

@@ -5,10 +5,10 @@ import { profileRegistry, type ProfileRegistry } from "./registry";
 
 /** Resolve declared survey tiling and the transitional coverage profile together.
  *
- * Registered Schema v2 surveys supply physical geometry through their instrument.
+ * Registered Schema v2/v3 surveys supply physical geometry through their instrument.
  * A v1 custom rectangle is an authoring convenience: its dimensions and overlap
  * construct an axis-aligned basis once, with region-center placement.
- * Only v1 inputs inherit the bundled historical Efficient policy; Schema v2
+ * Only v1 inputs inherit the bundled historical Efficient policy; registered
  * surveys return their own optional policy without compatibility defaults.
  *
  * @param id - Registered survey ID, bundled preset ID, or custom.
@@ -31,7 +31,7 @@ export function resolvePlanningProfile(
       origin: { type: "region_center" },
     } };
   }
-  const survey = registry.resolveSurveyProfile(id);
+  const survey = registry.resolveAnySurveyProfile(id);
   const instrument = registry.resolveInstrumentProfile(survey.instrument_id);
   const footprint = instrument.footprint;
   const bounds = footprintLocalBounds(footprint);

@@ -1,6 +1,6 @@
+import { measureResolvedCoverage } from "../science/test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import type { Footprint, SkyPolygon, TileRecord } from "../types";
-import { measureActiveCoverage } from "../science/coverage";
 import { planRegion } from "../science/planner";
 import { parseProfileJsonV2, serializeProfile, validateProfileDocumentV2 } from "./document";
 import { ProfileError } from "./errors";
@@ -127,7 +127,7 @@ describe("Schema v2 profile file lifecycle", () => {
     const empty = new ProfileRegistry();
     expect(() => resolvePlanningProfile("splus-t80-south", undefined, empty)).toThrow(/Unknown survey profile ID/);
     expect(() => planRegion(region, [], "splus-t80-south", undefined, "complete", empty)).toThrow(/Unknown survey profile ID/);
-    expect(() => measureActiveCoverage(region, [], [], "splus-t80-south", undefined, empty)).toThrow(/Unknown survey profile ID/);
+    expect(() => measureResolvedCoverage(region, [], [], "splus-t80-south", undefined, empty)).toThrow(/Unknown survey profile ID/);
   });
 
   it("preserves defensive copies and deterministic listing for imported profiles", () => {
@@ -148,7 +148,8 @@ describe("Schema v2 profile file lifecycle", () => {
       { offset_deg: [0.1, 0], rotation_deg: 20, footprint: { type: "circle", radius_deg: 0.05 } },
     ] },
   ])("round-trips supported $type geometry and its planning/coverage behavior", (footprint) => {
-    const original = validateProfileDocumentV2({ ...smallJson, instrument: { ...smallJson.instrument, footprint } });
+    const original = validateProfileDocumentV2({ ...smallJson, instrument: { ...smallJson.instrument, footprint },
+      survey: { ...smallJson.survey, coverage: { ...smallJson.survey.coverage, sampling: { ...smallJson.survey.coverage.sampling, max_samples: 100_000 } } } });
     const text = serializeProfile(original);
     const reimported = parseProfileJsonV2(text);
     expect(reimported).toEqual(original);
@@ -158,8 +159,8 @@ describe("Schema v2 profile file lifecycle", () => {
     const planned = planRegion(region, [], original.survey.id, undefined, "complete", before);
     expect(planned.tiles.length).toBeGreaterThan(0);
     expect(planRegion(region, [], original.survey.id, undefined, "complete", after)).toEqual(planned);
-    expect(measureActiveCoverage(region, [], planned.tiles, original.survey.id, undefined, after))
-      .toEqual(measureActiveCoverage(region, [], planned.tiles, original.survey.id, undefined, before));
+    expect(measureResolvedCoverage(region, [], planned.tiles, original.survey.id, undefined, after))
+      .toEqual(measureResolvedCoverage(region, [], planned.tiles, original.survey.id, undefined, before));
   });
 
   it("keeps registered and inline science distinct even when their profile IDs match", () => {
@@ -170,8 +171,8 @@ describe("Schema v2 profile file lifecycle", () => {
     expect(outputFootprintForProfile(inlineProfile, registry)).toEqual({ type: "rectangle", width_deg: 0.3, height_deg: 0.2 });
     const normal = planRegion(region, [], "custom", inline, "complete", new ProfileRegistry());
     expect(planRegion(region, [], "custom", inline, "complete", registry)).toEqual(normal);
-    expect(measureActiveCoverage(region, [], normal.tiles, "custom", inline, registry))
-      .toEqual(measureActiveCoverage(region, [], normal.tiles, "custom", inline, new ProfileRegistry()));
+    expect(measureResolvedCoverage(region, [], normal.tiles, "custom", inline, registry))
+      .toEqual(measureResolvedCoverage(region, [], normal.tiles, "custom", inline, new ProfileRegistry()));
     expect(outputFootprintForProfile(resolvePlanningProfile("custom", undefined, registry).profile, registry)).toEqual(smallJson.instrument.footprint);
   });
 
@@ -199,7 +200,7 @@ describe("Schema v2 profile file lifecycle", () => {
     const result = planRegion(region, [], "small-survey", undefined, "efficient", registry);
     expect(result.solution).toBe("declared_lattice");
     expect(result.metrics.sampling?.max_samples).toBe(20000);
-    expect(measureActiveCoverage(region, [], result.tiles, "small-survey", undefined, registry).selected_region_coverage).toBeGreaterThan(0.9);
+    expect(measureResolvedCoverage(region, [], result.tiles, "small-survey", undefined, registry).selected_region_coverage).toBeGreaterThan(0.9);
   });
 });
 
@@ -230,8 +231,8 @@ describe("bundled/imported T80 scientific equivalence", () => {
       expect(fromFile).toEqual(normal);
       expect(fromFile.tiles.length).toBeGreaterThan(0);
       expect(fromFile.solution).toBe(tiles.length ? "extended_existing_grid" : "profile_fallback");
-      expect(measureActiveCoverage(t80Region, tiles, fromFile.tiles, copy.survey.id, undefined, imported))
-        .toEqual(measureActiveCoverage(t80Region, tiles, normal.tiles, reference.survey.id, undefined, bundled));
+      expect(measureResolvedCoverage(t80Region, tiles, fromFile.tiles, copy.survey.id, undefined, imported))
+        .toEqual(measureResolvedCoverage(t80Region, tiles, normal.tiles, reference.survey.id, undefined, bundled));
     }
     expect(serializeProfile(copy)).toBe(text);
   });

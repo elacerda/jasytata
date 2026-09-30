@@ -136,8 +136,8 @@ export function footprintArea(footprint: Footprint): number {
 
 /** Determine the intrinsic smaller extent used for relative coverage sampling.
  *
- * Rectangle: smaller side; circle: diameter; polygon: smaller positive extent
- * of its unrotated vertex bounding box. Compound: recursively the minimum child
+ * Rectangle: smaller side; circle: diameter; polygon: minimum support-line width
+ * of its convex hull (also for a concave polygon). Compound: recursively the minimum child
  * scale, independent of offsets and parent/child rotations. Widely separated
  * detectors therefore retain detector-scale resolution rather than mosaic-span
  * resolution. This does not guarantee resolution of gaps narrower than a step.
@@ -151,10 +151,19 @@ export function footprintCharacteristicScale(footprint: Footprint): number {
   if (footprint.type === "rectangle") scale = Math.min(footprint.width_deg, footprint.height_deg);
   else if (footprint.type === "circle") scale = 2 * footprint.radius_deg;
   else if (footprint.type === "polygon") {
-    const east = footprint.vertices_deg.map(([x]) => x);
-    const north = footprint.vertices_deg.map(([, y]) => y);
-    const extents = [Math.max(...east) - Math.min(...east), Math.max(...north) - Math.min(...north)];
-    scale = Math.min(...extents.filter((extent) => extent > 0));
+    // The minimum support width occurs normal to a convex-hull edge. Testing
+    // every vertex pair includes those edges without changing polygon geometry.
+    scale = Infinity;
+    for (let i = 0; i < footprint.vertices_deg.length; i += 1) {
+      for (let j = i + 1; j < footprint.vertices_deg.length; j += 1) {
+        const [x, y] = footprint.vertices_deg[i];
+        const [u, v] = footprint.vertices_deg[j];
+        const length = Math.hypot(u - x, v - y);
+        if (!length) continue;
+        const projections = footprint.vertices_deg.map(([e, n]) => ((v - y) * e - (u - x) * n) / length);
+        scale = Math.min(scale, Math.max(...projections) - Math.min(...projections));
+      }
+    }
   } else {
     scale = Math.min(...footprint.components.map((component) => footprintCharacteristicScale(component.footprint)));
   }
