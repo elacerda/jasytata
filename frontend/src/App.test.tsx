@@ -179,8 +179,8 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
-    await waitFor(() => expect(screen.getByText(/Coverage unavailable: under_resolved/)).toBeTruthy());
-    expect(screen.queryByText("Final region coverage")).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Coverage unavailable at required resolution/)).toBeTruthy());
+    expect(screen.queryByText("Legacy survey coverage")).toBeNull();
     expect(screen.queryByText("Remaining uncovered")).toBeNull();
     expect(screen.queryByText("100.0%")).toBeNull();
   });
@@ -284,7 +284,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
     expect(await screen.findByText("Profile fallback")).toBeTruthy();
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
-    expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%");
+    expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("100.0%");
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete", expect.any(Object),
     );

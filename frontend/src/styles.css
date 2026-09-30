@@ -111,6 +111,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .profile-readout { display: grid; gap: 5px; margin: 11px 0; }
 .profile-readout span, .profile-geometry label { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #61777d; font-size: 10px; }
 .profile-readout strong { max-width: 70%; color: #2d4c52; font: 10px var(--mono); text-align: right; overflow-wrap: anywhere; }
+.scientific-details, .pointing-science, .scientific-help, .scientific-batch-pa, .scientific-coverage { color: #38545b; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.scientific-details { margin: 10px 0; }
+.scientific-details summary { cursor: pointer; font-weight: 650; padding: 5px 0; }
+.scientific-details summary:focus-visible { outline: 2px solid #038b97; outline-offset: 2px; }
+.scientific-details h3 { margin: 12px 0 6px; font-size: 11px; }
+.scientific-details h4 { margin: 10px 0 4px; font-size: 11px; }
+.scientific-details ul { padding-left: 18px; margin: 4px 0 10px; }
+.scientific-details li + li { margin-top: 5px; }
+.scientific-details a, .pointing-science a { color: #15656e; text-decoration: underline; text-underline-offset: 2px; }
+.scientific-help, .pointing-science p, .scientific-coverage p { margin: 6px 0; }
+.scientific-profile > span, .scientific-profile strong { color: #38545b; font-size: 11px; }
+.scientific-control { margin-top: 12px; }
+.scientific-batch-pa { display: flex; align-items: flex-start; gap: 7px; }
+.scientific-batch-pa input { margin-top: 4px; flex-shrink: 0; }
+.pointing-science { margin: 10px 0; }
+.scientific-id { font-family: var(--mono); }
+.scientific-coverage .metric-row, .scientific-details .metric-row { align-items: baseline; gap: 10px; font-size: 11px; }
+.scientific-coverage .metric-row strong, .scientific-details .metric-row strong { max-width: 56%; text-align: right; font-size: 11px; overflow-wrap: anywhere; }
+.preview-pa { margin-left: auto; max-width: 46%; color: #38545b; font-size: 11px; text-align: right; }
+.app-shell[data-theme="dark"] .scientific-details a, .app-shell[data-theme="dark"] .pointing-science a { color: #81d9e3 !important; }
 .profile-draft-label { margin: 10px 0; color: #55747a; font-size: 10px; }
 .profile-geometry { display: grid; gap: 8px; margin: 10px 0; }
 .profile-geometry label span { display: flex; align-items: center; gap: 5px; color: #5a7076; font: 10px var(--mono); }

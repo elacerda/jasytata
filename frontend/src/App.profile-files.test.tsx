@@ -304,7 +304,7 @@ describe("minimal browser profile file controls", () => {
     await user.click(screen.getByRole("button", { name: "Download manual_centers.csv" }));
 
     await user.selectOptions(selector, "instrument:sdss-lvm-i-science-ifu");
-    expect(within(screen.getByLabelText("Active instrument summary")).getByText(/Approximate nominal planning envelope/)).toBeTruthy();
+    expect(within(screen.getByLabelText("Active instrument summary")).getByText(/Nominal envelope · Approximate/)).toBeTruthy();
     expect(screen.queryByRole("spinbutton", { name: "Required pointing PA in degrees east of north" })).toBeNull();
     expect(screen.getByText("0 generated · 0 enabled · 0 disabled")).toBeTruthy();
 
@@ -320,7 +320,7 @@ describe("minimal browser profile file controls", () => {
 
     await user.selectOptions(selector, "survey:sami-dr1-seven-position");
     expect(within(screen.getByLabelText("Active survey summary")).getByText(/AAT \/ SAMI 61-core/)).toBeTruthy();
-    expect(within(screen.getByLabelText("Active survey summary")).getByText("7 ordered nominal positions")).toBeTruthy();
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("7 ordered exposures")).toBeTruthy();
     await user.selectOptions(selector, "survey:splus-t80-south");
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Legacy S-PLUS grid")).toBeTruthy();
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Legacy v2 behavior · role not classified")).toBeTruthy();
@@ -342,7 +342,7 @@ describe("minimal browser profile file controls", () => {
     await screen.findByText(/Imported instrument profile: User-selected MUSE geometry/);
     const selector = screen.getByRole("combobox", { name: "Output profile" });
     await user.selectOptions(selector, "instrument:browser-user-selected-muse");
-    const pa = screen.getByRole("spinbutton", { name: "Required pointing PA in degrees east of north" });
+    const pa = screen.getByRole("spinbutton", { name: "Plan/session PA in degrees east of north" });
     await user.type(pa, "42.5");
     await user.click(screen.getByRole("button", { name: /^Single tile/ }));
     await user.click(screen.getByRole("button", { name: "Mock place tile" }));
@@ -355,7 +355,7 @@ describe("minimal browser profile file controls", () => {
     expect(screen.getByText("0 generated · 0 enabled · 0 disabled")).toBeTruthy();
     await user.selectOptions(selector, "instrument:browser-user-selected-muse");
     expect(screen.getByText("1 generated · 1 enabled · 0 disabled")).toBeTruthy();
-    expect(screen.getByRole("spinbutton", { name: "Required pointing PA in degrees east of north" })).toHaveValue(null);
+    expect(screen.getByRole("spinbutton", { name: "Plan/session PA in degrees east of north" })).toHaveValue(null);
     await user.click(screen.getByRole("button", { name: "Download manual_centers.csv" }));
     const rows = readCsv(await blobText(downloads.blobs[0]));
     expect(rows[1]).toContain("42.50000000");
@@ -418,7 +418,7 @@ describe("minimal browser profile file controls", () => {
     };
     const pairDocument = { instrument: pairInstrument, survey: pairStrategy };
     await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(serializeProfile(pairDocument)));
-    await screen.findByText(/Imported strategy: Browser pair strategy/);
+    await screen.findByText(/Imported matching pair: Browser pair camera \+ Browser pair strategy/);
     await user.selectOptions(selector, "survey:browser-pair-strategy");
     const pairDownload = captureFileDownloads("browser-pair-strategy.json");
     await user.click(screen.getByRole("button", { name: "Export strategy JSON" }));
@@ -615,7 +615,8 @@ describe("minimal browser profile file controls", () => {
     expect(screen.getByText("Manual coverage")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("does not support automatic region planning");
+    expect(screen.getByText("Manual strategy: select a region to measure the declared geometry.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Measure selected geometry" })).toBeEnabled();
     expect(apiSession.planRegion).not.toHaveBeenCalled();
   });
 
@@ -827,7 +828,8 @@ describe("minimal browser profile file controls", () => {
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("no declared camera position angle required by 'camera_pa'");
+    expect(await screen.findByText(/no declared camera position angle required by 'camera_pa'/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Download new_tiles.csv/ })).toBeDisabled();
     expect(downloads.click).not.toHaveBeenCalled(); expect(downloads.blobs).toEqual([]);
   });
 

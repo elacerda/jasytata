@@ -8,6 +8,9 @@ import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
 import type { AnyProfileDocument, ProfileDocument } from "./profiles/document";
 import { InstrumentProfileEditor } from "./profiles/InstrumentProfileEditor";
 import type { PointingGeometryContext } from "./science/pointing-geometry";
+import { resolveFootprintForTile } from "./profiles/footprints";
+import { CoverageUnavailableError } from "./science/coverage";
+import { CoverageReadout as MetricsPanel, PointingAngle, PointingScience, ScientificDetails } from "./ScientificReadouts";
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
 import type { AnyInstrumentProfile, AnySurveyProfile } from "./profiles/registry";
 import type {
@@ -59,7 +62,7 @@ function roleSummary(instrument: AnyInstrumentProfile): string {
   const fidelity = instrument.footprint_semantics.fidelity === "exact" ? "Exact" : "Approximate";
   switch (instrument.footprint_semantics.role) {
     case "observed_area": return `${fidelity} observed-area geometry`;
-    case "nominal_envelope": return `${fidelity} nominal planning envelope`;
+    case "nominal_envelope": return `Nominal envelope · ${fidelity}`;
     case "target_access": return `${fidelity} target-access field · not observed coverage`;
   }
 }
@@ -125,6 +128,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
   const [exportEpoch, setExportEpoch] = useState<string | undefined>();
   const [manualPositionAngle, setManualPositionAngle] = useState("");
+  const [applyBatchPa, setApplyBatchPa] = useState(false);
+  const [sequenceBasis, setSequenceBasis] = useState<"single_exposure" | "effective_sequence" | null>(null);
+  const [scientificRefusal, setScientificRefusal] = useState<CoverageResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -169,6 +175,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const activeSurvey = activeResolution.survey;
   const activeInstrument = activeResolution.instrument;
   const profile = activeResolution.profile;
+  const paMode = activeInstrument?.schema_version === 3 ? activeInstrument.position_angle.mode : null;
+  const profilePa = activeInstrument && "position_angle_deg" in activeInstrument.footprint ? activeInstrument.footprint.position_angle_deg : undefined;
+  const observingSequence = activeSurvey?.schema_version === 3 ? activeSurvey.observing_sequence : undefined;
+  const geometryBasis = observingSequence && activeSurvey?.schema_version === 3 ? sequenceBasis ?? activeSurvey.coverage_basis_default : "single_exposure";
   const outputStrategyId = activeSurvey?.id ?? null;
   const outputInstrumentId = activeInstrument?.id ?? null;
   const requiredPositionAngle = activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required &&
@@ -196,7 +206,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
 
   const hasCatalogue = datasets.length > 0;
   const outputGeometryContext = useMemo<PointingGeometryContext>(() => ({
-    coverageBasis: activeSurvey?.schema_version === 3 ? activeSurvey.coverage_basis_default : "single_exposure",
+    coverageBasis: geometryBasis,
+    ...(activeInstrument?.schema_version === 3 ? { measurementBasis: activeInstrument.footprint_semantics.role } : {}),
     orientationPolicyForTile: (tile) => {
       const instrumentId = tile.instrument_profile_id ?? (tile.source === "proposed" ? activeInstrument?.id : undefined);
       if (!instrumentId) return undefined;
@@ -210,9 +221,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       const options: PositionAngleOptions = {
         policy: instrument.position_angle.mode,
         required: instrument.position_angle.required,
-        ...(instrument.position_angle.mode === "user_selected" && tile.source === "proposed" &&
-          instrument.id === activeInstrument?.id &&
-          (tile.output_position_angle_deg !== undefined || validManualPositionAngle)
+        ...(instrument.position_angle.mode === "user_selected" && (tile.output_position_angle_deg !== undefined ||
+          (tile.source === "proposed" && !tile.instrument_profile_id && instrument.id === activeInstrument?.id && validManualPositionAngle))
           ? { plan_position_angle_deg: tile.output_position_angle_deg ?? parsedManualPositionAngle }
           : {}),
       };
@@ -225,7 +235,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       if (strategy?.schema_version !== 3 || !strategy.observing_sequence) return undefined;
       return { id: strategy.observing_sequence.id, exposures: strategy.observing_sequence.exposures };
     },
-  }), [activeInstrument, activeSurvey, outputContext, validManualPositionAngle, parsedManualPositionAngle]);
+  }), [activeInstrument, geometryBasis, outputContext, parsedManualPositionAngle, validManualPositionAngle]);
   const activePointingGeometryContext = pointingGeometryContext ?? outputGeometryContext;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
     ...tile,
@@ -258,6 +268,20 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     () => mapTiles.find((tile) => tile.id === selectedTileId) ?? null,
     [mapTiles, selectedTileId],
   );
+  const exportProblem = useMemo(() => {
+    if (!activeInstrument) return null;
+    try {
+      for (const tile of enabledProposals) {
+        const angle = resolveFootprintForTile(tile, profile, profileRegistry, activePointingGeometryContext.orientationPolicyForTile?.(tile)).resolved_position_angle_deg;
+        if (activeSurvey?.export.position_angle_column && angle === undefined) {
+          throw new Error(`Pointing has no declared camera position angle required by '${activeSurvey.export.position_angle_column}'`);
+        }
+      }
+      return null;
+    } catch (caught) {
+      return `Export blocked: ${caught instanceof Error ? caught.message : "Pointing PA is unresolved."}`;
+    }
+  }, [activeInstrument, activeSurvey, enabledProposals, profile, activePointingGeometryContext]);
   const anchors = useMemo(() => {
     const context = pending ?? proposalContext;
     if (!context) return [];
@@ -279,10 +303,14 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       return;
     }
     let cancelled = false;
+    setActiveMetrics(null);
     void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
+        if (!cancelled) {
+          if (caught instanceof CoverageUnavailableError) setScientificRefusal(caught.result);
+          else setError(caught instanceof Error ? caught.message : "Could not update coverage.");
+        }
       });
     return () => { cancelled = true; };
   }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext]);
@@ -303,11 +331,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setBusy(true);
     setError(null);
     setNotice(null);
+    setScientificRefusal(null);
     try {
       const result = await work();
       success?.(result);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The request could not be completed.");
+      if (caught instanceof CoverageUnavailableError) setScientificRefusal(caught.result);
+      else setError(caught instanceof Error ? caught.message : "The request could not be completed.");
     } finally {
       setBusy(false);
     }
@@ -321,6 +351,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
+    setScientificRefusal(null);
     setSelectedTileId(null);
     setNotice(`${result.row_count.toLocaleString()} catalogue rows added from ${result.filename}.`);
     setError(null);
@@ -335,6 +366,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
+    setScientificRefusal(null);
     setSelectedTileId(null);
     setDebugRequestJson("");
     setNotice("Catalogue planning settings updated. Generate a new plan for the selected polygon.");
@@ -378,11 +410,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       setInstrumentProfiles(profileRegistry.listAnyInstrumentProfiles());
       setSurveyProfiles(profileRegistry.listAnySurveyProfiles());
       if ("survey" in document && document.survey) {
-        setNotice(document.survey.schema_version === 3
+        setNotice("instrument" in document && document.instrument && document.instrument.schema_version === 3
+          ? `Imported matching pair: ${document.instrument.display_name} + ${document.survey.display_name}. ${roleSummary(document.instrument)}. Select it in Output profile to use it.`
+          : document.survey.schema_version === 3
           ? `Imported strategy: ${document.survey.display_name}. Select it as the output profile when you want to use that observing strategy.`
           : `Imported survey profile: ${document.survey.display_name}. Select it in Output profile to use its strategy.`);
       } else if ("instrument" in document && document.instrument) {
-        setNotice(`Imported instrument profile: ${document.instrument.display_name}. Select its standalone mode or assign it to a source catalogue.`);
+        setNotice(`Imported instrument profile: ${document.instrument.display_name}. ${roleSummary(document.instrument)}. Select its standalone mode or assign it to a source catalogue.`);
       }
     });
     if (profileFileInputRef.current) profileFileInputRef.current.value = "";
@@ -401,10 +435,19 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       setError(activeResolution.error ?? "Select a registered instrument or observing strategy before adding centers.");
       return false;
     }
-    if (requiredPositionAngle && !validManualPositionAngle) {
+    if (manualPositionAngle.trim() && !validManualPositionAngle) {
+      setError("Pointing PA must be a finite angle in degrees east of north.");
+      return false;
+    }
+    if (requiredPositionAngle && !validManualPositionAngle && profilePa === undefined && centers.some((center) => center.position_angle_deg === undefined)) {
       setError(`Enter a finite position angle in degrees east of north for ${activeInstrument.display_name} before staging centers.`);
       return false;
     }
+    if (method === "imported_centers" && paMode === "per_pointing" && validManualPositionAngle && !applyBatchPa && centers.some((center) => center.position_angle_deg === undefined)) {
+      setError("Choose ‘Apply pointing PA to this pasted batch’ to use a common PA, or add the pointings individually with their own PA.");
+      return false;
+    }
+    const revision = regionRevisionRef.current;
     const inputCenters = centers.map((center) => activeInstrument.schema_version === 3 &&
       activeInstrument.position_angle.mode === "per_pointing" && validManualPositionAngle
       ? { ...center, position_angle_deg: center.position_angle_deg ?? parsedManualPositionAngle }
@@ -413,12 +456,17 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     await runBusy(
       () => proposeCenters(inputCenters, method),
       (tiles) => {
-        staged = true;
+        if (revision !== regionRevisionRef.current) return;
         const contextTiles = tiles.map((tile) => ({
           ...tile,
           instrument_profile_id: activeInstrument.id,
           ...(activeSurvey ? { output_strategy_id: activeSurvey.id } : {}),
+          ...(paMode === "user_selected" && (parsedManualPositionAngle ?? profilePa) !== undefined
+            ? { output_position_angle_deg: parsedManualPositionAngle ?? profilePa } : {}),
         }));
+        // Validate before rendering; the canonical Gate 5 resolver enforces required PA.
+        for (const tile of contextTiles) resolveFootprintForTile(tile, profile, profileRegistry, activePointingGeometryContext.orientationPolicyForTile?.(tile));
+        staged = true;
         setPending({
           coverageStrategy: null,
           tiles: contextTiles,
@@ -437,6 +485,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   async function handleParseCenters() {
+    setApplyBatchPa(false);
     await runBusy(() => parseCenters(importText), (result) => {
       setParsedCenters(result);
       setNotice(`${result.length} valid center${result.length === 1 ? "" : "s"} parsed. Review the list, then stage it.`);
@@ -446,6 +495,25 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   async function handleStageImported() {
     if (!parsedCenters) return;
     if (await stageCenters(parsedCenters, "imported_centers")) setParsedCenters(null);
+  }
+
+  function changeSequenceBasis(basis: "single_exposure" | "effective_sequence") {
+    regionRevisionRef.current += 1;
+    setSequenceBasis(basis);
+    setPending(null);
+    setProposalContext(null);
+    setActiveMetrics(null);
+    setScientificRefusal(null);
+    setNotice(`Geometry and export: ${basis === "effective_sequence" ? "effective sequence" : "single exposure"}. Pending preview cleared; nominal pointings retained.`);
+  }
+
+  async function handleMeasureGeometry() {
+    if (!regionPolygon || !activeSurvey) return;
+    const revision = regionRevisionRef.current;
+    setActiveMetrics(null);
+    await runBusy(() => measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext), (result) => {
+      if (revision === regionRevisionRef.current) setActiveMetrics(result);
+    });
   }
 
   async function handlePlanRegion() {
@@ -465,7 +533,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
           coverageStrategy: result.coverage_strategy,
-          tiles: result.tiles,
+          tiles: result.tiles.map((tile) => ({ ...tile, instrument_profile_id: activeInstrument.id, output_strategy_id: activeSurvey.id,
+            ...(paMode === "user_selected" && (parsedManualPositionAngle ?? profilePa) !== undefined
+              ? { output_position_angle_deg: parsedManualPositionAngle ?? profilePa } : {}) })),
           candidateCenters: result.candidate_centers,
           inference: result.inference,
           diagnostics: result.diagnostics,
@@ -474,7 +544,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         });
         setSelectedTileId(null);
         setNotice(
-          `${result.tiles.length} new tile${result.tiles.length === 1 ? "" : "s"} selected with ${Math.round(result.metrics.selected_region_coverage * 100)}% ${result.metrics.coverage_basis === "nominal_envelope" ? "nominal envelope" : "estimated area"} coverage.`,
+          `${result.tiles.length} nominal pointing${result.tiles.length === 1 ? "" : "s"} selected. ${result.metrics.coverage_basis === "nominal_envelope" ? "Nominal envelope overlap" : result.metrics.coverage_basis === "legacy_v2" ? "Legacy survey coverage" : "Observed-area geometry coverage"}: ${Math.round(result.metrics.selected_region_coverage * 100)}%.`,
         );
       },
     );
@@ -499,9 +569,6 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       ...(pointingGeometryContext || activeInstrument.schema_version === 3 || tile.position_angle_deg !== undefined
         ? {}
         : declaredPa !== undefined ? { position_angle_deg: declaredPa } : {}),
-      ...(activeInstrument.schema_version === 3 && activeInstrument.position_angle.mode === "user_selected" && validManualPositionAngle
-        ? { output_position_angle_deg: parsedManualPositionAngle }
-        : {}),
       instrument_profile_id: activeInstrument.id,
       ...(activeSurvey ? { output_strategy_id: activeSurvey.id } : {}),
       source: "proposed" as const,
@@ -557,10 +624,22 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setOutputContext(nextContext);
     setExportEpoch(undefined);
     setManualPositionAngle("");
+    const nextInstrument = nextContext.kind === "instrument" ? profileRegistry.resolveAnyInstrumentProfile(nextContext.id)
+      : profileRegistry.resolveAnyInstrumentProfile(profileRegistry.resolveAnySurveyProfile(nextContext.id).instrument_id);
+    if (nextInstrument.schema_version === 3 && nextInstrument.position_angle.mode === "user_selected" &&
+        "position_angle_deg" in nextInstrument.footprint && nextInstrument.footprint.position_angle_deg !== undefined) {
+      setManualPositionAngle(String(nextInstrument.footprint.position_angle_deg));
+    }
+    setApplyBatchPa(false);
+    setParsedCenters(null);
+    setImportText("");
+    setSequenceBasis(null);
+    setScientificRefusal(null);
     setRegionPolygon(null);
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
+    setScientificRefusal(null);
     setSelectedTileId(null);
     setDebugRequestJson("");
     setMapMode("idle");
@@ -570,6 +649,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   function beginRegionSelection() {
+    setScientificRefusal(null);
     regionRevisionRef.current += 1;
     setMapMode("idle");
     setRegionPolygon(null);
@@ -582,6 +662,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   function clearRegionSelection() {
+    setScientificRefusal(null);
     regionRevisionRef.current += 1;
     setRegionPolygon(null);
     setSelectingRegion(false);
@@ -601,9 +682,12 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       setError(activeResolution.error ?? "Select a registered instrument or observing strategy before downloading.");
       return;
     }
+    if (exportProblem) { setError(exportProblem); return; }
+    const exportContext = observingSequence && geometryBasis === "single_exposure"
+      ? { ...activePointingGeometryContext, sequenceForTile: undefined } : activePointingGeometryContext;
     await runBusy(
       () => activeSurvey
-        ? downloadCatalogue(enabledProposals, activeSurvey.id, exportEpoch, profileRegistry, activePointingGeometryContext)
+        ? downloadCatalogue(enabledProposals, activeSurvey.id, exportEpoch, profileRegistry, exportContext)
         : downloadInstrumentCoordinates(enabledProposals, activeInstrument.id, profileRegistry, activePointingGeometryContext),
       () => setNotice(activeSurvey ? "new_tiles.csv downloaded." : "manual_centers.csv downloaded."),
     );
@@ -748,7 +832,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             <p className="fine-print">Imports validate v2 pairs and v3 standalone instruments, strategies, or matching pairs. A standalone instrument stays survey-free.</p>
             {activeResolution.error && <p className="profile-validation-error" role="alert">{activeResolution.error}</p>}
             {activeInstrument && (
-              <div className="profile-readout" aria-label={activeSurvey ? "Active survey summary" : "Active instrument summary"}>
+              <div className="profile-readout scientific-profile" aria-label={activeSurvey ? "Active survey summary" : "Active instrument summary"}>
                 <span>Output mode <strong>{activeSurvey ? "Survey strategy" : "Standalone instrument"}</strong></span>
                 {activeSurvey && <span>Strategy <strong>{activeSurvey.display_name}</strong></span>}
                 {activeSurvey && <span>Stable strategy ID <strong>{activeSurvey.id}</strong></span>}
@@ -756,27 +840,43 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 <span>Stable mode ID <strong>{activeInstrument.id}</strong></span>
                 <span>Footprint <strong>{footprintSummary(activeInstrument.footprint)}</strong></span>
                 <span>Geometry <strong>{roleSummary(activeInstrument)}</strong></span>
+                {activeInstrument.schema_version === 3 && activeInstrument.footprint_semantics.role === "nominal_envelope" &&
+                  <p className="scientific-help">Planning envelope, not exact active area</p>}
+                {activeInstrument.schema_version === 3 && <span>PA policy <strong>{paMode === "fixed" ? `Fixed · ${formatDegrees(profilePa!) } east of north` : paMode === "per_pointing" ? `Per pointing${requiredPositionAngle ? " · required" : " · optional"}` : paMode === "user_selected" ? "User selected · plan/session" : "Not applicable · physical PA omitted"}</strong></span>}
                 {activeSurvey && <span>Tiling <strong>{tilingSummary(activeSurvey.tiling)}</strong></span>}
                 {activeSurvey?.schema_version === 3 && activeSurvey.observing_sequence &&
-                  <span>Sequence <strong>{activeSurvey.observing_sequence.exposures.length} ordered nominal positions</strong></span>}
-                {(activeSurvey?.description || activeInstrument.description) &&
+                  <span>Sequence <strong>{activeSurvey.observing_sequence.exposures.length} ordered exposures</strong></span>}
+                {!observingSequence && <span>Sequence <strong>No observing sequence selected</strong></span>}
+                {activeInstrument.schema_version !== 3 && (activeSurvey?.description || activeInstrument.description) &&
                   <p className="fine-print">{activeSurvey?.description ?? activeInstrument.description}</p>}
                 {!activeSurvey && <p className="fine-print">Manual centers use this instrument footprint only. Survey overlap, epochs, constants, automatic tiling and coverage-completion metrics are unavailable.</p>}
               </div>
             )}
-            {requiredPositionAngle && <label className="field-label required-pa-field">
-              Required pointing PA (degrees east of north)
+            {activeInstrument && <ScientificDetails instrument={activeInstrument} strategy={activeSurvey} />}
+            {(paMode === "per_pointing" || paMode === "user_selected") && <label className="field-label required-pa-field scientific-control">
+              {paMode === "user_selected" ? "Plan/session PA (degrees east of north)" : `${requiredPositionAngle ? "Required pointing" : "Pointing"} PA (degrees east of north)`}
               <input
                 type="number"
                 step="any"
                 required={requiredPositionAngle}
-                aria-label="Required pointing PA in degrees east of north"
+                aria-label={paMode === "user_selected" ? "Plan/session PA in degrees east of north" : `${requiredPositionAngle ? "Required pointing" : "Pointing"} PA in degrees east of north`}
                 value={manualPositionAngle}
+                disabled={busy}
                 onChange={(event) => setManualPositionAngle(event.target.value)}
                 aria-invalid={manualPositionAngle.trim().length > 0 && !validManualPositionAngle}
               />
-              <span className="fine-print">Enter a finite sky angle before previewing geometry or exporting. Jasytata will not substitute 0°.</span>
+              <span className="scientific-help">{paMode === "user_selected" ? "Used for new pointings. Previewed and accepted pointings retain their PA when this value changes." : "Used for the next sky click. Each pointing retains its PA; pasted batches require an explicit common-PA choice."}</span>
             </label>}
+            {observingSequence && <div className="scientific-control">
+              <label className="field-label" htmlFor="sequence-basis">Geometry and export basis</label>
+              <select id="sequence-basis" className="profile-select" value={geometryBasis} disabled={busy}
+                onChange={(event) => changeSequenceBasis(event.target.value as "single_exposure" | "effective_sequence")}>
+                <option value="single_exposure">Single exposure</option>
+                <option value="effective_sequence">Full sequence footprint</option>
+              </select>
+              <p className="scientific-help">Effective sequence is the geometric union of {observingSequence.exposures.length} exposures. Each proposal remains one nominal pointing.</p>
+            </div>}
+            {activeSurvey && <p className="scientific-help">Measurement basis: {activeInstrument?.schema_version !== 3 ? "Legacy survey coverage" : activeInstrument.footprint_semantics.role === "observed_area" ? "Observed-area geometry" : activeInstrument.footprint_semantics.role === "nominal_envelope" ? "Nominal envelope overlap" : "Target access · area coverage unsupported"}.</p>}
           </section>
 
           <section className="panel-section">
@@ -803,7 +903,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <button
                 className="mode-button"
                 onClick={beginRegionSelection}
-                disabled={busy || !activeSurvey || activeSurvey.tiling.type === "manual"}
+                disabled={busy || !activeSurvey}
               >
                 <span className="mode-icon"><Icon name="region" /></span>
                 <span><strong>Select area</strong><small>Click polygon vertices on the sky</small></span>
@@ -818,7 +918,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
                 <div className="region-actions">
-                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy || !activeSurvey || activeSurvey.tiling.type === "manual"}>Redraw polygon</button>
+                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy || !activeSurvey}>Redraw polygon</button>
                   <button className="button button-quiet" onClick={clearRegionSelection}>Clear selection</button>
                 </div>
                 {import.meta.env.DEV && <details className="development-plan-input">
@@ -843,9 +943,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
                 <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the selected strategy's coverage floor is met and new physical area falls below its marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
               <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
-            </fieldset> : <p className="fine-print">Automatic region tiling and survey coverage metrics are unavailable for this output profile.</p>}
-            {planningUnavailableReason && activeSurvey &&
+            </fieldset> : <p className="fine-print">{activeSurvey ? "Manual strategy: select a region to measure the declared geometry." : "Automatic region tiling and survey coverage metrics are unavailable for this output profile."}</p>}
+            {planningUnavailableReason && activeSurvey && activeSurvey.tiling.type !== "manual" &&
               <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
+            {activeSurvey?.tiling.type === "manual" && <button className="button button-outline button-full" disabled={busy || !regionPolygon || Boolean(unresolvedDataset)} onClick={() => void handleMeasureGeometry()}>Measure selected geometry</button>}
             <button className="button button-plan" onClick={() => void handlePlanRegion()}
               disabled={!regionPolygon || !profile || !activeSurvey || !activeInstrument || Boolean(planningUnavailableReason) || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
@@ -861,11 +962,16 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             <textarea
               id="centers-text"
               value={importText}
-              onChange={(event) => { setImportText(event.target.value); setParsedCenters(null); }}
+              onChange={(event) => { setImportText(event.target.value); setParsedCenters(null); setApplyBatchPa(false); }}
               placeholder={"RA, DEC\n10:03:05, -23:54:31\n150.5, -24.25"}
               rows={4}
               disabled={busy}
             />
+            {paMode === "per_pointing" && <div className="scientific-control">
+              <p className="scientific-help">Paste RA/DEC pairs only. For differing PAs, add pointings individually. A common PA uses the pointing input above.</p>
+              <label className="scientific-batch-pa"><input type="checkbox" checked={applyBatchPa} disabled={busy}
+                onChange={(event) => setApplyBatchPa(event.target.checked)} />Apply pointing PA to this pasted batch</label>
+            </div>}
             <button className="button button-outline button-full" onClick={() => void handleParseCenters()} disabled={busy || !importText.trim()}>
               Validate and preview
             </button>
@@ -1002,6 +1108,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               setPending(null);
               setProposalContext(null);
               setActiveMetrics(null);
+              setScientificRefusal(null);
               setNotice("Sky polygon finalized. Generate a plan when ready.");
             }}
             onCancelRegion={() => { setSelectingRegion(false); setNotice("Polygon drawing cancelled."); }}
@@ -1019,6 +1126,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             {selectedTile ? (
               <TileDetails
                 tile={selectedTile}
+                context={activePointingGeometryContext}
+                fallbackInstrument={activeInstrument}
                 onToggle={proposals.some((tile) => tile.id === selectedTile.id)
                   ? () => toggleProposal(selectedTile.id)
                   : undefined}
@@ -1035,6 +1144,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           {pending && (
             <section className="panel-section proposal-section">
               <SectionHeading title="Proposal preview" trailing="REVIEW" />
+              <p className="scientific-help">{activeInstrument?.display_name}{activeSurvey ? ` · ${activeSurvey.display_name}` : " · standalone instrument"}{observingSequence ? ` · ${geometryBasis === "effective_sequence" ? "Effective sequence" : "Single exposure"} · ${observingSequence.exposures.length} exposures per sequence` : ""}. {pending.tiles.length} nominal pointings.</p>
               <div className="solution-stamp">
                 <span className={pending.solution === "extended_existing_grid" ? "stamp-dot is-extended" : "stamp-dot"} />
                 <strong>{solutionLabel(pending.solution)}</strong>
@@ -1057,6 +1167,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                   <div className="proposal-row" key={`${tile.id}-${index}`}>
                     <span className="proposal-index">{String(index + 1).padStart(2, "0")}</span>
                     <span><strong>{tile.ra_deg.toFixed(4)}°</strong><small>{tile.dec_deg.toFixed(4)}°</small></span>
+                    <small className="preview-pa"><PointingAngle tile={tile} context={activePointingGeometryContext} /></small>
                   </div>
                 )) : <p className="panel-copy">Existing coverage already satisfies this plan.</p>}
                 {pending.tiles.length > 8 && <span className="more-row">+{pending.tiles.length - 8} more preview centers</span>}
@@ -1080,6 +1191,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             {activeOutputProposals.length > 0 && <p className="panel-copy">{activeOutputProposals.filter((tile) => tile.enabled !== false).length} enabled · {activeOutputProposals.filter((tile) => tile.enabled === false).length} disabled</p>}
             {activeOutputProposals.length > 0 && proposalContext?.coverageStrategy && <p className="strategy-result">{proposalContext.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
             {activeMetrics && <MetricsPanel metrics={activeMetrics} inference={proposalContext?.inference ?? null} candidateCount={proposalContext?.candidateCenters.length ?? 0} />}
+            {scientificRefusal && <MetricsPanel metrics={scientificRefusal} />}
             {activeOutputProposals.length ? (
               <div className="accepted-list">
                 {[...activeOutputProposals].reverse().map((tile, index) => (
@@ -1097,6 +1209,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             <SectionHeading title={activeSurvey ? "Export new tiles" : "Export manual centers"} />
             <p className="panel-copy">{activeOutputProposals.length} generated · {enabledProposals.length} enabled · {activeOutputProposals.length - enabledProposals.length} disabled</p>
             <div className="export-fields">
+              {observingSequence && <p className="scientific-help">{activeSurvey?.display_name} · {geometryBasis === "effective_sequence"
+                ? `Expanded sequence rows: ${observingSequence.exposures.length} per nominal pointing (${enabledProposals.length * observingSequence.exposures.length} rows).`
+                : `Nominal pointings: one row per pointing (${enabledProposals.length} rows).`}</p>}
               {activeSurvey
                 ? <p className="field-label">Coordinates: {activeSurvey.export.coordinate_format === "sexagesimal" ? "Sexagesimal hours / degrees" : "Decimal degrees"} (selected survey policy)</p>
                 : <p className="field-label">Coordinates: ICRS decimal degrees · generic instrument-only format</p>}
@@ -1106,7 +1221,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 </select>
               </label>}
             </div>
-            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !activeInstrument || (Boolean(activeSurvey) && !profile) || busy}>
+            {exportProblem && <p className="profile-validation-error" role="alert">{exportProblem}</p>}
+            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !activeInstrument || Boolean(exportProblem) || (Boolean(activeSurvey) && !profile) || busy}>
               <Icon name="download" /> Download {activeSurvey ? "new_tiles.csv" : "manual_centers.csv"}
             </button>
             <p className="fine-print">{activeSurvey
@@ -1136,11 +1252,12 @@ function PlanningLayer({ label, color, checked, count, onChange }: {
   </label>;
 }
 
-function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => void }) {
+function TileDetails({ tile, onToggle, context, fallbackInstrument }: { tile: TileRecord; onToggle?: () => void; context: PointingGeometryContext; fallbackInstrument: AnyInstrumentProfile | null }) {
   const metadata = Object.entries(tile.metadata).filter(([, value]) => value !== "");
   return (
     <div className="tile-detail-content">
       <div className="tile-name-block"><strong>{tile.name || (tile.source === "proposed" ? "Proposed tile" : "Catalogue tile")}</strong><span>{tile.dataset_name ?? (tile.source === "proposed" ? "Proposal" : "Catalogue")}</span></div>
+      <PointingScience tile={tile} context={context} fallbackInstrument={fallbackInstrument} />
       <div className="detail-grid">
         <DetailField label="RA" value={`${tile.ra_deg.toFixed(6)}°`} />
         <DetailField label="DEC" value={`${tile.dec_deg.toFixed(6)}°`} />
@@ -1149,7 +1266,7 @@ function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => vo
         {metadata.map(([key, value]) => <DetailField key={key} label={key} value={String(value)} />)}
       </div>
       <div className="decimal-coordinate">ICRS · {formatRa(tile.ra_deg)}, {formatDec(tile.dec_deg)}</div>
-      <div className={`source-banner ${tile.source}`}><span className="status-dot" />{tile.source === "original" ? "Original catalogue tile · immutable" : `Proposed · ${tile.enabled === false ? "disabled" : "enabled"} · ${shortMethod(tile.generation_method)}`}</div>
+      <div className={`source-banner ${tile.source}`}><span className="status-dot" />{tile.source === "original" ? "Original catalogue tile · immutable" : `Proposed · ${tile.enabled === false ? "disabled" : "enabled"}`}</div>
       {onToggle && <button className="button button-outline button-full" onClick={onToggle}>{tile.enabled === false ? "Enable tile" : "Disable tile"}</button>}
     </div>
   );
@@ -1157,37 +1274,6 @@ function TileDetails({ tile, onToggle }: { tile: TileRecord; onToggle?: () => vo
 
 function DetailField({ label, value }: { label: string; value: string }) {
   return <div className="detail-field"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function MetricsPanel({ metrics, inference, candidateCount }: {
-  metrics: CoverageResult; inference: InferenceDiagnostics | null; candidateCount: number;
-}) {
-  if (metrics.coverage_status !== "resolved" && metrics.coverage_status !== "legacy_compatible") {
-    return <div className="metrics-panel">Coverage unavailable: {metrics.coverage_status} ({metrics.coverage_basis}).</div>;
-  }
-  return (
-    <div className="metrics-panel">
-      <Metric label="Selected region" value={`${metrics.selected_region_area_deg2.toFixed(2)} deg²`} />
-      <Metric label="Existing contributors" value={String(metrics.existing_tiles_contributing)} />
-      {inference && <>
-        <Metric label="Nearby anchor candidates" value={String(inference.nearby_tile_count)} />
-        <Metric label="Inference anchors used" value={String(inference.anchor_tile_ids.length)} />
-        <Metric label="Compatible neighbor pairs" value={String(inference.compatible_neighbor_pairs)} />
-      </>}
-      <Metric label="New tiles" value={String(metrics.new_tiles)} emphasis />
-      <Metric label="Already covered" value={`${(metrics.already_covered_fraction * 100).toFixed(1)}%`} />
-      <Metric label={metrics.coverage_basis === "nominal_envelope" ? "Nominal envelope overlap" : "Final region coverage"} value={`${(metrics.selected_region_coverage * 100).toFixed(1)}%`} emphasis />
-      <Metric label="Incremental new coverage" value={`${(metrics.incremental_coverage * 100).toFixed(1)}%`} />
-      <Metric label="Remaining uncovered" value={`${(metrics.remaining_uncovered_fraction * 100).toFixed(1)}% · ${metrics.remaining_uncovered_area_deg2.toFixed(2)} deg²`} />
-      <Metric label="Redundant proposal coverage" value={`${(metrics.redundant_coverage * 100).toFixed(1)}%`} />
-      <Metric label="Outside selected area" value={`${metrics.outside_region_coverage_deg2.toFixed(2)} deg²`} />
-      <div className="metric-footnote">Dense sample step {metrics.sample_step_deg.toFixed(2)}° · {candidateCount} candidate lattice centers</div>
-    </div>
-  );
-}
-
-function Metric({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
-  return <div className={`metric-row ${emphasis ? "is-emphasis" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "region" | "chevron" | "spark" | "check" | "undo" | "trash" | "download" | "target" | "sun" | "moon" }) {

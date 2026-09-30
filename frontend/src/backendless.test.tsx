@@ -85,18 +85,18 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(await screen.findByText("Profile fallback", {}, { timeout: 10000 })).toBeTruthy();
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
-    expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%");
+    expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("100.0%");
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
     await waitFor(() => expect(screen.getByText(/^\d+ enabled · 0 disabled$/)).toBeTruthy(), { timeout: 10000 });
-    await waitFor(() => expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%"), { timeout: 10000 });
+    await waitFor(() => expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("100.0%"), { timeout: 10000 });
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
     await user.click(screen.getByRole("button", { name: "Disable all" }));
     await waitFor(() => expect(screen.getByText(/^0 enabled · \d+ disabled$/)).toBeTruthy(), { timeout: 10000 });
-    await waitFor(() => expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("0.0%"), { timeout: 10000 });
+    await waitFor(() => expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("0.0%"), { timeout: 10000 });
     await user.click(screen.getByRole("button", { name: "Restore all" }));
     await waitFor(() => expect(screen.getByText(/^\d+ enabled · 0 disabled$/)).toBeTruthy(), { timeout: 10000 });
-    await waitFor(() => expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%"), { timeout: 10000 });
+    await waitFor(() => expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("100.0%"), { timeout: 10000 });
 
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     await waitFor(() => expect(exportedBlobs).toHaveLength(1));
@@ -135,7 +135,7 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
     expect(await screen.findByText("Existing grid extended", {}, { timeout: 10000 })).toBeTruthy();
     expect(screen.getByTestId("real-map-state")).toHaveTextContent('"candidates":');
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
-    await waitFor(() => expect([...document.querySelectorAll(".metric-row")].map((row) => row.textContent)).toContain("Final region coverage99.7%"), { timeout: 10000 });
+    await waitFor(() => expect([...document.querySelectorAll(".metric-row")].map((row) => row.textContent)).toContain("Legacy survey coverage99.7%"), { timeout: 10000 });
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/i }));
     expect(click).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledTimes(1);
