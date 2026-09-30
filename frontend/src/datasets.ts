@@ -35,7 +35,7 @@ export function createDataset(
   instrumentProfileId?: string,
   registry: ProfileRegistry = profileRegistry,
 ): CatalogueDataset {
-  const registeredInstruments = registry.listInstrumentProfiles();
+  const registeredInstruments = registry.listAnyInstrumentProfiles();
   const associatedInstrumentId = instrumentProfileId
     ?? result.instrument_profile_id
     ?? (registeredInstruments.length === 1 ? registeredInstruments[0].id : null);

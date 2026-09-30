@@ -185,6 +185,34 @@ describe("local facade and download", () => {
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
+  it("exports the bundled v3 SAMI sequence through the strategy policy", async () => {
+    const registry = createBundledProfileRegistry();
+    const strategy = registry.resolveAnySurveyProfile("sami-dr1-seven-position");
+    if (strategy.schema_version !== 3 || !strategy.observing_sequence) throw new Error("Expected the bundled SAMI v3 strategy");
+    let downloaded: Blob | undefined;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:sami-v3"; }) });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    await downloadCatalogue([proposal], strategy.id, undefined, registry, {
+      coverageBasis: "single_exposure",
+      sequenceForTile: () => strategy.observing_sequence,
+    });
+    const csv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
+    });
+    const rows = readCsv(csv);
+    expect(rows[0]).toEqual(["RA", "DEC", "EXPOSURE_ID", "INSTRUMENT_ID", "STRATEGY_ID"]);
+    expect(rows).toHaveLength(8);
+    expect(rows.slice(1).map((row) => row[2])).toEqual(Array.from({ length: 7 }, (_, index) => `PROPOSED_0001_EXP_${String(index + 1).padStart(4, "0")}`));
+    expect(rows.slice(1).every((row) => row[3] === strategy.instrument_id && row[4] === strategy.id)).toBe(true);
+    expect(rows[1].slice(0, 2)).toEqual([proposal.ra_deg.toFixed(8), proposal.dec_deg.toFixed(8)]);
+    expect(Number(rows[2][0])).toBeCloseTo(proposal.ra_deg, 8);
+    expect(Number(rows[2][1])).toBeCloseTo(proposal.dec_deg + 0.7 / 3600, 8);
+    expect(rows[0]).not.toContain("PA");
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
   it("fails explicitly for an unresolved survey and creates no fallback download", async () => {
     const create = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });

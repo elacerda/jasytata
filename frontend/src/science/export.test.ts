@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ExportPolicy, SurveyProfileV2, TileRecord } from "../types";
+import type { ExportPolicy, SurveyProfileV2, SurveyProfileV3, TileRecord } from "../types";
 import { SPLUS_SURVEY_V2 } from "../profiles/v2";
 import { parseProfileJsonV2, serializeProfile } from "../profiles/document";
 import { ProfileRegistry } from "../profiles/registry";
@@ -14,6 +14,58 @@ const policy: ExportPolicy = { ra_column: "ALPHA_J2000", dec_column: "DELTA_J200
 const survey = (exportPolicy: ExportPolicy = policy): SurveyProfileV2 => ({ ...SPLUS_SURVEY_V2, id: "generic-output", export: exportPolicy });
 
 describe("survey-driven pointing export", () => {
+  it("exports a Schema v3 ordered strategy without downgrading its profile contract", () => {
+    const reference = "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf";
+    const strategy: SurveyProfileV3 = {
+      schema_version: 3,
+      id: "sami-dr1-seven-position",
+      display_name: "SAMI DR1 seven-position strategy",
+      instrument_id: "aat-sami-61core-15arcsec",
+      tiling: { type: "manual" },
+      inference: {
+        enabled: false, spacing_tolerance_fraction: 0, phase_tolerance_fraction: 0,
+        occupancy_tolerance_fraction: 0, min_anchor_tiles: 1, min_neighbor_pairs: 1,
+        allow_rotation: false,
+      },
+      coverage: {
+        sampling: { target_samples_per_footprint_axis: 8, max_samples: 250000 },
+        target_samples_per_footprint_axis: 8,
+      },
+      coverage_basis_default: "effective_sequence",
+      observing_sequence: {
+        id: "sami-dr1-seven-position",
+        exposures: [
+          { order: 1, east_arcsec: 0, north_arcsec: 0 },
+          { order: 2, east_arcsec: 0, north_arcsec: 0.7 },
+        ],
+      },
+      export: { ra_column: "RA", dec_column: "DEC", coordinate_format: "decimal", identifiers: { id_column: "EXPOSURE" } },
+      provenance: {
+        references: [{ url: reference, title: "SAMI Galaxy Survey Data Release 1" }],
+        parameter_sources: [
+          { parameter_path: "observing_sequence.exposures[0].east_arcsec", reference_url: reference },
+          { parameter_path: "observing_sequence.exposures[0].north_arcsec", reference_url: reference },
+          { parameter_path: "observing_sequence.exposures[1].east_arcsec", reference_url: reference },
+          { parameter_path: "observing_sequence.exposures[1].north_arcsec", reference_url: reference },
+        ],
+        assumptions: [], limitations: [],
+      },
+    };
+    const exposures: PointingExposureExport[] = [
+      { id: "sami:1", order: 1, ra_deg: pointing.ra_deg, dec_deg: pointing.dec_deg },
+      { id: "sami:2", order: 2, ra_deg: pointing.ra_deg + 0.0001, dec_deg: pointing.dec_deg },
+    ];
+
+    const csv = buildExportCsv([pointing], strategy, undefined, {
+      resolveExposures: () => exposures,
+    });
+    expect(readCsv(csv)).toEqual([
+      ["RA", "DEC", "EXPOSURE"],
+      ["150.12345678", "-24.12345678", "PROPOSED_0001_EXP_0001"],
+      ["150.12355678", "-24.12345678", "PROPOSED_0001_EXP_0002"],
+    ]);
+  });
+
   it("honors coordinate labels and omits undeclared epoch, PA and internal/source fields", () => {
     const tile = { ...pointing, position_angle_deg: 31, group_id: "legacy-PID", metadata: { PID: "secret", lattice_i: 2 } };
     expect(buildExportCsv([tile], survey())).toBe("ALPHA_J2000,DELTA_J2000\r\n150.12345678,-24.12345678\r\n");

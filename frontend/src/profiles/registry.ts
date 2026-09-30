@@ -8,7 +8,7 @@ import { validateInstrumentProfileV2, validateSurveyProfileV2 } from "./schema-v
 import { validateInstrumentProfileV3, validateSurveyProfileV3 } from "./schema-v3";
 import { deriveExposurePlacements } from "../science/exposure-sequence";
 import { BUNDLED_PROFILE_DOCUMENT } from "./v2";
-import kcwiInstruments from "./kcwi-slicers.json";
+import productionV3 from "./production-v3.json";
 
 import {
   validateProfileDocument,
@@ -317,14 +317,15 @@ function validateStrategyForInstrument(instrument: AnyInstrumentProfile, survey:
   );
 }
 
-/** Create an independent registry with T80/S-PLUS and standard KCWI instruments.
- * @returns Fresh registry with the existing protected v2 profiles.
+/** Create an independent registry with protected v2 and selected v3 production profiles.
+ * @returns Fresh registry with protected v2 profiles and validated selected v3 production data.
  * @throws If a bundled configuration fails ordinary profile validation.
  */
 export function createBundledProfileRegistry(): ProfileRegistry {
   const registry = new ProfileRegistry();
   registry.registerProfileDocument(BUNDLED_PROFILE_DOCUMENT);
-  for (const instrument of kcwiInstruments) registry.registerInstrumentProfile(instrument);
+  for (const instrument of productionV3.instruments) registry.registerInstrumentProfileV3(instrument);
+  for (const strategy of productionV3.strategies) registry.registerSurveyProfileV3(strategy);
   return registry;
 }
 

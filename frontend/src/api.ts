@@ -92,9 +92,9 @@ export async function proposeCenters(
   return makeCenterProposals(centers, generationMethod);
 }
 
-/** Resolve the governing survey, serialize its policy and download locally.
+/** Resolve the governing v2 survey or v3 strategy, serialize its policy and download locally.
  * @param proposedTiles - Accepted proposals in acceptance order; disabled rows are omitted.
- * @param surveyId - Exact active Schema v2 survey ID, never a source instrument ID.
+ * @param surveyId - Exact active Schema v2 survey or v3 strategy ID, never a source instrument ID.
  * @param epoch - Optional allowed descriptive epoch; the policy supplies its default.
  * @param registry - Validated session registry, injectable for isolated tests.
  * @param geometryContext - Optional Gate 5 runtime orientation and strategy choice.
@@ -108,7 +108,7 @@ export async function downloadCatalogue(
   registry: ProfileRegistry = profileRegistry,
   geometryContext?: PointingGeometryContext,
 ): Promise<void> {
-  const survey = registry.resolveSurveyProfile(surveyId);
+  const survey = registry.resolveAnySurveyProfile(surveyId);
   let options: PointingExportOptions | undefined;
   if (geometryContext) {
     const profile = resolvePlanningProfile(surveyId, undefined, registry).profile;

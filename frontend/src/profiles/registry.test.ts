@@ -45,7 +45,7 @@ describe("browser profile registry", () => {
   });
 });
 
-describe("Gate 1 empirical KCWI instruments", () => {
+describe("empirical KCWI compatibility and v0.4 production profiles", () => {
   it.each([
     ["keck-kcwi-small", 8.4],
     ["keck-kcwi-medium", 16.5],
@@ -70,21 +70,29 @@ describe("Gate 1 empirical KCWI instruments", () => {
     expect(() => validateInstrumentProfileV2({ ...raw, footprint: { ...instrument.footprint, width_deg: 0 } })).toThrow(/Rectangle width/);
   });
 
-  it("bundles only the three KCWI modes alongside the unchanged T80/S-PLUS pair", () => {
+  it("keeps the protected v2 pair and installs selected v3 production profiles", () => {
     const registry = createBundledProfileRegistry();
-    expect(registry.listInstrumentProfiles().map(({ id }) => id)).toEqual([
-      "keck-kcwi-large", "keck-kcwi-medium", "keck-kcwi-small", "t80-south",
-    ]);
+    expect(registry.listInstrumentProfiles().map(({ id }) => id)).toEqual(["t80-south"]);
     expect(registry.listSurveyProfiles()).toEqual([SPLUS_SURVEY_V2]);
     expect(registry.resolveProfileDocument("splus-t80-south")).toEqual({
       instrument: T80_SOUTH_INSTRUMENT_V2, survey: SPLUS_SURVEY_V2,
     });
     expect(DEFAULT_PROFILE.id).toBe("splus-t80-south");
     for (const raw of kcwiInstruments) {
-      expect(registry.resolveInstrumentProfile(raw.id)).toEqual(validateInstrumentProfileV2(raw));
+      const production = registry.resolveAnyInstrumentProfile(raw.id);
+      if (production.schema_version !== 3) throw new Error("Expected bundled KCWI v3 production profile");
+      expect(production.footprint).toEqual(validateInstrumentProfileV2(raw).footprint);
+      expect(production.footprint_semantics).toMatchObject({ role: "observed_area", fidelity: "exact" });
       expect(registry.findSurveyProfile(raw.id)).toBeUndefined();
       expect(() => registry.registerInstrumentProfile(raw)).toThrow(/already registered/);
+
+      const compatibility = new ProfileRegistry();
+      expect(compatibility.registerInstrumentProfile(raw)).toEqual(validateInstrumentProfileV2(raw));
+      expect(compatibility.resolveInstrumentProfile(raw.id).schema_version).toBe(2);
     }
+    expect(registry.listAnyInstrumentProfiles()).toHaveLength(17);
+    expect(registry.resolveInstrumentProfile("t80-south")).toEqual(T80_SOUTH_INSTRUMENT_V2);
+    expect(registry.resolveAnySurveyProfile("sami-dr1-seven-position").schema_version).toBe(3);
   });
 
   it("keeps KCWI data independent between registry instances and lookups", () => {
@@ -105,9 +113,11 @@ describe("Gate 1 empirical KCWI instruments", () => {
       generation_method: null, original_values: { RA: "150", DEC: "-30" }, metadata: {},
       instrument_profile_id: raw.id, inference_role: "exclude",
     };
-    expect(footprintForTile(tile, DEFAULT_PROFILE, registry)).toEqual(raw.footprint);
-    const renamed = registry.registerInstrumentProfile({ ...raw, id: "ordinary-slicer" });
-    expect(footprintForTile({ ...tile, instrument_profile_id: renamed.id }, DEFAULT_PROFILE, registry)).toEqual(raw.footprint);
+    const production = registry.resolveAnyInstrumentProfile(raw.id);
+    expect(footprintForTile(tile, DEFAULT_PROFILE, registry)).toEqual(production.footprint);
+    const legacyRegistry = new ProfileRegistry();
+    const renamed = legacyRegistry.registerInstrumentProfile({ ...raw, id: "ordinary-slicer" });
+    expect(footprintForTile({ ...tile, instrument_profile_id: renamed.id }, DEFAULT_PROFILE, legacyRegistry)).toEqual(raw.footprint);
     expect(footprintForTile({ ...tile, source: "proposed" }, DEFAULT_PROFILE, registry)).toEqual(T80_SOUTH_INSTRUMENT_V2.footprint);
   });
 

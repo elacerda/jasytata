@@ -1,5 +1,6 @@
-import type { SurveyProfileV2, TileRecord } from "../types";
+import type { SurveyProfileV2, SurveyProfileV3, TileRecord } from "../types";
 import { validateSurveyProfileV2 } from "../profiles/schema-v2";
+import { validateSurveyProfileV3 } from "../profiles/schema-v3";
 import { formatDecDegrees, formatRaDegrees } from "./coordinates";
 
 type CsvValue = string | number | boolean;
@@ -38,10 +39,10 @@ export interface PointingExportOptions {
   resolveExposures?: (tile: TileRecord) => readonly PointingExposureExport[] | undefined;
 }
 
-/** Convert accepted ICRS pointings using the governing survey's validated policy.
+/** Convert accepted ICRS pointings using the governing v2 survey or v3 strategy policy.
  * @param proposedTiles - At most 500 proposals, in acceptance order. Disabled rows
  *   are omitted; coordinates remain ICRS degrees and source rows are rejected.
- * @param survey - Governing Schema v2 survey; no source headers or instrument select export policy.
+ * @param survey - Governing validated Schema v2 survey or v3 strategy; profile data selects export policy.
  * @param epoch - Optional descriptive label from policy.epoch.allowed; defaults
  *   to policy.epoch.default. This performs no coordinate precession.
  * @returns Columns ordered RA, DEC, optional epoch, PA, ID/name/group, then constants
@@ -52,8 +53,8 @@ export interface PointingExportOptions {
  * @throws For invalid policy/coordinates/provenance, missing requested camera PA,
  *   disallowed epoch, or an empty enabled set. Inputs are never modified.
  */
-export function buildPointingExportTable(proposedTiles: readonly TileRecord[], survey: SurveyProfileV2, epoch?: string, options: PointingExportOptions = {}): PointingExportTable {
-  const validated = validateSurveyProfileV2(survey);
+export function buildPointingExportTable(proposedTiles: readonly TileRecord[], survey: SurveyProfileV2 | SurveyProfileV3, epoch?: string, options: PointingExportOptions = {}): PointingExportTable {
+  const validated = survey.schema_version === 3 ? validateSurveyProfileV3(survey) : validateSurveyProfileV2(survey);
   const policy = validated.export;
   if (proposedTiles.length > 500) throw new Error("Too many proposed tiles");
   if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Generic export accepts only proposed tile centers");
@@ -155,15 +156,15 @@ export function serializePointingCsv(table: PointingExportTable): string {
   return [...[table.columns, ...table.rows].map((row) => row.map(escape).join(",")), ""].join("\r\n");
 }
 
-/** Export accepted ICRS centers through the survey policy and escaped CSV serializer.
+/** Export accepted ICRS centers through a validated v2 survey or v3 strategy policy.
  * @param proposedTiles - Canonical accepted proposals in stable input order.
- * @param survey - Validated governing survey, including its authoritative export policy.
+ * @param survey - Validated governing survey/strategy, including its export policy.
  * @param epoch - Optional allowed epoch label; omitted to use the declared default.
  * @param options - Optional caller-owned PA or ordered exposure resolution. Exposure
  *   rows change coordinates/row count only when `resolveExposures` is supplied.
  * @returns UTF-8-ready CSV with CRLF, preserving established T80 formatting precision.
  * @throws If canonical row conversion fails; no fallback profile or format is used.
  */
-export function buildExportCsv(proposedTiles: readonly TileRecord[], survey: SurveyProfileV2, epoch?: string, options: PointingExportOptions = {}): string {
+export function buildExportCsv(proposedTiles: readonly TileRecord[], survey: SurveyProfileV2 | SurveyProfileV3, epoch?: string, options: PointingExportOptions = {}): string {
   return serializePointingCsv(buildPointingExportTable(proposedTiles, survey, epoch, options));
 }

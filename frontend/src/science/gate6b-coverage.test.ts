@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Footprint, FootprintSemanticsV3, SkyPolygon, TileRecord } from "../types";
 import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { ProfileRegistry } from "../profiles/registry";
+import kcwiV2Instruments from "../profiles/kcwi-slicers.json";
 import { CoverageUnavailableError, coveredMask, greedyChoose, measureActiveCoverage, measureMetrics, prepareCoverageGrid, sampleRegion, tileMask } from "./coverage";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { footprintCharacteristicScale } from "./footprint-engine";
@@ -50,6 +52,14 @@ function registryFor(role: FootprintSemanticsV3["role"] = "observed_area", cap =
     tiling: { type: "lattice", basis_deg: [[0.7, 0], [0, 0.7]], origin: { type: "region_center" } },
     inference: { ...SPLUS_SURVEY_V2.inference, enabled: false }, coverage: { ...policy, target_samples_per_footprint_axis: 8, sampling: { ...policy.sampling, max_samples: cap }, efficient: { min_coverage: 0.9, min_marginal_efficiency: 0.01 } } });
   return { registry, add };
+}
+
+function legacyKcwiRegistry(): ProfileRegistry {
+  const registry = new ProfileRegistry();
+  registry.registerInstrumentProfile(T80_SOUTH_INSTRUMENT_V2);
+  registry.registerSurveyProfile(SPLUS_SURVEY_V2);
+  for (const instrument of kcwiV2Instruments) registry.registerInstrumentProfile(instrument);
+  return registry;
 }
 
 const observedContext: PointingGeometryContext = { measurementBasis: "observed_area" };
@@ -132,7 +142,7 @@ describe("Gate 6B role × scale scientific coverage", () => {
   });
 
   it("v2 mixed instruments use the run-level floor without role or policy mutation", () => {
-    const registry = createBundledProfileRegistry();
+    const registry = legacyKcwiRegistry();
     const sources = [tile("kcwi", "keck-kcwi-small")];
     const before = registry.resolveSurveyProfile("splus-t80-south");
     const result = requireResolvedCoverage(measureActiveCoverage(box(0.02), sources, [], "splus-t80-south", undefined, registry));

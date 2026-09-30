@@ -1,0 +1,982 @@
+{
+  "instruments": [
+    {
+      "schema_version": 3,
+      "id": "keck-kcwi-small",
+      "display_name": "Keck / KCWI — small slicer",
+      "description": "Exact measured contiguous 8.4 arcsec × 20.4 arcsec slicer field. Geometry only; no nod-and-shuffle or automatic survey placement.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 0.0023333333333333335,
+        "height_deg": 0.005666666666666666,
+        "position_angle_deg": 0
+      },
+      "footprint_semantics": {
+        "role": "observed_area",
+        "fidelity": "exact"
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "title": "Keck KCWI instrument primer"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "Derived from the source measured 8.4 arcsec across the slices using 3600 arcsec per degree."
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "Derived from the source measured 20.4 arcsec along the slices using 3600 arcsec per degree."
+          },
+          {
+            "parameter_path": "footprint.position_angle_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "0 degrees is the frozen Jasytata local planning convention for slices north; it is not a facility rotator conversion."
+          }
+        ],
+        "assumptions": [
+          "Measured contiguous slicer dimensions are represented as a rectangle with across-slice east and along-slice north at the frozen local PA 0 degree convention; this is not a Keck rotator-keyword conversion."
+        ],
+        "limitations": [
+          "Nod-and-shuffle, observing sequences, depth, throughput and WCS calibration are outside this footprint."
+        ]
+      },
+      "position_angle": {
+        "mode": "fixed",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "keck-kcwi-medium",
+      "display_name": "Keck / KCWI — medium slicer",
+      "description": "Exact measured contiguous 16.5 arcsec × 20.4 arcsec slicer field. Geometry only; no nod-and-shuffle or automatic survey placement.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 0.004583333333333333,
+        "height_deg": 0.005666666666666666,
+        "position_angle_deg": 0
+      },
+      "footprint_semantics": {
+        "role": "observed_area",
+        "fidelity": "exact"
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "title": "Keck KCWI instrument primer"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "Derived from the source measured 16.5 arcsec across the slices using 3600 arcsec per degree."
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "Derived from the source measured 20.4 arcsec along the slices using 3600 arcsec per degree."
+          },
+          {
+            "parameter_path": "footprint.position_angle_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "0 degrees is the frozen Jasytata local planning convention for slices north; it is not a facility rotator conversion."
+          }
+        ],
+        "assumptions": [
+          "Measured contiguous slicer dimensions are represented as a rectangle with across-slice east and along-slice north at the frozen local PA 0 degree convention; this is not a Keck rotator-keyword conversion."
+        ],
+        "limitations": [
+          "Nod-and-shuffle, observing sequences, depth, throughput and WCS calibration are outside this footprint."
+        ]
+      },
+      "position_angle": {
+        "mode": "fixed",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "keck-kcwi-large",
+      "display_name": "Keck / KCWI — large slicer",
+      "description": "Exact measured contiguous 33.1 arcsec × 20.4 arcsec slicer field. Geometry only; no nod-and-shuffle or automatic survey placement.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 0.009194444444444446,
+        "height_deg": 0.005666666666666666,
+        "position_angle_deg": 0
+      },
+      "footprint_semantics": {
+        "role": "observed_area",
+        "fidelity": "exact"
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "title": "Keck KCWI instrument primer"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "Derived from the source measured 33.1 arcsec across the slices using 3600 arcsec per degree."
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "Derived from the source measured 20.4 arcsec along the slices using 3600 arcsec per degree."
+          },
+          {
+            "parameter_path": "footprint.position_angle_deg",
+            "reference_url": "https://www2.keck.hawaii.edu/inst/kcwi/primer.html",
+            "note": "0 degrees is the frozen Jasytata local planning convention for slices north; it is not a facility rotator conversion."
+          }
+        ],
+        "assumptions": [
+          "Measured contiguous slicer dimensions are represented as a rectangle with across-slice east and along-slice north at the frozen local PA 0 degree convention; this is not a Keck rotator-keyword conversion."
+        ],
+        "limitations": [
+          "Nod-and-shuffle, observing sequences, depth, throughput and WCS calibration are outside this footprint."
+        ]
+      },
+      "position_angle": {
+        "mode": "fixed",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sdss-lvm-i-science-ifu",
+      "display_name": "SDSS-V LVM-I science IFU",
+      "description": "Instrument-only science-field envelope. Manual centers only; no universal LVM regional tiling or dither strategy is implied.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.25166666666666665
+          ],
+          [
+            0.2179497266190837,
+            0.12583333333333335
+          ],
+          [
+            0.21794972661908374,
+            -0.12583333333333327
+          ],
+          [
+            0,
+            -0.25166666666666665
+          ],
+          [
+            -0.21794972661908366,
+            -0.12583333333333344
+          ],
+          [
+            -0.2179497266190837,
+            0.12583333333333335
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate idealized nominal science-field envelope; it does not describe fibre apertures, fill, allocation or observed spectral area."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://arxiv.org/html/2405.01637v1",
+            "title": "Drory et al. 2024, Local Volume Mapper"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://arxiv.org/html/2405.01637v1",
+            "note": "Derived as a regular hexagon with circumradius 30.2 arcmin / 2; vertices start at local north and advance eastward by 60 degrees. Canonical orientation is not an instrument PA."
+          }
+        ],
+        "assumptions": [
+          "The ideal regular hexagon is derived from the primary source 30.2 arcmin outer diameter and represented as a nominal envelope in canonical vertex-on-north orientation. Published side and area values are consistency context, not constraints on an exact active boundary."
+        ],
+        "limitations": [
+          "Not an active-fibre mask or reconstructed cube footprint. Regional tiling, dithers, sky/standard fields and allocation remain external."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "vlt-muse-wfm",
+      "display_name": "VLT / MUSE Wide Field Mode",
+      "description": "Instrument-only nominal WFM envelope. Requires an externally supplied sky PA for oriented geometry.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 0.016638888888888887,
+        "height_deg": 0.016666666666666666
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Nominal WFM field envelope; not an exact science-active mask or completeness area."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.eso.org/sci/facilities/paranal/instruments/muse/overview.html",
+            "title": "ESO MUSE overview"
+          },
+          {
+            "url": "https://www.eso.org/sci/observing/phase2/SMGuidelines/Documentation/p2TutorialMUSE.html",
+            "title": "ESO MUSE Phase 2 tutorial"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www.eso.org/sci/observing/phase2/SMGuidelines/Documentation/p2TutorialMUSE.html"
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www.eso.org/sci/observing/phase2/SMGuidelines/Documentation/p2TutorialMUSE.html"
+          }
+        ],
+        "assumptions": [
+          "The sourced nominal WFM field is represented as a 59.9 arcsec × 60.0 arcsec rectangle for manual target and mosaic placement."
+        ],
+        "limitations": [
+          "Not an exact active spaxel mask. AO/guide-star feasibility, survey placement, universal offsets and ESO observing-block export are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "per_pointing",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "vlt-muse-nfm",
+      "display_name": "VLT / MUSE Narrow Field Mode",
+      "description": "Instrument-only nominal NFM envelope. Requires an externally supplied sky PA for oriented geometry.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 0.002061111111111111,
+        "height_deg": 0.002063888888888889
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate operational NFM envelope; overview dimensions and usable active boundaries are not reconciled here."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.eso.org/sci/observing/phase2/SMGuidelines/Documentation/p2TutorialMUSE.html",
+            "title": "ESO MUSE Phase 2 tutorial"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www.eso.org/sci/observing/phase2/SMGuidelines/Documentation/p2TutorialMUSE.html"
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www.eso.org/sci/observing/phase2/SMGuidelines/Documentation/p2TutorialMUSE.html"
+          }
+        ],
+        "assumptions": [
+          "The 7.42 arcsec × 7.43 arcsec operational field cited by the Phase 2 tutorial is retained instead of substituting the rounded overview value."
+        ],
+        "limitations": [
+          "Not an exact active spaxel mask. Guide-star/AO constraints, survey placement and ESO observing-block export are not modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "per_pointing",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "cfht-sitelle",
+      "display_name": "CFHT / SITELLE",
+      "description": "Single nominal field envelope, not the exact intersection of the two calibrated ports. No SIGNALS survey strategy is bundled.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 0.18333333333333332,
+        "height_deg": 0.18333333333333332,
+        "position_angle_deg": 0
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate 11 arcmin single-field envelope; not the calibrated port intersection or exact active area."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.cfht.hawaii.edu/Instruments/Sitelle/",
+            "title": "CFHT SITELLE instrument overview"
+          },
+          {
+            "url": "https://www.cfht.hawaii.edu/Instruments/Sitelle/SITELLE_specsinformation.php",
+            "title": "CFHT SITELLE performance information"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www.cfht.hawaii.edu/Instruments/Sitelle/",
+            "note": "Nominal 11 arcmin field from CFHT overview; converted by 60 arcmin per degree."
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www.cfht.hawaii.edu/Instruments/Sitelle/",
+            "note": "Nominal 11 arcmin field from CFHT overview; converted by 60 arcmin per degree."
+          },
+          {
+            "parameter_path": "footprint.position_angle_deg",
+            "reference_url": "https://www.cfht.hawaii.edu/Instruments/Sitelle/SITELLE_specsinformation.php",
+            "note": "Fixed 0 degree north-up/east-left convention within the documented calibration limit; no instrument rotator conversion."
+          }
+        ],
+        "assumptions": [
+          "The nominal 11 arcmin square is one field, not two adjacent ports. Fixed PA 0 north-up/east-left follows documented orientation and frozen Gate 2 semantics."
+        ],
+        "limitations": [
+          "Calibrated camera-port dimensions are unequal and field distortion/cropping remain; the square is not the exact common active mask. SIGNALS strategy/export are separate."
+        ]
+      },
+      "position_angle": {
+        "mode": "fixed",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "aat-hector-hr-61core-15arcsec",
+      "display_name": "AAT / Hector high-resolution 61-core, nominal 15 arcsec bundle",
+      "description": "One high-resolution Hector bundle envelope with manual centers; full 2 degree sparse-plate planning remains deferred.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "circle",
+        "radius_deg": 0.0020833333333333333
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate individual-bundle envelope only; not a sparse Hector plate footprint or fibre completeness."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://hector.survey.org.au/instrument",
+            "title": "Hector instrument description"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.radius_deg",
+            "reference_url": "https://hector.survey.org.au/instrument",
+            "note": "Derived as half the selected nominal 15 arcsec bundle diameter; envelope radius, not active-area radius."
+          }
+        ],
+        "assumptions": [
+          "The selected 61-core high-resolution bundle nominal 15 arcsec diameter is represented by a circle of half that diameter."
+        ],
+        "limitations": [
+          "Not a measured fibre-fill boundary. No plate allocation, variable bundle layout, fibre map, sequence or robot export is represented."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "aat-sami-61core-15arcsec",
+      "display_name": "AAT / SAMI 61-core, nominal 15 arcsec bundle",
+      "description": "One SAMI bundle envelope paired with the selected DR1 seven-position strategy; no plate geometry or allocation.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "circle",
+        "radius_deg": 0.0020833333333333333
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate nominal individual-bundle circle, not the active fibre union or a SAMI plate footprint."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://academic.oup.com/mnras/article/421/1/872/991492",
+            "title": "Croom et al. 2012, SAMI instrument paper"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.radius_deg",
+            "reference_url": "https://academic.oup.com/mnras/article/421/1/872/991492",
+            "note": "Derived as half the instrument paper nominal 15 arcsec bundle diameter; later 15.7 arcsec comparison remains a limitation."
+          }
+        ],
+        "assumptions": [
+          "The nominal 15 arcsec bundle diameter is represented by a circle of half that diameter for the frozen individual-bundle scope."
+        ],
+        "limitations": [
+          "A later comparison quotes 15.7 arcsec, so diameter definitions are not reconciled. Not fibre fill or reconstructed completeness; the 1 degree plate and facility export are deferred."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "rubin-lsstcam-area-equivalent",
+      "display_name": "Rubin Observatory / LSSTCam area-equivalent field",
+      "description": "Instrument-only coarse field-center planning envelope; no LSST visit or scheduler strategy is bundled.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "circle",
+        "radius_deg": 1.7480774889473265
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate area-equivalent circle; not an active sensor boundary or per-visit completeness mask."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://rubinobservatory.org/for-scientists/rubin-101/instruments",
+            "title": "Rubin Observatory instrument overview"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.radius_deg",
+            "reference_url": "https://rubinobservatory.org/for-scientists/rubin-101/instruments",
+            "note": "Derived deterministically as sqrt(9.6 deg2 / pi); source does not claim a circular boundary."
+          }
+        ],
+        "assumptions": [
+          "Area-equivalent radius is derived as sqrt(9.6 deg2 / pi) from the source rounded field area; geometric planning conversion only."
+        ],
+        "limitations": [
+          "Not the 189-sensor active union; omits gaps, nonscience sensors, visit scheduling, depth, rotation and survey overlap."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "ctio-decam-area-equivalent",
+      "display_name": "CTIO / DECam area-equivalent field",
+      "description": "Instrument-only coarse field-center planning envelope; DES and other survey strategies remain separate.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "circle",
+        "radius_deg": 0.9772050238058398
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate area-equivalent circle for coarse planning; not a detector mosaic mask."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.darkenergysurvey.org/wp-content/uploads/2018/01/DR1Release.pdf",
+            "title": "DES DR1 technical paper"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.radius_deg",
+            "reference_url": "https://www.darkenergysurvey.org/wp-content/uploads/2018/01/DR1Release.pdf",
+            "note": "Derived deterministically as sqrt(approximately 3 deg2 / pi) from the technical paper approximate field area."
+          }
+        ],
+        "assumptions": [
+          "Area-equivalent radius is derived as sqrt(3 deg2 / pi) from the source approximate field area; this does not infer a circular detector boundary."
+        ],
+        "limitations": [
+          "Not the 62 science-CCD active union; omits gaps, stepped outer shape, detector status, survey visits and completeness."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "subaru-hsc-optical-envelope",
+      "display_name": "Subaru / Hyper Suprime-Cam optical envelope",
+      "description": "Instrument-only coarse optical field envelope; no HSC-SSP survey tiling or rotation is bundled.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "circle",
+        "radius_deg": 0.75
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate optical envelope; not the active CCD union or epoch-specific detector mask."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://subarutelescope.org/Instruments/HSC/",
+            "title": "Subaru Telescope HSC instrument page"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.radius_deg",
+            "reference_url": "https://subarutelescope.org/Instruments/HSC/",
+            "note": "Derived as half of the published 1.5 degree optical-field diameter."
+          }
+        ],
+        "assumptions": [
+          "The 1.5 degree quoted optical-field diameter is represented by a nominal circle of half that diameter."
+        ],
+        "limitations": [
+          "Omits the stepped/gapped 104-CCD science mosaic and date-specific disabled-sensor state; HSC-SSP survey-layer policies are separate."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "vst-omegacam-1deg-envelope",
+      "display_name": "VST / OmegaCAM nominal 1 degree field",
+      "description": "Instrument-only nominal square envelope; no KiDS, VPHAS+, detector mask or survey lattice is bundled.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 1.0,
+        "height_deg": 1.0
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate square nominal envelope; physical camera orientation omitted and not active detector coverage."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.eso.org/sci/facilities/paranal/instruments/omegacam/inst.html",
+            "title": "ESO OmegaCAM instrument description"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www.eso.org/sci/facilities/paranal/instruments/omegacam/inst.html",
+            "note": "Nominal one-degree field from ESO; local width follows the canonical approximation."
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www.eso.org/sci/facilities/paranal/instruments/omegacam/inst.html",
+            "note": "Nominal one-degree field from ESO; local height follows the canonical approximation."
+          }
+        ],
+        "assumptions": [
+          "The sourced nominal one-degree square uses canonical local east/north orientation. This is a convention for approximate envelope display, not physical PA."
+        ],
+        "limitations": [
+          "The source reports 91.4 percent geometric fill; no individual CCDs, gaps, filter shadows, survey dithers or active-area completeness are modeled."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "cfht-megacam-40readout-envelope",
+      "display_name": "CFHT / MegaCam 40-readout nominal 1 degree field",
+      "description": "Instrument-only 40-readout nominal envelope; no CFHTLS policy, CCD mask or facility export is bundled.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "rectangle",
+        "width_deg": 1.0,
+        "height_deg": 1.0
+      },
+      "footprint_semantics": {
+        "role": "nominal_envelope",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate 40-readout square envelope; physical orientation and exact detector boundary omitted."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.cfht.hawaii.edu/en/about/CFHT_FS_v1-2.pdf",
+            "title": "CFHT facility factsheet"
+          },
+          {
+            "url": "https://www.cfht.hawaii.edu/Instruments/Imaging/Megacam/rawdata.html",
+            "title": "CFHT MegaCam raw-data description"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.width_deg",
+            "reference_url": "https://www.cfht.hawaii.edu/en/about/CFHT_FS_v1-2.pdf",
+            "note": "Approximate one-degree square field from CFHT factsheet, for the contract-selected 40-readout mode."
+          },
+          {
+            "parameter_path": "footprint.height_deg",
+            "reference_url": "https://www.cfht.hawaii.edu/en/about/CFHT_FS_v1-2.pdf",
+            "note": "Approximate one-degree square field from CFHT factsheet, for the contract-selected 40-readout mode."
+          }
+        ],
+        "assumptions": [
+          "The nominal one-degree square is used for the contract-selected 40-readout configuration in canonical local east/north orientation; it does not claim a facility PA."
+        ],
+        "limitations": [
+          "Does not model the older 36-readout geometry, detector ears, connector/CCD gaps, distortion, masks, survey dithers or active-area completeness."
+        ]
+      },
+      "position_angle": {
+        "mode": "not_applicable",
+        "required": false
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "vista-4most-target-access",
+      "display_name": "VISTA / 4MOST nominal target-access field",
+      "description": "Instrument-only candidate-access envelope. Requires externally supplied sky PA; no fibre-positioner assignment is performed.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            1.25
+          ],
+          [
+            1.0825317547305482,
+            0.6250000000000001
+          ],
+          [
+            1.0825317547305484,
+            -0.6249999999999998
+          ],
+          [
+            0,
+            -1.25
+          ],
+          [
+            -1.082531754730548,
+            -0.6250000000000006
+          ],
+          [
+            -1.0825317547305482,
+            0.6250000000000001
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "target_access",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate target-access envelope only; never an observed-area or target-completeness mask."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://www.4most.eu/cms/facility/capabilities/",
+            "title": "4MOST facility capability table"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://www.4most.eu/cms/facility/capabilities/",
+            "note": "Derived as a canonical regular hexagon with 1.25 degree circumradius from the contract-selected 2.5 degree circumscribed diameter; access-envelope approximation."
+          }
+        ],
+        "assumptions": [
+          "The frozen release contract selects an approximate regular hexagon using the sourced 2.5 degree circumscribed diameter; vertices derive from half-diameter and canonical vertex-on-north orientation. Published 4.2 deg2 is consistency context, not a second exact constraint."
+        ],
+        "limitations": [
+          "Potential target access only; not observed spectroscopic area, fibre assignment, patrol reach, collisions, completeness, survey tiling or facility export."
+        ]
+      },
+      "position_angle": {
+        "mode": "per_pointing",
+        "required": true
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "subaru-pfs-target-access",
+      "display_name": "Subaru / PFS nominal target-access field",
+      "description": "Instrument-only candidate-access envelope. Requires externally supplied sky PA; no fibre-positioner assignment is performed.",
+      "coordinate_frame": "icrs",
+      "footprint": {
+        "type": "polygon",
+        "vertices_deg": [
+          [
+            0,
+            0.69
+          ],
+          [
+            0.5975575286112625,
+            0.34500000000000003
+          ],
+          [
+            0.5975575286112627,
+            -0.3449999999999998
+          ],
+          [
+            0,
+            -0.69
+          ],
+          [
+            -0.5975575286112624,
+            -0.3450000000000003
+          ],
+          [
+            -0.5975575286112625,
+            0.34500000000000003
+          ]
+        ]
+      },
+      "footprint_semantics": {
+        "role": "target_access",
+        "fidelity": "approximate",
+        "approximation_notice": "Approximate target-access envelope only; not a fibre-allocation or target-completeness mask."
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://pfs.ipmu.jp/research/parameters.html",
+            "title": "PFS official parameter table"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "footprint.vertices_deg",
+            "reference_url": "https://pfs.ipmu.jp/research/parameters.html",
+            "note": "Derived as a canonical regular hexagon with 0.69 degree circumradius from the sourced 1.38 degree circumscribed diameter."
+          }
+        ],
+        "assumptions": [
+          "The regular hexagon derives from the source 1.38 degree circumscribed-circle diameter using a 0.69 degree circumradius and canonical vertex-on-north local orientation."
+        ],
+        "limitations": [
+          "Potential target access only; not observed spectral area, fibre assignment, Cobra patrol/collision geometry, completeness, survey revisits or Subaru export."
+        ]
+      },
+      "position_angle": {
+        "mode": "per_pointing",
+        "required": true
+      }
+    }
+  ],
+  "strategies": [
+    {
+      "schema_version": 3,
+      "id": "sami-dr1-seven-position",
+      "display_name": "SAMI Galaxy Survey DR1 seven-position strategy",
+      "description": "One manually centered SAMI bundle with nominal DR1 central-plus-six-offset sequence; not a plate strategy or observatory command list.",
+      "instrument_id": "aat-sami-61core-15arcsec",
+      "tiling": {
+        "type": "manual"
+      },
+      "inference": {
+        "enabled": false,
+        "spacing_tolerance_fraction": 0,
+        "phase_tolerance_fraction": 0,
+        "occupancy_tolerance_fraction": 0,
+        "min_anchor_tiles": 1,
+        "min_neighbor_pairs": 1,
+        "allow_rotation": false
+      },
+      "coverage": {
+        "sampling": {
+          "target_samples_per_footprint_axis": 8,
+          "max_samples": 90000
+        },
+        "target_samples_per_footprint_axis": 8
+      },
+      "coverage_basis_default": "effective_sequence",
+      "observing_sequence": {
+        "id": "sami-dr1-seven-position",
+        "exposures": [
+          {
+            "order": 1,
+            "east_arcsec": 0,
+            "north_arcsec": 0
+          },
+          {
+            "order": 2,
+            "east_arcsec": 0,
+            "north_arcsec": 0.7
+          },
+          {
+            "order": 3,
+            "east_arcsec": 0.606217782649107,
+            "north_arcsec": 0.35000000000000003
+          },
+          {
+            "order": 4,
+            "east_arcsec": 0.6062177826491071,
+            "north_arcsec": -0.3499999999999998
+          },
+          {
+            "order": 5,
+            "east_arcsec": 0,
+            "north_arcsec": -0.7
+          },
+          {
+            "order": 6,
+            "east_arcsec": -0.6062177826491069,
+            "north_arcsec": -0.3500000000000003
+          },
+          {
+            "order": 7,
+            "east_arcsec": -0.606217782649107,
+            "north_arcsec": 0.35000000000000003
+          }
+        ]
+      },
+      "export": {
+        "ra_column": "RA",
+        "dec_column": "DEC",
+        "coordinate_format": "decimal",
+        "identifiers": {
+          "id_column": "EXPOSURE_ID"
+        },
+        "constant_fields": {
+          "INSTRUMENT_ID": "aat-sami-61core-15arcsec",
+          "STRATEGY_ID": "sami-dr1-seven-position"
+        }
+      },
+      "provenance": {
+        "references": [
+          {
+            "url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "title": "SAMI Galaxy Survey Data Release 1"
+          }
+        ],
+        "parameter_sources": [
+          {
+            "parameter_path": "observing_sequence.exposures[0].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "The zero offset is the central exposure."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[0].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "The zero offset is the central exposure."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[1].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[2].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[3].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[3].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[4].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[4].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[5].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[5].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[6].east_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          },
+          {
+            "parameter_path": "observing_sequence.exposures[6].north_arcsec",
+            "reference_url": "https://sami-survey.org/system/files/papers/545/sami_dr1_6.pdf",
+            "note": "Derived from the published 0.7 arcsec six-position ring. Jasytata starts north and advances eastward by 60 degrees; this is frozen coordinate normalization, not observatory command order."
+          }
+        ],
+        "assumptions": [
+          "Centers are manually supplied for individual bundles; the published sequence does not define plate placement.",
+          "The 0.7 arcsec ring starts north and advances eastward by 60 degrees per the frozen Gate 2 coordinate convention; this is not observatory command order.",
+          "Sampling target N=8 and max_samples=90000 use the v0.4 project-level coverage contract, not SAMI performance."
+        ],
+        "limitations": [
+          "Offsets are nominal guide-camera positions; atmospheric refraction and per-object measured offsets can change placements.",
+          "Does not model fibre maps, cube reconstruction, depth, completeness, full 1 degree plate allocation or facility export."
+        ]
+      }
+    }
+  ]
+}

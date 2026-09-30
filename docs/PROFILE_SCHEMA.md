@@ -171,7 +171,11 @@ profile never defaults to an observed-area role.
 Gate 6A established persisted v3 roles. Gate 6B consumes them through explicit
 observed-area, envelope and legacy metric bases with hard-budget sampling. See
 [coverage-role validation](V0.4.0_COVERAGE_ROLE_SAMPLING_VALIDATION.md). The final
-selected instrument library remains Gate 6C.
+selected instrument library remains Gate 6C. Pointing export dispatches on the
+declared survey schema and revalidates either the v2 export policy or the v3
+strategy export policy; it never downgrades a v3 strategy. V3 sequence rows are
+expanded only when the caller explicitly supplies the runtime sequence resolver.
+The protected v2 export path remains byte-for-byte stable.
 
 ### Coverage roles and sampling (v0.4 Gate 6B)
 
@@ -502,9 +506,10 @@ not instrument or survey names. See the focused tests in
 
 ## Pointing CSV contract (Gate 7C)
 
-The governing `SurveyProfileV2.export` policy is authoritative for bundled,
-imported and browser-authored profiles. The download API resolves that survey by
-its exact registry ID and validates the policy again before serialization. Unknown
+The governing `SurveyProfileV2.export` or `SurveyProfileV3.export` policy is
+authoritative for bundled, imported and browser-authored strategies. The download
+API resolves that strategy by its exact registry ID and validates the policy
+again before serialization. Unknown
 surveys and invalid policies fail explicitly; there is no S-PLUS fallback. Dataset
 instruments and arbitrary source headers never select output format. The workspace
 shows the policy's coordinate representation rather than keeping a second format
