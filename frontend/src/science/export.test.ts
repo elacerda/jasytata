@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ExportPolicy, SurveyProfileV2, SurveyProfileV3, TileRecord } from "../types";
+import type { ExportPolicy, InstrumentProfileV3, SurveyProfileV2, SurveyProfileV3, TileRecord } from "../types";
 import { SPLUS_SURVEY_V2 } from "../profiles/v2";
 import { parseProfileJsonV2, serializeProfile } from "../profiles/document";
-import { ProfileRegistry } from "../profiles/registry";
+import { createBundledProfileRegistry, ProfileRegistry } from "../profiles/registry";
 import smallJson from "../profiles/fixtures/small-camera.json";
 import { makeCenterProposals, readCsv } from "./catalogue";
 import { parseDecDegrees, parseRaDegrees } from "./coordinates";
-import { buildExportCsv, type PointingExposureExport } from "./export";
+import { buildExportCsv, buildInstrumentCoordinateCsv, type PointingExposureExport } from "./export";
 import { deriveExposurePlacements, type ObservingSequence } from "./exposure-sequence";
 
 const pointing: TileRecord = makeCenterProposals([{ ra_deg: 150.12345678, dec_deg: -24.12345678 }], "manual")[0];
@@ -314,5 +314,81 @@ describe("survey-driven pointing export", () => {
     const tiles = [{ ...pointing, position_angle_deg: 12 }];
     expect(buildExportCsv(tiles, registry.resolveSurveyProfile(document.survey.id))).toBe(buildExportCsv(tiles, document.survey));
     expect(registry.resolveSurveyProfile(document.survey.id).export).toEqual(document.survey.export);
+  });
+});
+
+describe("standalone instrument coordinate export", () => {
+  it("exports one accepted nominal ICRS center with its instrument and placement origin, without survey fields", () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("keck-kcwi-small") as InstrumentProfileV3;
+    const tile = {
+      ...makeCenterProposals([{ ra_deg: 150.12345678, dec_deg: -24.12345678 }], "manual")[0],
+      id: "accepted-kcwi-center",
+      instrument_profile_id: instrument.id,
+    };
+
+    const rows = readCsv(buildInstrumentCoordinateCsv([tile], instrument, {
+      resolvePositionAngle: () => 0,
+    }));
+    expect(rows).toEqual([
+      ["POINTING_ID", "RA_ICRS_DEG", "DEC_ICRS_DEG", "INSTRUMENT_PROFILE_ID", "PLACEMENT_ORIGIN", "POSITION_ANGLE_DEG"],
+      ["POINTING_0001", "150.12345678", "-24.12345678", "keck-kcwi-small", "manual", "0.00000000"],
+    ]);
+    expect(rows[0]).not.toContain("EPOCH");
+    expect(rows[0]).not.toContain("SURVEY_ID");
+    expect(rows[0]).not.toContain("EXPOSURE_ID");
+  });
+
+  it("requires PA for an oriented instrument and does not synthesize a missing value", () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("vlt-muse-wfm") as InstrumentProfileV3;
+    const tile = {
+      ...makeCenterProposals([{ ra_deg: 150, dec_deg: -24 }], "imported_centers")[0],
+      instrument_profile_id: instrument.id,
+    };
+
+    expect(() => buildInstrumentCoordinateCsv([tile], instrument, { resolvePositionAngle: () => undefined }))
+      .toThrow(/camera position angle required/);
+    const csv = buildInstrumentCoordinateCsv([tile], instrument, { resolvePositionAngle: () => 73.5 });
+    expect(readCsv(csv)[0]).toContain("POSITION_ANGLE_DEG");
+    expect(readCsv(csv)[1].at(-1)).toBe("73.50000000");
+    expect(readCsv(csv)[1]).toContain("imported_unverified");
+  });
+
+  it("keeps target-access output distinct from observed coverage", () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("vista-4most-target-access") as InstrumentProfileV3;
+    const tile = {
+      ...makeCenterProposals([{ ra_deg: 12, dec_deg: 34 }], "manual")[0],
+      instrument_profile_id: instrument.id,
+    };
+
+    const rows = readCsv(buildInstrumentCoordinateCsv([tile], instrument, { resolvePositionAngle: () => 42 }));
+    expect(rows[0]).toContain("POSITION_ANGLE_DEG");
+    expect(rows[0]).not.toContain("OBSERVED_COVERAGE");
+    expect(rows[1]).toContain("vista-4most-target-access");
+  });
+
+  it("omits PA for an approximate nominal envelope whose policy says it is not applicable", () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("sdss-lvm-i-science-ifu") as InstrumentProfileV3;
+    const tile = {
+      ...makeCenterProposals([{ ra_deg: 12, dec_deg: 34 }], "manual")[0],
+      instrument_profile_id: instrument.id,
+    };
+
+    const rows = readCsv(buildInstrumentCoordinateCsv([tile], instrument, { resolvePositionAngle: () => undefined }));
+    expect(rows[0]).not.toContain("POSITION_ANGLE_DEG");
+    expect(rows[0]).toContain("PLACEMENT_ORIGIN");
+  });
+
+  it("rejects rows without explicit placement provenance or with a different instrument", () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("sdss-lvm-i-science-ifu") as InstrumentProfileV3;
+    const tile = makeCenterProposals([{ ra_deg: 12, dec_deg: 34 }], "manual")[0];
+    expect(() => buildInstrumentCoordinateCsv([{ ...tile, placement_provenance: undefined, instrument_profile_id: instrument.id }], instrument, { resolvePositionAngle: () => undefined }))
+      .toThrow(/no declared placement origin/);
+    expect(() => buildInstrumentCoordinateCsv([{ ...tile, instrument_profile_id: "other-instrument" }], instrument, { resolvePositionAngle: () => undefined }))
+      .toThrow(/not assigned to instrument/);
   });
 });

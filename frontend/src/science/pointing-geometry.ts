@@ -48,7 +48,8 @@ export interface PointingGeometryContext {
  * always the nominal tile center, even if the first sequence exposure is offset.
  *
  * @param tile - Nominal sky pointing and source identity.
- * @param profile - Active output profile for proposals and unassociated rows.
+ * @param profile - Active survey profile for unassociated rows, or null when the
+ *   tile itself identifies its registered instrument.
  * @param registry - Session-local instrument registry.
  * @param context - Optional runtime orientation and sequence policy.
  * @returns One nominal geometry or the ordered exposure geometries.
@@ -56,7 +57,7 @@ export interface PointingGeometryContext {
  */
 export function resolvePointingGeometries(
   tile: TileRecord,
-  profile: TilingProfile,
+  profile: TilingProfile | null,
   registry: ProfileRegistry = profileRegistry,
   context?: PointingGeometryContext,
 ): PointingGeometry[] {

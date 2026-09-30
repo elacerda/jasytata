@@ -53,6 +53,9 @@ export interface TileRecord {
   /** Declared camera PA in astronomical degrees east of north.
    * Absent when no orientation is declared; never inferred from lattice rotation. */
   position_angle_deg?: number;
+  /** Explicit user-selected plan PA snapped onto an accepted session pointing.
+   * Used only with Gate 5's user_selected policy; never written into catalogue data. */
+  output_position_angle_deg?: number;
   /** Explicit center-origin declaration; absent legacy rows remain unclassified. */
   placement_provenance?: PlacementProvenance;
   source: TileSource;
@@ -61,8 +64,10 @@ export interface TileRecord {
   generation_method: GenerationMethod | null;
   dataset_id?: string | null;
   dataset_name?: string | null;
-  /** Source instrument profile, copied from its dataset for scientific planning. */
+  /** Instrument profile associated with this source or accepted output pointing. */
   instrument_profile_id?: string | null;
+  /** Selected real strategy for accepted output pointings; absent for instrument-only centers. */
+  output_strategy_id?: string | null;
   /** Dataset inference role, copied onto source tiles for scientific planning. */
   inference_role?: InferenceRole;
   /** Historical source grouping used only by legacy S-PLUS inference, never generic export. */
@@ -406,6 +411,8 @@ export interface CenterInput {
   ra_deg: number;
   /** ICRS declination in decimal degrees. */
   dec_deg: number;
+  /** Optional declared camera PA in degrees east of north; never inferred from placement. */
+  position_angle_deg?: number;
   label?: string | null;
 }
 

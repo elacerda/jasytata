@@ -84,11 +84,11 @@ describe("Gate 8 real App workflow matrix", () => {
       cleanup(); session.registry = createBundledProfileRegistry();
       session.region = fixture.region; session.origin = fixture.origin;
       const user = userEvent.setup(); render(<App />);
-      await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toBeEnabled());
+      await waitFor(() => expect(screen.getByRole("combobox", { name: "Output profile" })).toBeEnabled());
       if (fixture.key !== "t80") {
         await user.upload(screen.getByLabelText("Profile JSON file"), inputFile(serializeProfile(fixture.document), `${fixture.key}.json`));
-        await screen.findByText(`Imported survey profile: ${fixture.document.survey.display_name}`, { exact: false });
-        await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), fixture.document.survey.id);
+        await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(fixture.document.survey.display_name));
+        await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), `survey:${fixture.document.survey.id}`);
       }
       await user.click(screen.getByRole("button", { name: "Select G8 region" }));
       const expected = planRegion(fixture.region, [], fixture.document.survey.id, undefined, "complete", session.registry!);
@@ -121,8 +121,8 @@ describe("Gate 8 real App workflow matrix", () => {
   it.each(cases)("$key: manual click and imported centers review/cancel/accept/export without inference", async (fixture) => {
     session.registry = matrixRegistry(); session.region = fixture.region; session.origin = fixture.origin;
     const user = userEvent.setup(); render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toBeEnabled());
-    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), fixture.document.survey.id);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Output profile" })).toBeEnabled());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), `survey:${fixture.document.survey.id}`);
     await user.click(screen.getByRole("button", { name: "Select G8 region" }));
     await user.click(screen.getByRole("button", { name: "G8 sky click" }));
     await user.click(await screen.findByRole("button", { name: "Cancel preview" }));
@@ -147,8 +147,8 @@ describe("Gate 8 real App workflow matrix", () => {
     session.registry = matrixRegistry(); const [circle, mosaic] = cases.slice(1);
     session.region = mosaic.region; session.origin = mosaic.origin;
     const user = userEvent.setup(); render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toBeEnabled());
-    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), mosaic.document.survey.id);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Output profile" })).toBeEnabled());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), `survey:${mosaic.document.survey.id}`);
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), inputFile("ra_deg,dec_deg,quality\n149.78,-25,immutable\n", "circle.csv"));
     await user.selectOptions(await screen.findByRole("combobox", { name: "Catalogue instrument for circle.csv" }), circle.document.instrument.id);
     const sources = session.map!.tiles.filter((t) => t.source === "original"), snapshot = structuredClone(sources);
@@ -178,8 +178,8 @@ describe("Gate 8 real App workflow matrix", () => {
   it.each(cases.slice(1))("$key: user CSV assignment → active-profile inference → accepted continuation → download without PID", async (fixture) => {
     session.registry = matrixRegistry(); session.region = fixture.region;
     const user = userEvent.setup(); render(<App />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Active survey" })).toBeEnabled());
-    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), fixture.document.survey.id);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Output profile" })).toBeEnabled());
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), `survey:${fixture.document.survey.id}`);
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), inputFile(fixture.csv!, `${fixture.key}.csv`));
     await user.selectOptions(await screen.findByRole("combobox", { name: `Catalogue instrument for ${fixture.key}.csv` }), fixture.document.instrument.id);
     const sources = session.map!.tiles.filter((t) => t.source === "original"), snapshot = structuredClone(sources);
@@ -228,7 +228,7 @@ describe("Gate 8 real App workflow matrix", () => {
     expect(authored.survey.coverage).toEqual(fixture.document.survey.coverage);
     expect(authored.survey.export).toEqual(fixture.document.survey.export);
     expect(parseProfileJsonV2(serializeProfile(authored))).toEqual(authored);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Active survey" }), authored.survey.id);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), `survey:${authored.survey.id}`);
     await user.click(screen.getByRole("button", { name: "Select G8 region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));

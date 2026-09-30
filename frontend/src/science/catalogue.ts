@@ -140,9 +140,11 @@ export function parseCenterText(text: string): CenterInput[] {
 }
 
 /** Create deterministic provisional proposal records from browser-side centers.
- * @param centers - Validated ICRS RA/DEC centers in decimal degrees, at most 500.
+ * @param centers - Validated ICRS centers in decimal degrees, at most 500;
+ *   optional PA values are declared astronomical degrees east of north.
  * @param generationMethod - Manual, imported, compatibility, or declared lattice provenance.
- * @returns Proposed tiles with stable sequential session IDs.
+ * @returns Proposed tiles with stable sequential session IDs and explicit
+ *   manual/imported-unverified placement origins where those origins are known.
  * @throws If centers or generation method violate the Python request contract.
  */
 export function makeCenterProposals(centers: CenterInput[], generationMethod: GenerationMethod): TileRecord[] {
@@ -150,9 +152,13 @@ export function makeCenterProposals(centers: CenterInput[], generationMethod: Ge
   if (!["manual", "imported_centers", "region_legacy", "region_extended", "region_lattice"].includes(generationMethod)) throw new Error("Invalid generation method");
   return centers.map((center, index) => {
     if (!Number.isFinite(center.ra_deg) || center.ra_deg < 0 || center.ra_deg >= 360 || !Number.isFinite(center.dec_deg) || Math.abs(center.dec_deg) > 90) throw new Error(`Center ${index + 1}: invalid RA or DEC`);
+    if (center.position_angle_deg !== undefined && !Number.isFinite(center.position_angle_deg)) throw new Error(`Center ${index + 1}: position angle must be finite`);
     return {
       id: `proposal-${generationMethod}-${String(index + 1).padStart(4, "0")}`, name: "",
       ra_deg: center.ra_deg, dec_deg: center.dec_deg, source: "proposed", enabled: true,
+      ...(center.position_angle_deg === undefined ? {} : { position_angle_deg: center.position_angle_deg }),
+      ...(generationMethod === "manual" ? { placement_provenance: { origin: "manual" as const } } : {}),
+      ...(generationMethod === "imported_centers" ? { placement_provenance: { origin: "imported_unverified" as const } } : {}),
       dataset_id: null, group_id: null, ra_column: null, dec_column: null,
       generation_method: generationMethod, original_values: null, metadata: { label: center.label ?? "" },
     };

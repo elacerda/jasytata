@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
-import { buildRegionPlanRequest, downloadCatalogue, downloadProfileJson, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, downloadProfileDocument, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
-import type { ProfileDocument } from "./profiles/document";
+import type { AnyProfileDocument, ProfileDocument } from "./profiles/document";
 import { InstrumentProfileEditor } from "./profiles/InstrumentProfileEditor";
 import type { PointingGeometryContext } from "./science/pointing-geometry";
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
+import type { AnyInstrumentProfile, AnySurveyProfile } from "./profiles/registry";
 import type {
   CenterInput,
   CatalogueDataset,
@@ -16,6 +17,7 @@ import type {
   CoverageStrategy,
   InferenceDiagnostics,
   CoverageResult,
+  PositionAngleOptions,
   SkyPolygon,
   RegionPlanResponse,
   SurveyProfileV2,
@@ -46,6 +48,37 @@ type ThemeMode = "light" | "dark";
 
 const THEME_STORAGE_KEY = "jasytata-theme";
 
+type OutputContext = { kind: "survey"; id: string } | { kind: "instrument"; id: string };
+
+function outputContextValue(context: OutputContext): string {
+  return `${context.kind}:${context.id}`;
+}
+
+function roleSummary(instrument: AnyInstrumentProfile): string {
+  if (instrument.schema_version !== 3) return "Legacy v2 behavior · role not classified";
+  const fidelity = instrument.footprint_semantics.fidelity === "exact" ? "Exact" : "Approximate";
+  switch (instrument.footprint_semantics.role) {
+    case "observed_area": return `${fidelity} observed-area geometry`;
+    case "nominal_envelope": return `${fidelity} nominal planning envelope`;
+    case "target_access": return `${fidelity} target-access field · not observed coverage`;
+  }
+}
+
+function instrumentChoiceLabel(instrument: AnyInstrumentProfile): string {
+  if (instrument.schema_version !== 3) return `${instrument.display_name} · Legacy v2`;
+  const fidelity = instrument.footprint_semantics.fidelity === "exact" ? "exact" : "approximate";
+  const role = instrument.footprint_semantics.role.replaceAll("_", " ");
+  return `${instrument.display_name} · ${fidelity} ${role}`;
+}
+
+function surveyChoiceLabel(survey: AnySurveyProfile): string {
+  const instrument = profileRegistry.resolveInstrumentProfile(survey.instrument_id);
+  const sequence = survey.schema_version === 3 && survey.observing_sequence
+    ? ` · ${survey.observing_sequence.exposures.length} ordered exposures`
+    : "";
+  return `${survey.display_name} · ${instrument.display_name}${sequence}`;
+}
+
 function tilingSummary(tiling: SurveyProfileV2["tiling"]): string {
   if (tiling.type === "legacy_splus") return "Legacy S-PLUS grid";
   if (tiling.type === "manual") return "Manual coverage";
@@ -53,10 +86,10 @@ function tilingSummary(tiling: SurveyProfileV2["tiling"]): string {
   return `Lattice · fixed anchor ${formatDegrees(tiling.origin.ra_deg)} RA, ${formatDegrees(tiling.origin.dec_deg)} DEC`;
 }
 
-/** Render the catalogue, sky planning, proposal, and export workspace.
- * @param pointingGeometryContext - Optional runtime Gate 5 policy/sequence context.
- *   The ordinary application path retains Schema v2 behavior until profile
- *   persistence and user selection are supplied by later gates.
+/** Render the catalogue, output-profile selection, planning, proposal, and export workspace.
+ * @param pointingGeometryContext - Optional runtime Gate 5 policy/sequence context,
+ *   primarily for embedding and isolated integration tests. Browser-selected
+ *   output profiles provide their own validated instrument and strategy policy.
  * @returns Interactive Jasytata workspace.
  */
 export default function App({ pointingGeometryContext }: { pointingGeometryContext?: PointingGeometryContext } = {}) {
@@ -68,10 +101,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     }
   });
   const [datasets, setDatasets] = useState<CatalogueDataset[]>([]);
-  const [instrumentProfiles, setInstrumentProfiles] = useState(() => profileRegistry.listInstrumentProfiles());
-  const [surveyProfiles, setSurveyProfiles] = useState(() => profileRegistry.listSurveyProfiles());
+  const [instrumentProfiles, setInstrumentProfiles] = useState(() => profileRegistry.listAnyInstrumentProfiles());
+  const [surveyProfiles, setSurveyProfiles] = useState(() => profileRegistry.listAnySurveyProfiles());
+  const [importedProfileDocuments, setImportedProfileDocuments] = useState<Map<string, AnyProfileDocument>>(() => new Map());
   const [columnMapping, setColumnMapping] = useState<ColumnMapping | null>(null);
-  const [activeSurveyId, setActiveSurveyId] = useState(DEFAULT_PROFILE.id);
+  const [outputContext, setOutputContext] = useState<OutputContext>({ kind: "survey", id: DEFAULT_PROFILE.id });
   const [coverageStrategy, setCoverageStrategy] = useState<CoverageStrategy>("complete");
   const [proposals, setProposals] = useState<TileRecord[]>([]);
   const [pending, setPending] = useState<ProposalPreview | null>(null);
@@ -90,6 +124,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [parsedCenters, setParsedCenters] = useState<CenterInput[] | null>(null);
   const [exportEpoch, setExportEpoch] = useState<string | undefined>();
+  const [manualPositionAngle, setManualPositionAngle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -102,28 +137,44 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
 
   const activeResolution = useMemo(() => {
     try {
-      if (!surveyProfiles.some((survey) => survey.id === activeSurveyId)) {
-        throw new Error(`Unknown survey profile ID "${activeSurveyId}".`);
+      if (outputContext.kind === "instrument") {
+        if (!instrumentProfiles.some((instrument) => instrument.id === outputContext.id)) {
+          throw new Error(`Unknown instrument profile ID "${outputContext.id}".`);
+        }
+        const instrument = profileRegistry.resolveAnyInstrumentProfile(outputContext.id);
+        if (instrument.schema_version !== 3) {
+          throw new Error("Standalone output requires a registered Schema v3 instrument profile.");
+        }
+        return { survey: null, instrument, profile: null, error: null as string | null };
       }
-      const survey = profileRegistry.resolveSurveyProfile(activeSurveyId);
+      if (!surveyProfiles.some((survey) => survey.id === outputContext.id)) {
+        throw new Error(`Unknown survey or strategy profile ID "${outputContext.id}".`);
+      }
+      const survey = profileRegistry.resolveAnySurveyProfile(outputContext.id);
       if (!instrumentProfiles.some((instrument) => instrument.id === survey.instrument_id)) {
         throw new Error(`Unknown instrument profile ID "${survey.instrument_id}".`);
       }
-      const instrument = profileRegistry.resolveInstrumentProfile(survey.instrument_id);
-      const profile = loadProfile(activeSurveyId);
+      const instrument = profileRegistry.resolveAnyInstrumentProfile(survey.instrument_id);
+      const profile = loadProfile(outputContext.id);
       return { survey, instrument, profile, error: null as string | null };
     } catch (caught) {
       return {
         survey: null,
         instrument: null,
         profile: null,
-        error: caught instanceof Error ? caught.message : "The active survey profile could not be resolved.",
+        error: caught instanceof Error ? caught.message : "The selected output profile could not be resolved.",
       };
     }
-  }, [activeSurveyId, instrumentProfiles, surveyProfiles]);
+  }, [outputContext, instrumentProfiles, surveyProfiles]);
   const activeSurvey = activeResolution.survey;
   const activeInstrument = activeResolution.instrument;
   const profile = activeResolution.profile;
+  const outputStrategyId = activeSurvey?.id ?? null;
+  const outputInstrumentId = activeInstrument?.id ?? null;
+  const requiredPositionAngle = activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required &&
+    (activeInstrument.position_angle.mode === "per_pointing" || activeInstrument.position_angle.mode === "user_selected");
+  const parsedManualPositionAngle = manualPositionAngle.trim() ? Number(manualPositionAngle) : undefined;
+  const validManualPositionAngle = parsedManualPositionAngle !== undefined && Number.isFinite(parsedManualPositionAngle);
   const unresolvedDataset = useMemo(() => datasets.find((dataset) => {
     if (!dataset.instrument_profile_id) return true;
     if (!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id)) return true;
@@ -140,9 +191,42 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         ? `Catalogue “${unresolvedDataset.filename}” references an unavailable instrument. Choose a registered instrument profile before planning.`
         : `Choose an instrument profile for “${unresolvedDataset.filename}” before planning.`
       : null)
-    ?? (activeSurvey?.tiling.type === "manual" ? "This survey uses manual coverage and does not support automatic region planning." : null);
+    ?? (!activeSurvey ? "Standalone instrument mode supports manual or imported centers only; select a real strategy for automatic region planning." : null)
+    ?? (activeSurvey?.tiling.type === "manual" ? "This strategy uses manual coverage and does not support automatic region planning." : null);
 
   const hasCatalogue = datasets.length > 0;
+  const outputGeometryContext = useMemo<PointingGeometryContext>(() => ({
+    coverageBasis: activeSurvey?.schema_version === 3 ? activeSurvey.coverage_basis_default : "single_exposure",
+    orientationPolicyForTile: (tile) => {
+      const instrumentId = tile.instrument_profile_id ?? (tile.source === "proposed" ? activeInstrument?.id : undefined);
+      if (!instrumentId) return undefined;
+      let instrument: AnyInstrumentProfile;
+      try {
+        instrument = profileRegistry.resolveAnyInstrumentProfile(instrumentId);
+      } catch {
+        return undefined;
+      }
+      if (instrument.schema_version !== 3) return undefined;
+      const options: PositionAngleOptions = {
+        policy: instrument.position_angle.mode,
+        required: instrument.position_angle.required,
+        ...(instrument.position_angle.mode === "user_selected" && tile.source === "proposed" &&
+          instrument.id === activeInstrument?.id &&
+          (tile.output_position_angle_deg !== undefined || validManualPositionAngle)
+          ? { plan_position_angle_deg: tile.output_position_angle_deg ?? parsedManualPositionAngle }
+          : {}),
+      };
+      return options;
+    },
+    sequenceForTile: (tile) => {
+      const strategyId = tile.output_strategy_id ?? (tile.source === "proposed" && outputContext.kind === "survey" ? outputContext.id : undefined);
+      if (!strategyId) return undefined;
+      const strategy = profileRegistry.findAnySurveyProfile(strategyId);
+      if (strategy?.schema_version !== 3 || !strategy.observing_sequence) return undefined;
+      return { id: strategy.observing_sequence.id, exposures: strategy.observing_sequence.exposures };
+    },
+  }), [activeInstrument, activeSurvey, outputContext, validManualPositionAngle, parsedManualPositionAngle]);
+  const activePointingGeometryContext = pointingGeometryContext ?? outputGeometryContext;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
     ...tile,
     instrument_profile_id: dataset.instrument_profile_id,
@@ -153,15 +237,18 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     instrument_profile_id: dataset.instrument_profile_id,
     inference_role: dataset.inference_role,
   }))), [datasets]);
-  const enabledProposals = useMemo(() => proposals.filter((tile) => tile.enabled !== false), [proposals]);
+  const activeOutputProposals = useMemo(() => proposals.filter((tile) =>
+    tile.instrument_profile_id === outputInstrumentId && (tile.output_strategy_id ?? null) === outputStrategyId,
+  ), [proposals, outputInstrumentId, outputStrategyId]);
+  const enabledProposals = useMemo(() => activeOutputProposals.filter((tile) => tile.enabled !== false), [activeOutputProposals]);
   const visibleTiles = useMemo(() => [
     ...visibleOriginalTiles,
-    ...(planningLayers.proposals ? proposals : []),
-  ], [visibleOriginalTiles, planningLayers.proposals, proposals]);
+    ...(planningLayers.proposals ? activeOutputProposals : []),
+  ], [visibleOriginalTiles, planningLayers.proposals, activeOutputProposals]);
   const planningTiles = useMemo(() => [
     ...originalTiles,
-    ...proposals.filter((tile) => tile.enabled !== false),
-  ], [originalTiles, proposals]);
+    ...activeOutputProposals.filter((tile) => tile.enabled !== false),
+  ], [originalTiles, activeOutputProposals]);
   const mapTiles = useMemo(
     () => (pending && planningLayers.proposals ? [...visibleTiles, ...pending.tiles] : visibleTiles),
     [pending, planningLayers.proposals, visibleTiles],
@@ -187,20 +274,18 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }, [theme]);
 
   useEffect(() => {
-    if (!regionPolygon || !profile || !proposals.length || unresolvedDataset || activeResolution.error) {
+    if (!regionPolygon || !activeSurvey || !profile || !activeOutputProposals.length || unresolvedDataset || activeResolution.error) {
       setActiveMetrics(null);
       return;
     }
     let cancelled = false;
-    void (pointingGeometryContext
-      ? measureCoverage(regionPolygon, originalTiles, proposals, activeSurveyId, undefined, pointingGeometryContext)
-      : measureCoverage(regionPolygon, originalTiles, proposals, activeSurveyId))
+    void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Could not update coverage.");
       });
     return () => { cancelled = true; };
-  }, [regionPolygon, activeSurveyId, profile, proposals, originalTiles, unresolvedDataset, activeResolution.error, pointingGeometryContext]);
+  }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -268,22 +353,36 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
 
   function registerAuthoredProfile(document: ProfileDocument) {
     const registered = profileRegistry.registerProfileDocument(document);
-    setInstrumentProfiles(profileRegistry.listInstrumentProfiles());
-    setSurveyProfiles(profileRegistry.listSurveyProfiles());
+    setImportedProfileDocuments((previous) => {
+      const next = new Map(previous);
+      next.set(`survey:${registered.survey.id}`, document);
+      next.set(`instrument:${registered.instrument.id}`, document);
+      return next;
+    });
+    setInstrumentProfiles(profileRegistry.listAnyInstrumentProfiles());
+    setSurveyProfiles(profileRegistry.listAnySurveyProfiles());
     setProfileEditorOpen(false);
     setError(null);
-    setNotice(`Added survey profile: ${registered.survey.display_name}. Choose it as the active survey to plan with it.`);
+    setNotice(`Added survey profile: ${registered.survey.display_name}. Select it in Output profile to use its strategy.`);
   }
 
   async function handleProfileUpload(file?: File) {
     if (!file) return;
     await runBusy(() => uploadProfileFile(file, profileRegistry), (document) => {
-      setInstrumentProfiles(profileRegistry.listInstrumentProfiles());
-      setSurveyProfiles(profileRegistry.listSurveyProfiles());
+      setImportedProfileDocuments((previous) => {
+        const next = new Map(previous);
+        if ("instrument" in document && document.instrument) next.set(`instrument:${document.instrument.id}`, document);
+        if ("survey" in document && document.survey) next.set(`survey:${document.survey.id}`, document);
+        return next;
+      });
+      setInstrumentProfiles(profileRegistry.listAnyInstrumentProfiles());
+      setSurveyProfiles(profileRegistry.listAnySurveyProfiles());
       if ("survey" in document && document.survey) {
-        setNotice(`Imported survey profile: ${document.survey.display_name}. Choose it as the active survey to plan with it.`);
+        setNotice(document.survey.schema_version === 3
+          ? `Imported strategy: ${document.survey.display_name}. Select it as the output profile when you want to use that observing strategy.`
+          : `Imported survey profile: ${document.survey.display_name}. Select it in Output profile to use its strategy.`);
       } else if ("instrument" in document && document.instrument) {
-        setNotice(`Imported instrument profile: ${document.instrument.display_name}.`);
+        setNotice(`Imported instrument profile: ${document.instrument.display_name}. Select its standalone mode or assign it to a source catalogue.`);
       }
     });
     if (profileFileInputRef.current) profileFileInputRef.current.value = "";
@@ -298,15 +397,32 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   async function stageCenters(centers: CenterInput[], method: "manual" | "imported_centers"): Promise<boolean> {
+    if (!activeInstrument) {
+      setError(activeResolution.error ?? "Select a registered instrument or observing strategy before adding centers.");
+      return false;
+    }
+    if (requiredPositionAngle && !validManualPositionAngle) {
+      setError(`Enter a finite position angle in degrees east of north for ${activeInstrument.display_name} before staging centers.`);
+      return false;
+    }
+    const inputCenters = centers.map((center) => activeInstrument.schema_version === 3 &&
+      activeInstrument.position_angle.mode === "per_pointing" && validManualPositionAngle
+      ? { ...center, position_angle_deg: center.position_angle_deg ?? parsedManualPositionAngle }
+      : center);
     let staged = false;
     await runBusy(
-      () => proposeCenters(centers, method),
+      () => proposeCenters(inputCenters, method),
       (tiles) => {
         staged = true;
+        const contextTiles = tiles.map((tile) => ({
+          ...tile,
+          instrument_profile_id: activeInstrument.id,
+          ...(activeSurvey ? { output_strategy_id: activeSurvey.id } : {}),
+        }));
         setPending({
           coverageStrategy: null,
-          tiles,
-          candidateCenters: centers,
+          tiles: contextTiles,
+          candidateCenters: inputCenters,
           inference: null,
           diagnostics: [method === "manual" ? "Manual sky positions are ready for review." : "Imported centers are ready for review."],
           metrics: null,
@@ -314,7 +430,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         });
         setMapMode("idle");
         setSelectedTileId(null);
-        setNotice(`${tiles.length} tile${tiles.length === 1 ? "" : "s"} staged for preview.`);
+        setNotice(`${tiles.length} center${tiles.length === 1 ? "" : "s"} staged for ${activeInstrument.display_name} review.`);
       },
     );
     return staged;
@@ -341,12 +457,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
     if (import.meta.env.DEV) {
-      setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy)));
+      setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, activeSurvey.id, undefined, coverageStrategy)));
     }
     await runBusy(
-      () => pointingGeometryContext
-        ? planRegion(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy, pointingGeometryContext)
-        : planRegion(regionPolygon, planningTiles, activeSurveyId, undefined, coverageStrategy),
+      () => planRegion(regionPolygon, planningTiles, activeSurvey.id, undefined, coverageStrategy, activePointingGeometryContext),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
@@ -382,7 +496,14 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       ...tile,
       id: `proposal-${batch}-${tile.id}`,
       // Camera orientation is declared independently of the lattice basis/inferred rotation.
-      ...(pointingGeometryContext || tile.position_angle_deg !== undefined ? {} : declaredPa !== undefined ? { position_angle_deg: declaredPa } : {}),
+      ...(pointingGeometryContext || activeInstrument.schema_version === 3 || tile.position_angle_deg !== undefined
+        ? {}
+        : declaredPa !== undefined ? { position_angle_deg: declaredPa } : {}),
+      ...(activeInstrument.schema_version === 3 && activeInstrument.position_angle.mode === "user_selected" && validManualPositionAngle
+        ? { output_position_angle_deg: parsedManualPositionAngle }
+        : {}),
+      instrument_profile_id: activeInstrument.id,
+      ...(activeSurvey ? { output_strategy_id: activeSurvey.id } : {}),
       source: "proposed" as const,
       enabled: true,
     }));
@@ -405,38 +526,46 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   function clearProposals() {
-    setProposals([]);
+    const activeIds = new Set(activeOutputProposals.map((tile) => tile.id));
+    setProposals((previous) => previous.filter((tile) => !activeIds.has(tile.id)));
     setPending(null);
     setProposalContext(null);
     setSelectedTileId(null);
-    setNotice("Current proposal cleared. Selected polygon and catalogues remain.");
+    setActiveMetrics(null);
+    setNotice("Accepted pointings for the selected output profile were cleared. Other output profiles and catalogues remain.");
   }
 
-  function activateSurvey(surveyId: string) {
-    let nextSurvey: SurveyProfileV2;
-    let nextInstrumentName: string;
+  function activateOutputContext(nextContext: OutputContext) {
+    if (outputContextValue(nextContext) === outputContextValue(outputContext)) return;
+    let displayName: string;
     try {
-      nextSurvey = profileRegistry.resolveSurveyProfile(surveyId);
-      nextInstrumentName = profileRegistry.resolveInstrumentProfile(nextSurvey.instrument_id).display_name;
-      loadProfile(surveyId);
+      if (nextContext.kind === "survey") {
+        const survey = profileRegistry.resolveAnySurveyProfile(nextContext.id);
+        const instrument = profileRegistry.resolveAnyInstrumentProfile(survey.instrument_id);
+        loadProfile(nextContext.id);
+        displayName = `${survey.display_name} · ${instrument.display_name}`;
+      } else {
+        const instrument = profileRegistry.resolveAnyInstrumentProfile(nextContext.id);
+        if (instrument.schema_version !== 3) throw new Error("Only validated Schema v3 instrument profiles can be selected as standalone output.");
+        displayName = `${instrument.display_name} · standalone instrument`;
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The selected survey or its instrument could not be resolved.");
-      return;
-    }
-    if (surveyId === activeSurveyId) {
-      setError(null);
+      setError(caught instanceof Error ? caught.message : "The selected output profile could not be resolved.");
       return;
     }
     regionRevisionRef.current += 1;
-    setActiveSurveyId(surveyId);
+    setOutputContext(nextContext);
     setExportEpoch(undefined);
-    setProposals([]);
+    setManualPositionAngle("");
+    setRegionPolygon(null);
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
     setSelectedTileId(null);
     setDebugRequestJson("");
-    setNotice(`Active survey: ${nextSurvey.display_name}. Output instrument: ${nextInstrumentName}. Generate a new plan for the selected polygon.`);
+    setMapMode("idle");
+    setSelectingRegion(false);
+    setNotice(`Selected output: ${displayName}. Pending previews were cleared; accepted pointings remain attached to their original output profile.`);
     setError(null);
   }
 
@@ -462,20 +591,21 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   function setAllProposals(enabled: boolean) {
-    setProposals((previous) => previous.map((tile) => ({ ...tile, enabled })));
-    setNotice(enabled ? "All proposed tiles restored." : "All proposed tiles disabled; none will be exported.");
+    const activeIds = new Set(activeOutputProposals.map((tile) => tile.id));
+    setProposals((previous) => previous.map((tile) => activeIds.has(tile.id) ? { ...tile, enabled } : tile));
+    setNotice(enabled ? "All pointings for the selected output profile were restored." : "All pointings for the selected output profile were disabled.");
   }
 
   async function exportFile() {
-    if (!activeSurvey || !activeInstrument) {
-      setError(activeResolution.error ?? "Resolve a valid survey and export policy before downloading.");
+    if (!activeInstrument) {
+      setError(activeResolution.error ?? "Select a registered instrument or observing strategy before downloading.");
       return;
     }
     await runBusy(
-      () => pointingGeometryContext
-        ? downloadCatalogue(proposals, activeSurveyId, exportEpoch, profileRegistry, pointingGeometryContext)
-        : downloadCatalogue(proposals, activeSurveyId, exportEpoch),
-      () => setNotice("new_tiles.csv downloaded."),
+      () => activeSurvey
+        ? downloadCatalogue(enabledProposals, activeSurvey.id, exportEpoch, profileRegistry, activePointingGeometryContext)
+        : downloadInstrumentCoordinates(enabledProposals, activeInstrument.id, profileRegistry, activePointingGeometryContext),
+      () => setNotice(activeSurvey ? "new_tiles.csv downloaded." : "manual_centers.csv downloaded."),
     );
   }
 
@@ -484,13 +614,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       <header className="topbar">
         <div className="brand-block">
           <h1 className="brand-title"><img className="brand-logo" src={jasytataLogo} alt="Jasytata" /></h1>
-          <span className="brand-profile" title={activeSurvey?.display_name ?? "Astronomical tile planning"}>
-            {activeSurvey?.display_name ?? "Astronomical tile planning"}
+          <span className="brand-profile" title={activeSurvey?.display_name ?? activeInstrument?.display_name ?? "Astronomical tile planning"}>
+            {activeSurvey?.display_name ?? activeInstrument?.display_name ?? "Resolving output profile"}
           </span>
         </div>
         <div className="topbar-state">
-          <span className={`status-dot ${profile ? "is-ready" : ""}`} />
-          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : profile ? "Survey active · no catalogue loaded" : "Resolving active survey"}</span>
+          <span className={`status-dot ${activeInstrument ? "is-ready" : ""}`} />
+          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : activeSurvey ? "Survey strategy active · no catalogue loaded" : activeInstrument ? "Standalone instrument · manual centers" : "Resolving output profile"}</span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
@@ -539,7 +669,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             </div>
             <p className="panel-copy">{hasCatalogue
               ? "Original catalogue rows stay unchanged. New tiles remain separate until accepted."
-              : "Load catalogues to extend a project, or start a new plan with the active survey."}</p>
+              : activeSurvey
+                ? "Load catalogues to extend a project, or start a new plan with the active survey strategy."
+                : `Load catalogues to assign source instruments, or add manual centers for ${activeInstrument?.display_name ?? "the selected instrument"}.`}</p>
             {columnMapping && (
               <div className="column-mapping">
                 <strong>Map coordinates in {columnMapping.file.name}</strong>
@@ -567,33 +699,84 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             )}
           </section>
 
-          <section className="panel-section tile-profile-section" aria-label="Survey profile">
-            <SectionHeading title="Survey profile" trailing={activeSurvey ? "VALIDATED SURVEY" : "UNAVAILABLE"} />
-            <label className="field-label" htmlFor="active-survey-select">Active survey</label>
-            <select id="active-survey-select" className="profile-select" value={activeSurveyId} disabled={!activeSurvey || busy}
-              onChange={(event) => activateSurvey(event.target.value)}>
-              {surveyProfiles.map((survey) => <option key={survey.id} value={survey.id}>{survey.display_name}</option>)}
+          <section className="panel-section tile-profile-section" aria-label="Output profile">
+            <SectionHeading title="Output profile" trailing={activeResolution.error ? "UNAVAILABLE" : activeSurvey ? "SURVEY STRATEGY" : "STANDALONE MODE"} />
+            <label className="field-label" htmlFor="output-profile-select">Output profile</label>
+            <select id="output-profile-select" className="profile-select" value={outputContextValue(outputContext)} disabled={busy}
+              onChange={(event) => {
+                const separator = event.target.value.indexOf(":");
+                const kind = event.target.value.slice(0, separator);
+                const id = event.target.value.slice(separator + 1);
+                if (kind === "survey" || kind === "instrument") activateOutputContext({ kind, id });
+              }}>
+              <optgroup label="Survey strategies">
+                {surveyProfiles.map((survey) => <option key={`survey:${survey.id}`} value={`survey:${survey.id}`} title={survey.description ?? undefined}>{surveyChoiceLabel(survey)}</option>)}
+              </optgroup>
+              <optgroup label="Observed-area instruments">
+                {instrumentProfiles.filter((instrument) => instrument.schema_version === 3 && instrument.footprint_semantics.role === "observed_area")
+                  .map((instrument) => <option key={`instrument:${instrument.id}`} value={`instrument:${instrument.id}`} title={instrument.description ?? undefined}>{instrumentChoiceLabel(instrument)}</option>)}
+              </optgroup>
+              <optgroup label="Nominal planning envelopes">
+                {instrumentProfiles.filter((instrument) => instrument.schema_version === 3 && instrument.footprint_semantics.role === "nominal_envelope")
+                  .map((instrument) => <option key={`instrument:${instrument.id}`} value={`instrument:${instrument.id}`} title={instrument.description ?? undefined}>{instrumentChoiceLabel(instrument)}</option>)}
+              </optgroup>
+              <optgroup label="Target-access fields">
+                {instrumentProfiles.filter((instrument) => instrument.schema_version === 3 && instrument.footprint_semantics.role === "target_access")
+                  .map((instrument) => <option key={`instrument:${instrument.id}`} value={`instrument:${instrument.id}`} title={instrument.description ?? undefined}>{instrumentChoiceLabel(instrument)}</option>)}
+              </optgroup>
             </select>
             <input ref={profileFileInputRef} type="file" accept=".json,application/json" aria-label="Profile JSON file" hidden
               onChange={(event) => void handleProfileUpload(event.target.files?.[0])} />
             <button className="button button-outline button-full" onClick={() => setProfileEditorOpen(true)}>Create profile</button>
             <div className="profile-actions">
               <button className="button button-outline" onClick={() => profileFileInputRef.current?.click()} disabled={busy}>Import profile</button>
-              <button className="button button-outline" onClick={() => activeSurvey && void runBusy(() => downloadProfileJson(activeSurveyId), () => setNotice(`Exported ${activeSurvey.display_name} survey and ${activeInstrument?.display_name ?? "linked instrument"} profile JSON.`))}
-                disabled={!activeSurvey || !activeInstrument || busy}>Export survey JSON</button>
+              <button className="button button-outline" onClick={() => activeInstrument && void runBusy(
+                () => activeSurvey
+                  ? downloadProfileDocument(importedProfileDocuments.get(`survey:${activeSurvey.id}`) ?? (
+                    activeSurvey.schema_version === 3
+                      ? profileRegistry.resolveSurveyProfileDocument(activeSurvey.id)
+                      : profileRegistry.resolveAnyProfileDocument(activeSurvey.id)
+                  ))
+                  : downloadInstrumentProfileJson(activeInstrument.id),
+                () => setNotice(activeSurvey
+                  ? `Exported ${activeSurvey.display_name} strategy and linked instrument profile JSON.`
+                  : `Exported standalone instrument profile: ${activeInstrument.display_name}.`),
+              )} disabled={!activeInstrument || busy}>
+                {activeSurvey ? activeSurvey.schema_version === 3 ? "Export strategy JSON" : "Export survey JSON" : "Export instrument JSON"}
+              </button>
             </div>
-            <p className="fine-print">Schema v2 profiles remain in this session. Export the selected survey and its linked instrument to keep a copy.</p>
+            <p className="fine-print">Imports validate v2 pairs and v3 standalone instruments, strategies, or matching pairs. A standalone instrument stays survey-free.</p>
             {activeResolution.error && <p className="profile-validation-error" role="alert">{activeResolution.error}</p>}
-            {activeSurvey && activeInstrument && (
-              <div className="profile-readout" aria-label="Active survey summary">
-                <span>Survey <strong>{activeSurvey.display_name}</strong></span>
+            {activeInstrument && (
+              <div className="profile-readout" aria-label={activeSurvey ? "Active survey summary" : "Active instrument summary"}>
+                <span>Output mode <strong>{activeSurvey ? "Survey strategy" : "Standalone instrument"}</strong></span>
+                {activeSurvey && <span>Strategy <strong>{activeSurvey.display_name}</strong></span>}
+                {activeSurvey && <span>Stable strategy ID <strong>{activeSurvey.id}</strong></span>}
                 <span>Instrument <strong>{activeInstrument.display_name}</strong></span>
+                <span>Stable mode ID <strong>{activeInstrument.id}</strong></span>
                 <span>Footprint <strong>{footprintSummary(activeInstrument.footprint)}</strong></span>
-                <span>Tiling <strong>{tilingSummary(activeSurvey.tiling)}</strong></span>
-                {(activeSurvey.description || activeInstrument.description) &&
-                  <p className="fine-print">{activeSurvey.description ?? activeInstrument.description}</p>}
+                <span>Geometry <strong>{roleSummary(activeInstrument)}</strong></span>
+                {activeSurvey && <span>Tiling <strong>{tilingSummary(activeSurvey.tiling)}</strong></span>}
+                {activeSurvey?.schema_version === 3 && activeSurvey.observing_sequence &&
+                  <span>Sequence <strong>{activeSurvey.observing_sequence.exposures.length} ordered nominal positions</strong></span>}
+                {(activeSurvey?.description || activeInstrument.description) &&
+                  <p className="fine-print">{activeSurvey?.description ?? activeInstrument.description}</p>}
+                {!activeSurvey && <p className="fine-print">Manual centers use this instrument footprint only. Survey overlap, epochs, constants, automatic tiling and coverage-completion metrics are unavailable.</p>}
               </div>
             )}
+            {requiredPositionAngle && <label className="field-label required-pa-field">
+              Required pointing PA (degrees east of north)
+              <input
+                type="number"
+                step="any"
+                required={requiredPositionAngle}
+                aria-label="Required pointing PA in degrees east of north"
+                value={manualPositionAngle}
+                onChange={(event) => setManualPositionAngle(event.target.value)}
+                aria-invalid={manualPositionAngle.trim().length > 0 && !validManualPositionAngle}
+              />
+              <span className="fine-print">Enter a finite sky angle before previewing geometry or exporting. Jasytata will not substitute 0°.</span>
+            </label>}
           </section>
 
           <section className="panel-section">
@@ -606,7 +789,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                   setMapMode("add-tile");
                   setNotice("Click a position on the sky to preview one new tile.");
                 }}
-                disabled={busy}
+                disabled={busy || !activeInstrument || (requiredPositionAngle && !validManualPositionAngle)}
               >
                 <span className="mode-icon"><Icon name="crosshair" /></span>
                 <span><strong>Single tile</strong><small>Click a sky position</small></span>
@@ -620,7 +803,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <button
                 className="mode-button"
                 onClick={beginRegionSelection}
-                disabled={busy}
+                disabled={busy || !activeSurvey || activeSurvey.tiling.type === "manual"}
               >
                 <span className="mode-icon"><Icon name="region" /></span>
                 <span><strong>Select area</strong><small>Click polygon vertices on the sky</small></span>
@@ -635,7 +818,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
                 <div className="region-actions">
-                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy}>Redraw polygon</button>
+                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy || !activeSurvey || activeSurvey.tiling.type === "manual"}>Redraw polygon</button>
                   <button className="button button-quiet" onClick={clearRegionSelection}>Clear selection</button>
                 </div>
                 {import.meta.env.DEV && <details className="development-plan-input">
@@ -649,23 +832,27 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 </details>}
               </div>
             ) : (
-              <p className="panel-copy">Select a sky polygon to plan with the active survey and any assigned catalogue pointings.</p>
+              <p className="panel-copy">{activeSurvey
+                ? "Select a sky polygon to plan with the active strategy and assigned catalogue pointings."
+                : "Standalone instruments accept manual or pasted centers. Select a real strategy to enable automatic region planning."}</p>
             )}
-            <fieldset className="coverage-strategy">
+            {activeSurvey && activeSurvey.tiling.type !== "manual" ? <fieldset className="coverage-strategy">
               <legend>Coverage strategy</legend>
               <label><input type="radio" name="coverage-strategy" value="complete" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} />
                 <span><strong>Complete coverage (default)</strong><small>Attempts to cover every sampled point in the selected region.</small></span></label>
               <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
-                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the active survey's coverage floor is met and the next tile's new area relative to its physical footprint falls below the survey's marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
-            <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
-            </fieldset>
-            {planningUnavailableReason && <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
+                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the selected strategy's coverage floor is met and new physical area falls below its marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
+              <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
+            </fieldset> : <p className="fine-print">Automatic region tiling and survey coverage metrics are unavailable for this output profile.</p>}
+            {planningUnavailableReason && activeSurvey &&
+              <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
             <button className="button button-plan" onClick={() => void handlePlanRegion()}
               disabled={!regionPolygon || !profile || !activeSurvey || !activeInstrument || Boolean(planningUnavailableReason) || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>
-            <p className="fine-print">Active survey: {activeSurvey?.display_name ?? "unavailable"}{activeInstrument ? ` · output instrument: ${activeInstrument.display_name}` : ""}</p>
-            <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>
+            <p className="fine-print">{activeSurvey ? `Active strategy: ${activeSurvey.display_name}` : `Standalone instrument: ${activeInstrument?.display_name ?? "unavailable"}`}{activeInstrument ? ` · mode: ${activeInstrument.id}` : ""}</p>
+            {activeSurvey && activeSurvey.tiling.type !== "manual" &&
+              <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>}
           </section>
 
           <section ref={importRef} className="panel-section import-section">
@@ -712,7 +899,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 </label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "4px 0 12px 30px" }}>
                   <label style={{ display: "grid", gap: 4 }}>
-                    <span className="fine-print">Catalogue instrument</span>
+                <span className="fine-print">Catalogue instrument</span>
                     <select
                       aria-label={`Catalogue instrument for ${dataset.filename}`}
                       value={dataset.instrument_profile_id ?? ""}
@@ -723,7 +910,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                       {dataset.instrument_profile_id && !instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id) &&
                         <option value={dataset.instrument_profile_id}>{dataset.instrument_profile_id} (unavailable)</option>}
                       {instrumentProfiles.map((instrument) => (
-                        <option key={instrument.id} value={instrument.id} title={instrument.description ?? footprintSummary(instrument.footprint)}>{instrument.display_name}</option>
+                        <option key={instrument.id} value={instrument.id} title={instrument.description ?? footprintSummary(instrument.footprint)}>{instrumentChoiceLabel(instrument)}</option>
                       ))}
                     </select>
                   </label>
@@ -751,12 +938,12 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             ))}
             {datasets.length > 0 && (
               <p className="fine-print">
-                Auto follows the active survey’s compatibility policy. Include permits a compatible independent lattice. Exclude removes a catalogue only from lattice inference; its assigned footprint still contributes to coverage. Map visibility does not change either behavior.
+                Auto follows the selected survey strategy’s compatibility policy. Include permits a compatible independent lattice. Exclude removes a catalogue only from lattice inference; its assigned footprint still contributes to coverage. Map visibility does not change either behavior.
               </p>
             )}
             <div className="layer-group-heading">Planning</div>
             <PlanningLayer label="Proposed tiles" color="var(--orange)" checked={planningLayers.proposals}
-              count={proposals.length + (pending?.tiles.length ?? 0)} onChange={(checked) => {
+              count={activeOutputProposals.length + (pending?.tiles.length ?? 0)} onChange={(checked) => {
                 setPlanningLayers((previous) => ({ ...previous, proposals: checked }));
                 setSelectedTileId(null);
               }} />
@@ -805,7 +992,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             planningLayers={planningLayers}
             anchorTileIds={activeContext?.inference?.anchor_tile_ids ?? EMPTY_IDS}
             candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
-            pointingGeometryContext={pointingGeometryContext}
+            pointingGeometryContext={activePointingGeometryContext}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
             onRegionSelect={(polygon) => {
@@ -822,7 +1009,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           />
           <div className="map-footer">
             <span><i className="legend-line legend-cyan" />Tile footprints appear when zoomed in</span>
-            <span>{activeInstrument ? `Output instrument footprint: ${footprintSummary(activeInstrument.footprint)}` : "Resolving output instrument…"}</span>
+            <span>{activeInstrument ? `${roleSummary(activeInstrument)} · ${footprintSummary(activeInstrument.footprint)}` : "Resolving output instrument…"}</span>
           </div>
         </section>
 
@@ -883,22 +1070,22 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
 
           <section className="panel-section accepted-section">
             <div className="accepted-heading">
-              <SectionHeading title="Generated proposal" trailing={String(proposals.length)} />
+              <SectionHeading title="Generated proposal" trailing={String(activeOutputProposals.length)} />
               <div className="accepted-actions">
-                <button className="text-button" onClick={() => setAllProposals(true)} disabled={!proposals.length}>Restore all</button>
-                <button className="text-button" onClick={() => setAllProposals(false)} disabled={!proposals.length}>Disable all</button>
-                <button className="text-button" onClick={clearProposals} disabled={!proposals.length && !pending}>Clear proposal</button>
+                <button className="text-button" onClick={() => setAllProposals(true)} disabled={!activeOutputProposals.length}>Restore all</button>
+                <button className="text-button" onClick={() => setAllProposals(false)} disabled={!activeOutputProposals.length}>Disable all</button>
+                <button className="text-button" onClick={clearProposals} disabled={!activeOutputProposals.length && !pending}>Clear proposal</button>
               </div>
             </div>
-            {proposals.length > 0 && <p className="panel-copy">{proposals.filter((tile) => tile.enabled !== false).length} enabled · {proposals.filter((tile) => tile.enabled === false).length} disabled</p>}
-            {proposals.length > 0 && proposalContext?.coverageStrategy && <p className="strategy-result">{proposalContext.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
+            {activeOutputProposals.length > 0 && <p className="panel-copy">{activeOutputProposals.filter((tile) => tile.enabled !== false).length} enabled · {activeOutputProposals.filter((tile) => tile.enabled === false).length} disabled</p>}
+            {activeOutputProposals.length > 0 && proposalContext?.coverageStrategy && <p className="strategy-result">{proposalContext.coverageStrategy === "complete" ? "Complete coverage" : "Efficient coverage"}</p>}
             {activeMetrics && <MetricsPanel metrics={activeMetrics} inference={proposalContext?.inference ?? null} candidateCount={proposalContext?.candidateCenters.length ?? 0} />}
-            {proposals.length ? (
+            {activeOutputProposals.length ? (
               <div className="accepted-list">
-                {[...proposals].reverse().map((tile, index) => (
+                {[...activeOutputProposals].reverse().map((tile, index) => (
                   <button className={`accepted-row ${tile.id === selectedTileId ? "is-selected" : ""} ${tile.enabled === false ? "is-disabled" : ""}`} key={tile.id} onClick={() => setSelectedTileId(tile.id)}>
                     <span className="accepted-swatch" />
-                    <span><strong>{tile.name || `Proposed tile ${proposals.length - index}`}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
+                    <span><strong>{tile.name || `Pointing ${activeOutputProposals.length - index}`}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
                     <span className="accepted-type">{tile.enabled === false ? "DISABLED" : shortMethod(tile.generation_method)}</span>
                   </button>
                 ))}
@@ -907,18 +1094,24 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           </section>
 
           <section className="panel-section export-section">
-            <SectionHeading title="Export new tiles" />
-            <p className="panel-copy">{proposals.length} generated · {enabledProposals.length} enabled · {proposals.length - enabledProposals.length} disabled</p>
+            <SectionHeading title={activeSurvey ? "Export new tiles" : "Export manual centers"} />
+            <p className="panel-copy">{activeOutputProposals.length} generated · {enabledProposals.length} enabled · {activeOutputProposals.length - enabledProposals.length} disabled</p>
             <div className="export-fields">
-              <p className="field-label">Coordinates: {activeSurvey?.export.coordinate_format === "sexagesimal" ? "Sexagesimal hours / degrees" : "Decimal degrees"} (survey policy)</p>
+              {activeSurvey
+                ? <p className="field-label">Coordinates: {activeSurvey.export.coordinate_format === "sexagesimal" ? "Sexagesimal hours / degrees" : "Decimal degrees"} (selected survey policy)</p>
+                : <p className="field-label">Coordinates: ICRS decimal degrees · generic instrument-only format</p>}
               {activeSurvey?.export.epoch && <label className="field-label">{activeSurvey.export.epoch.column}
                 <select aria-label="Export epoch" value={exportEpoch ?? activeSurvey.export.epoch.default} onChange={(event) => setExportEpoch(event.target.value)}>
                   {activeSurvey.export.epoch.allowed.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>}
             </div>
-            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !profile || !activeSurvey || !activeInstrument || busy}><Icon name="download" /> Download new_tiles.csv</button>
-            <p className="fine-print">{activeSurvey?.display_name ?? "Active survey unavailable"} · ICRS {activeSurvey?.export.ra_column}/{activeSurvey?.export.dec_column}{activeSurvey?.export.epoch ? ` · ${activeSurvey.export.epoch.column} ${exportEpoch ?? activeSurvey.export.epoch.default}` : " · no epoch column"}. Export contains enabled proposals only.</p>
+            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !activeInstrument || (Boolean(activeSurvey) && !profile) || busy}>
+              <Icon name="download" /> Download {activeSurvey ? "new_tiles.csv" : "manual_centers.csv"}
+            </button>
+            <p className="fine-print">{activeSurvey
+              ? `${activeSurvey.display_name} · ICRS ${activeSurvey.export.ra_column}/${activeSurvey.export.dec_column}${activeSurvey.export.epoch ? ` · ${activeSurvey.export.epoch.column} ${exportEpoch ?? activeSurvey.export.epoch.default}` : " · no epoch column"}. Enabled pointings for this strategy only.`
+              : `${activeInstrument?.id ?? "Selected instrument"} · includes placement origin and declared PA when applicable. No epoch, survey constants, or exposure-sequence expansion. Enabled pointings for this instrument only.`}</p>
           </section>
         </aside>
       </section>

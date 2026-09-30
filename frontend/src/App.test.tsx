@@ -187,7 +187,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
 
   it("starts with the bundled survey and resolves its output instrument", async () => {
     render(<App />);
-    expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south");
+    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
     expect(screen.getByText("T80-South camera")).toBeTruthy();
     expect(screen.getByText("Rectangle 1.4° × 1.4°")).toBeTruthy();
     expect(screen.getByText("Legacy S-PLUS grid")).toBeTruthy();
@@ -200,7 +200,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     ]);
     render(<App />);
 
-    expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south");
+    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
     expect(screen.getByText("OPTIONAL")).toBeTruthy();
     expect(screen.getByText(/Load catalogues to extend a project, or start a new plan with the active survey/)).toBeTruthy();
     expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("0");
@@ -227,7 +227,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
         expect.objectContaining({ generation_method: "manual" }),
         expect.objectContaining({ generation_method: "imported_centers" }),
       ]),
-      "splus-t80-south", undefined,
+      "splus-t80-south", undefined, expect.any(Object), expect.any(Object),
     );
   });
 
@@ -272,7 +272,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     });
     render(<App />);
 
-    expect(screen.getByRole("combobox", { name: "Active survey" })).toHaveValue("splus-t80-south");
+    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
     const selectArea = screen.getByRole("button", { name: /select area/i });
     expect(selectArea).toBeEnabled();
     await user.click(selectArea);
@@ -286,18 +286,18 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
     expect(screen.getByText("Final region coverage").parentElement).toHaveTextContent("100.0%");
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete",
+      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete", expect.any(Object),
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
     expect(apiMocks.measureCoverage).toHaveBeenLastCalledWith(
-      expect.anything(), [], expect.arrayContaining([expect.objectContaining({ source: "proposed" })]), "splus-t80-south",
+      expect.anything(), [], expect.arrayContaining([expect.objectContaining({ source: "proposed" })]), "splus-t80-south", undefined, expect.any(Object),
     );
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", undefined,
+      "splus-t80-south", undefined, expect.any(Object), expect.any(Object),
     );
   });
 
@@ -337,7 +337,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
       expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      "splus-t80-south", undefined, "complete",
+      "splus-t80-south", undefined, "complete", expect.any(Object),
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
@@ -348,7 +348,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(screen.getByText("DISABLED")).toBeTruthy();
     expect(apiMocks.measureCoverage).toHaveBeenLastCalledWith(
       expect.anything(), expect.anything(),
-      expect.arrayContaining([expect.objectContaining({ enabled: false })]), "splus-t80-south",
+      expect.arrayContaining([expect.objectContaining({ enabled: false })]), "splus-t80-south", undefined, expect.any(Object),
     );
     await user.click(screen.getByRole("button", { name: "Enable tile" }));
     expect(screen.getByRole("button", { name: "Disable tile" })).toBeTruthy();
@@ -361,7 +361,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledOnce();
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", undefined,
+      "splus-t80-south", undefined, expect.any(Object), expect.any(Object),
     );
 
     await user.click(screen.getByRole("button", { name: "Clear proposal" }));
@@ -514,11 +514,11 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
     expect((screen.getByRole("combobox", { name: "Export epoch" }) as HTMLSelectElement).value).toBe("2000");
     expect(screen.queryByRole("combobox", { name: "Export coordinates" })).toBeNull();
-    expect(screen.getByText("Coordinates: Decimal degrees (survey policy)")).toBeTruthy();
+    expect(screen.getByText("Coordinates: Decimal degrees (selected survey policy)")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ enabled: true })]),
-      "splus-t80-south", undefined,
+      "splus-t80-south", undefined, expect.any(Object), expect.any(Object),
     );
     await user.click(screen.getByRole("button", { name: "Disable all" }));
     expect(screen.getByRole("button", { name: /download new_tiles.csv/i })).toBeDisabled();
@@ -579,7 +579,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       expect.anything(), expect.arrayContaining([
         expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
-      ]), "splus-t80-south", undefined, "complete",
+      ]), "splus-t80-south", undefined, "complete", expect.any(Object),
     );
     const firstPlanInputs = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
     const initialMetrics = screen.getByText("Already covered").closest(".metrics-panel")?.textContent;
@@ -637,7 +637,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ source: "proposed", enabled: true })]),
-      "splus-t80-south", undefined,
+      "splus-t80-south", undefined, expect.any(Object), expect.any(Object),
     );
   });
 

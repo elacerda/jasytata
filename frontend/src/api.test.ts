@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentProfileJson, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue, uploadProfileFile } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue, uploadProfileFile } from "./api";
 import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import golden from "./data/golden.json";
 import type { TileRecord } from "./types";
-import { readCsv } from "./science/catalogue";
+import { makeCenterProposals, readCsv } from "./science/catalogue";
 
 const proposal: TileRecord = {
   id: "proposal-1", name: "", ra_deg: 150.5, dec_deg: -24.25,
@@ -125,6 +125,47 @@ describe("local facade and download", () => {
     expect(click).toHaveBeenCalledOnce();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:jasytata-test");
+  });
+
+  it("downloads standalone instrument centers through Gate 5 without survey policy or sequence expansion", async () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("keck-kcwi-small");
+    if (instrument.schema_version !== 3) throw new Error("Expected a v3 standalone instrument");
+    const tile = {
+      ...makeCenterProposals([{ ra_deg: 150.5, dec_deg: -24.25 }], "manual")[0],
+      instrument_profile_id: instrument.id,
+    };
+    let downloaded: Blob | undefined;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:manual-centers"; }) });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.download).toBe("manual_centers.csv");
+      expect(this.href).toBe("blob:manual-centers");
+    });
+
+    await downloadInstrumentCoordinates([tile], instrument.id, registry);
+    expect(click).toHaveBeenCalledOnce();
+    const csv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
+    });
+    expect(readCsv(csv)).toEqual([
+      ["POINTING_ID", "RA_ICRS_DEG", "DEC_ICRS_DEG", "INSTRUMENT_PROFILE_ID", "PLACEMENT_ORIGIN", "POSITION_ANGLE_DEG"],
+      ["POINTING_0001", "150.50000000", "-24.25000000", "keck-kcwi-small", "manual", "0.00000000"],
+    ]);
+    expect(csv).not.toContain("EPOCH");
+    expect(csv).not.toContain("EXPOSURE");
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  it("blocks standalone export when a selected per-pointing PA is required", async () => {
+    const registry = createBundledProfileRegistry();
+    const instrument = registry.resolveAnyInstrumentProfile("vlt-muse-wfm");
+    if (instrument.schema_version !== 3) throw new Error("Expected a v3 nominal instrument");
+    const tile = { ...makeCenterProposals([{ ra_deg: 150.5, dec_deg: -24.25 }], "manual")[0], instrument_profile_id: instrument.id };
+    const create = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    await expect(downloadInstrumentCoordinates([tile], instrument.id, registry)).rejects.toThrow(/PA policy requires/i);
+    expect(create).not.toHaveBeenCalled();
   });
   it("downloads imported T80 sexagesimal policy byte-for-byte like the frozen observer fixture", async () => {
     const document = createBundledProfileRegistry().resolveProfileDocument("splus-t80-south");

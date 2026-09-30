@@ -119,6 +119,9 @@ describe("empirical KCWI compatibility and v0.4 production profiles", () => {
     const renamed = legacyRegistry.registerInstrumentProfile({ ...raw, id: "ordinary-slicer" });
     expect(footprintForTile({ ...tile, instrument_profile_id: renamed.id }, DEFAULT_PROFILE, legacyRegistry)).toEqual(raw.footprint);
     expect(footprintForTile({ ...tile, source: "proposed" }, DEFAULT_PROFILE, registry)).toEqual(T80_SOUTH_INSTRUMENT_V2.footprint);
+    expect(footprintForTile({ ...tile, source: "proposed", output_strategy_id: "sami-dr1-seven-position" }, DEFAULT_PROFILE, registry))
+      .toEqual(production.footprint);
+    expect(footprintForTile({ ...tile, source: "proposed" }, null, registry)).toEqual(production.footprint);
   });
 
   it("records the existing instrument-only browser-document gap without inventing a survey", () => {

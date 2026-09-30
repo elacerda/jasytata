@@ -40,12 +40,15 @@ export function outputFootprintForProfile(
  */
 export function footprintForTile(
   tile: TileRecord,
-  outputProfile: TilingProfile,
+  outputProfile: TilingProfile | null,
   registry: ProfileRegistry = profileRegistry,
 ): Footprint {
-  if (tile.source === "original" && tile.instrument_profile_id) {
+  const hasPinnedOutputInstrument = tile.source === "proposed" &&
+    (tile.output_strategy_id !== undefined || outputProfile === null);
+  if (tile.instrument_profile_id && (tile.source === "original" || hasPinnedOutputInstrument)) {
     return registry.resolveInstrumentProfile(tile.instrument_profile_id).footprint;
   }
+  if (!outputProfile) throw new Error(`Pointing "${tile.id}" has no associated instrument or active output profile`);
   return outputFootprintForProfile(outputProfile, registry);
 }
 
@@ -65,7 +68,7 @@ export function footprintForTile(
  */
 export function resolveFootprintForTile(
   tile: TileRecord,
-  outputProfile: TilingProfile,
+  outputProfile: TilingProfile | null,
   registry: ProfileRegistry = profileRegistry,
   options?: PositionAngleOptions,
 ): ResolvedFootprintOrientation {

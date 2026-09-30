@@ -14,13 +14,6 @@ import { profileRegistry } from "./profiles/registry";
 /** Map click behavior: normal inspection/pan or single-center placement. */
 export type MapMode = "idle" | "add-tile";
 
-/** Zero-sized fallback used only when resolving an associated source instrument without an active planner. */
-const SOURCE_GEOMETRY_FALLBACK_PROFILE: TilingProfile = {
-  id: "map-source-fallback", display_name: "Map source fallback", tile_width_deg: 0, tile_height_deg: 0,
-  effective_overlap_arcsec: 0, coordinate_frame: "icrs", export_epoch_default: "2000",
-  export_epoch_options: ["2000"], algorithm: "SPLUS_LEGACY_GRID_V1",
-};
-
 interface AladinMapProps {
   tiles: TileRecord[];
   datasets: CatalogueDataset[];
@@ -263,7 +256,9 @@ export default function AladinMap(props: AladinMapProps) {
     const [centerRa, centerDec] = instance.getRaDec();
     const [fovX, fovY] = instance.getFoV();
     const drawImportedFootprints = fovX <= 36;
-    const drawFootprints = !!current.profile && drawImportedFootprints;
+    // Proposed rows carry their selected instrument ID, so their geometry is
+    // available even when standalone output has no survey tiling profile.
+    const drawFootprints = drawImportedFootprints;
     const profile = current.profile;
     const margin = Math.max(profile?.tile_width_deg ?? 0, profile?.tile_height_deg ?? 0);
     const visible = (tile: SkyPoint) =>
@@ -294,7 +289,7 @@ export default function AladinMap(props: AladinMapProps) {
         });
       }
     }
-    if (drawFootprints && profile) {
+    if (drawFootprints) {
       if (current.planningLayers.proposals) {
         proposals.filter((tile) => tile.enabled !== false && visible(tile)).slice(0, 500).forEach((tile) => {
           const geometries = displayGeometriesForTile(tile, profile, current.pointingGeometryContext, reportOrientationError);
@@ -472,10 +467,10 @@ function displayGeometriesForTile(
   context?: PointingGeometryContext,
   onOrientationError?: (message: string) => void,
 ): PointingGeometry[] | null {
-  const sourceWithoutPlanner = !profile && tile.source === "original" && !!tile.instrument_profile_id;
-  if ((!profile && !sourceWithoutPlanner) || (tile.source === "original" && !tile.instrument_profile_id)) return null;
+  if (!profile && !tile.instrument_profile_id) return null;
+  if (tile.source === "original" && !tile.instrument_profile_id) return null;
   try {
-    return resolvePointingGeometries(tile, profile ?? SOURCE_GEOMETRY_FALLBACK_PROFILE, profileRegistry, context);
+    return resolvePointingGeometries(tile, profile, profileRegistry, context);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (context?.orientationPolicyForTile && /position angle|PA policy/i.test(message)) onOrientationError?.(message);

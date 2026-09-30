@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
 import { profileRegistry, T80_SOUTH_INSTRUMENT_V2 } from "./profiles";
 import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
+import { tileFootprintBoundaries } from "./sky";
 
 const aladinMocks = vi.hoisted(() => {
   const handlers = new Map<string, (value: unknown) => void>();
@@ -124,6 +125,46 @@ describe("native Aladin catalogue layers", () => {
     await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(1));
     expect(aladinMocks.overlays[7].shapes).toHaveLength(1);
     expect(aladinMocks.overlays[7].shapes[0]).toHaveLength(101);
+    aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
+  });
+
+  it("keeps source footprints pinned to their dataset instrument when output has no survey", async () => {
+    aladinMocks.instance.getFoV.mockReturnValue([30, 20]);
+    const source = dataset("kcwi-source", "kcwi-source.csv", true, "keck-kcwi-small");
+    const base = {
+      tiles: source.tiles, datasets: [source], profile: null, mode: "idle" as const,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null,
+      selectedPolygon: null, anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    render(<AladinMap {...base} />);
+    await waitFor(() => expect(aladinMocks.overlays[7].shapes).toHaveLength(1));
+    const instrument = profileRegistry.resolveAnyInstrumentProfile("keck-kcwi-small");
+    expect(aladinMocks.overlays[7].shapes[0]).toEqual(tileFootprintBoundaries(source.tiles[0], instrument.footprint)[0]);
+    aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
+  });
+
+  it("renders an accepted standalone v3 pointing without a survey tiling profile", async () => {
+    aladinMocks.instance.getFoV.mockReturnValue([30, 20]);
+    const tile: TileRecord = {
+      id: "standalone-kcwi-pointing", name: "KCWI manual center", ra_deg: 150, dec_deg: -30,
+      source: "proposed", generation_method: "manual", enabled: true,
+      instrument_profile_id: "keck-kcwi-small", original_values: null, metadata: {},
+      placement_provenance: { origin: "manual" },
+    };
+    render(<AladinMap
+      tiles={[tile]} datasets={[]} profile={null} mode="idle" selectingRegion={false}
+      selectionRequest={0} focusRequest={0} selectedTileId={null} selectedPolygon={null}
+      anchorTileIds={[]} candidateCenters={[]}
+      planningLayers={{ proposals: true, region: true, anchors: false, lattice: false }}
+      pointingGeometryContext={{ orientationPolicyForTile: () => ({ policy: "fixed", required: true }) }}
+      onSkyClick={vi.fn()} onTileSelect={vi.fn()} onRegionSelect={vi.fn()} onCancelRegion={vi.fn()} onError={vi.fn()}
+    />);
+
+    await waitFor(() => expect(aladinMocks.overlays[1].shapes).toHaveLength(1));
+    const instrument = profileRegistry.resolveAnyInstrumentProfile("keck-kcwi-small");
+    expect(aladinMocks.overlays[1].shapes[0]).toEqual(tileFootprintBoundaries(tile, instrument.footprint)[0]);
     aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
 

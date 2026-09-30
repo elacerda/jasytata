@@ -49,7 +49,7 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
   it("switches real zero-catalogue plans from Complete to Efficient", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByText("Survey active · no catalogue loaded");
+    await screen.findByText("Survey strategy active · no catalogue loaded");
     await user.click(screen.getByRole("button", { name: "Draw empty rectangle" }));
     expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeChecked();
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
@@ -79,7 +79,7 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
     render(<App />);
 
     expect(await screen.findByText("OPTIONAL")).toBeTruthy();
-    expect(await screen.findByText("Survey active · no catalogue loaded")).toBeTruthy();
+    expect(await screen.findByText("Survey strategy active · no catalogue loaded")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /select area/i }));
     await user.click(screen.getByRole("button", { name: "Draw profile fallback region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));

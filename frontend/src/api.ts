@@ -3,6 +3,7 @@ import type {
   CatalogueResponse,
   CoverageStrategy,
   CoverageResult,
+  InstrumentProfileV3,
   RegionPlanResponse,
   SkyPolygon,
   TileRecord,
@@ -11,7 +12,7 @@ import type {
 import { loadProfile, listProfiles, validateProfile, parseProfileJson, serializeProfile, profileRegistry, type ProfileRegistry, type AnyProfileDocument, ProfileError } from "./profiles";
 import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
-import { buildExportCsv } from "./science/export";
+import { buildExportCsv, buildInstrumentCoordinateCsv } from "./science/export";
 import type { PointingExportOptions } from "./science/export";
 import { resolvePointingGeometries, type PointingGeometryContext } from "./science/pointing-geometry";
 import { resolvePlanningProfile } from "./profiles/planning";
@@ -138,6 +139,59 @@ export async function downloadCatalogue(
   const link = document.createElement("a");
   link.href = url;
   link.download = "new_tiles.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** Download accepted nominal centers for a standalone Schema v3 instrument.
+ *
+ * The instrument-only path uses generic ICRS coordinate fields and resolves PA
+ * through the Gate 5 geometry resolver. It has no survey epoch/constants and
+ * deliberately emits one nominal center per accepted pointing without adding
+ * any strategy sequence.
+ *
+ * @param proposedTiles - Accepted proposal rows; disabled rows are omitted.
+ * @param instrumentId - Stable ID of the selected standalone instrument mode.
+ * @param registry - Session registry containing the selected validated profile.
+ * @param geometryContext - Optional caller-owned PA choice, such as required
+ *   per-pointing input. Sequence settings are ignored for standalone output.
+ * @returns Resolves after triggering a local CSV download.
+ * @throws If the instrument is unknown/v2, required PA is absent, or a row is
+ *   invalid or belongs to another instrument. No session state is mutated.
+ */
+export async function downloadInstrumentCoordinates(
+  proposedTiles: TileRecord[],
+  instrumentId: string,
+  registry: ProfileRegistry = profileRegistry,
+  geometryContext?: PointingGeometryContext,
+): Promise<void> {
+  const instrument = registry.resolveAnyInstrumentProfile(instrumentId);
+  if (instrument.schema_version !== 3) {
+    throw new Error(`Instrument-only coordinate export requires a Schema v3 instrument profile: ${instrumentId}`);
+  }
+  const instrumentProfile = instrument as InstrumentProfileV3;
+  const boundTiles = proposedTiles.map((tile) => tile.instrument_profile_id
+    ? tile
+    : { ...tile, instrument_profile_id: instrumentProfile.id });
+  const context: PointingGeometryContext = {
+    ...geometryContext,
+    coverageBasis: "single_exposure",
+    sequenceForTile: () => undefined,
+    orientationPolicyForTile: (tile) => geometryContext?.orientationPolicyForTile?.(tile) ?? {
+      policy: instrumentProfile.position_angle.mode,
+      required: instrumentProfile.position_angle.required,
+    },
+  };
+  const csv = buildInstrumentCoordinateCsv(boundTiles, instrumentProfile, {
+    resolvePositionAngle: (tile) => resolvePointingGeometries(tile, null, registry, context)[0].position_angle_deg,
+  });
+  const blob = new Blob([csv], { type: "text/csv; charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "manual_centers.csv";
   document.body.appendChild(link);
   link.click();
   link.remove();

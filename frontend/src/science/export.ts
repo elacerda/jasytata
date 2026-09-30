@@ -1,4 +1,5 @@
-import type { SurveyProfileV2, SurveyProfileV3, TileRecord } from "../types";
+import type { InstrumentProfileV3, PlacementProvenance, SurveyProfileV2, SurveyProfileV3, TileRecord } from "../types";
+import { validateInstrumentProfileV3 } from "../profiles/schema-v3";
 import { validateSurveyProfileV2 } from "../profiles/schema-v2";
 import { validateSurveyProfileV3 } from "../profiles/schema-v3";
 import { formatDecDegrees, formatRaDegrees } from "./coordinates";
@@ -37,6 +38,12 @@ export interface PointingExposureExport {
 export interface PointingExportOptions {
   resolvePositionAngle?: (tile: TileRecord) => number | undefined;
   resolveExposures?: (tile: TileRecord) => readonly PointingExposureExport[] | undefined;
+}
+
+/** Caller-resolved orientation for generic instrument-only center export. */
+export interface InstrumentCoordinateExportOptions {
+  /** Gate 5 resolution of the declared physical PA, when one exists. */
+  resolvePositionAngle: (tile: TileRecord) => number | undefined;
 }
 
 /** Convert accepted ICRS pointings using the governing v2 survey or v3 strategy policy.
@@ -154,6 +161,102 @@ export function serializePointingCsv(table: PointingExportTable): string {
     return /[,"\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
   return [...[table.columns, ...table.rows].map((row) => row.map(escape).join(",")), ""].join("\r\n");
+}
+
+/** Export accepted nominal centers for one standalone Schema v3 instrument.
+ *
+ * The document has no survey policy, so this path writes only ICRS coordinates,
+ * stable instrument identity, known placement origin, and physically resolved
+ * PA/source provenance when declared. It never adds an epoch, survey constants,
+ * a strategy, or derived exposure rows.
+ *
+ * @param proposedTiles - Accepted proposal rows in stable acceptance order;
+ *   disabled rows are omitted.
+ * @param instrument - Validated Schema v3 instrument profile selected for output.
+ * @param options - Gate 5 absolute-PA resolution using the instrument policy.
+ * @returns CSV table with deterministic generic Jasytata coordinate columns.
+ * @throws If rows do not belong to this instrument, placement origin is unknown,
+ *   PA resolution fails, or no enabled proposals remain.
+ */
+export function buildInstrumentCoordinateTable(
+  proposedTiles: readonly TileRecord[],
+  instrument: InstrumentProfileV3,
+  options: InstrumentCoordinateExportOptions,
+): PointingExportTable {
+  const validated = validateInstrumentProfileV3(instrument);
+  if (proposedTiles.length > 500) throw new Error("Too many proposed tiles");
+  if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Generic export accepts only proposed tile centers");
+  const enabled = proposedTiles.filter((tile) => tile.enabled !== false);
+  if (!enabled.length) throw new Error("Enable at least one proposed tile before downloading");
+
+  const prepared = enabled.map((tile, index) => {
+    if (!Number.isFinite(tile.ra_deg) || tile.ra_deg < 0 || tile.ra_deg >= 360 ||
+      !Number.isFinite(tile.dec_deg) || Math.abs(tile.dec_deg) > 90 || !tile.generation_method) {
+      throw new Error(`Invalid proposed tile ${tile.id}`);
+    }
+    if (tile.instrument_profile_id !== validated.id) {
+      throw new Error(`Pointing ${index + 1} is not assigned to instrument ${validated.id}`);
+    }
+    const provenance = tile.placement_provenance;
+    if (!provenance) throw new Error(`Pointing ${index + 1} has no declared placement origin`);
+    const sourceReference = formatPlacementSourceReference(provenance);
+    const positionAngle = options.resolvePositionAngle(tile);
+    if (positionAngle !== undefined && !Number.isFinite(positionAngle)) {
+      throw new Error(`Pointing ${index + 1} has a nonfinite camera position angle`);
+    }
+    if (validated.position_angle.required && positionAngle === undefined) {
+      throw new Error(`Pointing ${index + 1} has no declared camera position angle required by ${validated.display_name}`);
+    }
+    if (validated.position_angle.mode === "not_applicable" && positionAngle !== undefined) {
+      throw new Error(`Instrument ${validated.display_name} does not declare a physical position angle`);
+    }
+    return {
+      tile,
+      pointingId: `POINTING_${String(index + 1).padStart(4, "0")}`,
+      provenance,
+      sourceReference,
+      positionAngle,
+    };
+  });
+  const includePositionAngle = validated.position_angle.mode !== "not_applicable" &&
+    (validated.position_angle.required || validated.position_angle.mode === "fixed" || prepared.some((row) => row.positionAngle !== undefined));
+  const includeSourceReference = prepared.some((row) => row.sourceReference !== undefined);
+  const columns = ["POINTING_ID", "RA_ICRS_DEG", "DEC_ICRS_DEG", "INSTRUMENT_PROFILE_ID", "PLACEMENT_ORIGIN",
+    ...(includePositionAngle ? ["POSITION_ANGLE_DEG"] : []),
+    ...(includeSourceReference ? ["PLACEMENT_SOURCE_REFERENCE"] : [])];
+  const rows = prepared.map(({ tile, pointingId, provenance, sourceReference, positionAngle }) => [
+    pointingId,
+    tile.ra_deg.toFixed(8),
+    tile.dec_deg.toFixed(8),
+    validated.id,
+    provenance.origin,
+    ...(includePositionAngle ? [positionAngle === undefined ? "" : positionAngle.toFixed(8)] : []),
+    ...(includeSourceReference ? [sourceReference ?? ""] : []),
+  ]);
+  return { columns, rows };
+}
+
+/** Serialize the generic instrument-only ICRS center table as deterministic CSV.
+ * @param proposedTiles - Accepted nominal pointing centers.
+ * @param instrument - Validated standalone Schema v3 instrument.
+ * @param options - Gate 5 PA resolver for the selected instrument policy.
+ * @returns UTF-8-ready CSV with CRLF line endings.
+ */
+export function buildInstrumentCoordinateCsv(
+  proposedTiles: readonly TileRecord[],
+  instrument: InstrumentProfileV3,
+  options: InstrumentCoordinateExportOptions,
+): string {
+  return serializePointingCsv(buildInstrumentCoordinateTable(proposedTiles, instrument, options));
+}
+
+function formatPlacementSourceReference(provenance: PlacementProvenance): string | undefined {
+  if (provenance.origin !== "authoritative_import") return undefined;
+  const reference = provenance.source_reference;
+  if (!reference) throw new Error("Authoritative imported centers require a source reference");
+  const locator = reference.url ?? reference.doi;
+  if (!locator) throw new Error("Authoritative imported centers require a source reference URL or DOI");
+  return reference.locator ? `${locator} (${reference.locator})` : locator;
 }
 
 /** Export accepted ICRS centers through a validated v2 survey or v3 strategy policy.
