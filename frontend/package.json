@@ -11,7 +11,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "benchmark:baseline": "vitest bench --run src/science/gate0-baseline.bench.ts"
   },
   "dependencies": {
     "aladin-lite": "3.8.2",

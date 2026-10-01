@@ -18,17 +18,21 @@ The graph is a navigation and context-reduction aid, not a source of scientific 
 
 ## Jasytata scientific compatibility
 
-v0.4.0 develops from the corrected v0.3.x baseline integrated from `main` by
-merge `e7896b4`, while preserving the intended T80-South/S-PLUS compatibility
-contract, including its inherited v0.2.0 behavior.
+The published v0.4.0 scientific baseline is frozen at commit
+`7613a08b1cd1f23bfc40918c8391cea995085af4`, tag `v0.4.0`. Its behavior remains
+regression-protected, including the intended T80-South/S-PLUS compatibility
+contract and inherited v0.2.0 behavior. v0.5.0 work is on branch `0.5.0` and
+follows `docs/V0.5.0_ROADMAP.md`; later gates are not permission to implement
+their work opportunistically. Do not modify `main` or move/recreate `v0.4.0`.
 
 Do not change scientific behavior, constants, fixture expectations, coordinate semantics, coverage semantics, or T80 compatibility unless the current task explicitly authorizes that change.
 
-For v0.4.0 work, follow the current gate and acceptance criteria in `docs/V0.4.0_ROADMAP.md`. The v0.3.0 roadmap is historical evidence. Do not implement later gates opportunistically.
+For v0.4.0 compatibility work, use `docs/V0.4.0_ROADMAP.md` as historical
+release evidence. For v0.5.0, the v0.5.0 roadmap is the active authority.
 
 ## Validation
 
 Use the smallest relevant tests while developing, then run the repository validation required by the current gate.
 
-Do not commit or modify the local untracked `poly.txt` file.
-Do not modify or stage the local untracked `.codex/` directory.
+Do not modify, move, recreate, stage, or delete the local untracked `.codex/`
+directory or `poly.txt` file.
