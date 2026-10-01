@@ -31,6 +31,7 @@ vi.mock("./AladinMap", async () => {
       referenceMarker: CenterInput | null;
       anchorTileIds: string[];
       candidateCenters: CenterInput[];
+      projectCandidateCenters?: CenterInput[];
       onTileSelect: (tile: TileRecord) => void;
       onRegionSelect: (polygon: { vertices: CenterInput[] }) => void;
       onSkyClick: (ra: number, dec: number) => void;
@@ -46,6 +47,7 @@ vi.mock("./AladinMap", async () => {
         React.createElement("output", { "data-testid": "map-layer-state" },
           `${props.tiles.filter((tile) => tile.source === "proposed").length}:${Boolean(props.selectedPolygon)}:${props.planningLayers.region}:${props.planningLayers.anchors}:${props.planningLayers.lattice}`),
         React.createElement("output", { "data-testid": "map-reference" }, JSON.stringify(props.referenceMarker)),
+        React.createElement("output", { "data-testid": "project-preview-count" }, props.projectCandidateCenters?.length ?? 0),
         React.createElement("output", { "data-testid": "map-selection" },
           JSON.stringify(props.selectedPolygon?.vertices ?? [])),
         React.createElement(
@@ -888,6 +890,129 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /load reference/i })).toBeEnabled());
     expect(screen.queryByText("Stale region failure")).toBeNull();
     expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
+  });
+
+  it("previews project lattice candidates separately, invalidates them on region/instrument changes, and resets them for a new project", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:keck-kcwi-small");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
+    await user.type(screen.getByLabelText("East spacing"), "3");
+    await user.type(screen.getByLabelText("North spacing"), "3");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Spacing and basis units" }), "deg");
+    await user.click(screen.getByRole("radio", { name: "Independent" }));
+    await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
+    await user.click(screen.getByRole("radio", { name: "Fixed sky coordinate" }));
+    await user.type(screen.getByLabelText("Origin RA"), "08:30:00");
+    await user.type(screen.getByLabelText("Origin Dec"), "-59:00:00");
+    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
+
+    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
+    expect(screen.getByText(/candidate sites · preview only/)).toBeTruthy();
+    expect(screen.getByText(/Origin: Fixed sky coordinate · RA 127.500000°, Dec -59.000000°/)).toBeTruthy();
+    expect(apiMocks.planRegion).not.toHaveBeenCalled();
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    expect(screen.getByTestId("map-layer-state").textContent).toMatch(/^0:/);
+    const fullCount = screen.getByTestId("project-preview-count").textContent;
+    await user.click(screen.getByRole("checkbox", { name: "Show Candidate lattice" }));
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent(fullCount ?? "0");
+    const originalSelectedRegion = screen.getByTestId("map-selection").textContent;
+    await user.clear(screen.getByLabelText("East spacing"));
+    await user.type(screen.getByLabelText("East spacing"), "-1");
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    expect(screen.getByText(/previous candidate preview is stale/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/positive/);
+    expect(screen.getByTestId("map-selection").textContent).toBe(originalSelectedRegion);
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    await user.clear(screen.getByLabelText("East spacing"));
+    await user.type(screen.getByLabelText("East spacing"), "4");
+    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
+    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
+
+    const selectedRegion = screen.getByTestId("map-selection").textContent;
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:subaru-pfs-target-access");
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("map-selection").textContent).toBe(selectedRegion);
+    expect(screen.getByText(/Regional project placement is unavailable for target-access geometry/)).toBeTruthy();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:keck-kcwi-small");
+    await user.click(screen.getByRole("button", { name: "Mock select different region" }));
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    expect(screen.getByText(/previous candidate preview is stale/)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
+    expect(screen.getByRole("radio", { name: "Manual pointings" })).toBeChecked();
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
+  });
+
+  it("keeps instrument PA and project rotation independent, follows PA only on request, and invalidates on PA change", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:vlt-muse-wfm");
+    await user.type(screen.getByLabelText(/PA \(degrees east of north\)/), "30");
+    const selectArea = screen.getByRole("button", { name: /Select area · Draw polygon/ });
+    expect(selectArea).toBeEnabled();
+    await user.click(selectArea);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    expect(screen.getByText(/candidate-lattice geometry preview only/)).toBeTruthy();
+    await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
+    await user.type(screen.getByLabelText("East spacing"), "3");
+    await user.type(screen.getByLabelText("North spacing"), "3");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Spacing and basis units" }), "deg");
+    await user.click(screen.getByRole("radio", { name: "Independent" }));
+    await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
+    await user.click(screen.getByRole("radio", { name: "Region center" }));
+    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
+    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
+    expect(screen.getByText(/Rotation: 0\.000° · independent/)).toBeTruthy();
+    const independentBasis = screen.getByText(/Basis v1:/).textContent;
+    expect(screen.getByText(/Nominal envelope geometry is approximate/)).toBeTruthy();
+
+    await user.click(screen.getByRole("radio", { name: "Follow instrument PA" }));
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
+    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
+    expect(screen.getByText(/Rotation: 30\.000° · follows instrument PA/)).toBeTruthy();
+    expect(screen.getByText(/Basis v1:/).textContent).not.toBe(independentBasis);
+
+    await user.clear(screen.getByLabelText(/PA \(degrees east of north\)/));
+    await user.type(screen.getByLabelText(/PA \(degrees east of north\)/), "45");
+    expect(screen.getByTestId("project-preview-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("map-selection")).not.toHaveTextContent("[]");
+    expect(screen.getByText(/previous candidate preview is stale/)).toBeTruthy();
+    expect(apiMocks.planRegion).not.toHaveBeenCalled();
+  });
+
+  it("preserves project lattice preview when switching strategy context on the same instrument", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const output = screen.getByRole("combobox", { name: "Output profile" });
+    await user.selectOptions(output, "survey:sami-dr1-seven-position");
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
+    await user.type(screen.getByLabelText("East spacing"), "3");
+    await user.type(screen.getByLabelText("North spacing"), "3");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Spacing and basis units" }), "deg");
+    await user.click(screen.getByRole("radio", { name: "Independent" }));
+    await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
+    await user.click(screen.getByRole("radio", { name: "Region center" }));
+    await user.click(screen.getByRole("button", { name: "Preview lattice" }));
+    await waitFor(() => expect(Number(screen.getByTestId("project-preview-count").textContent)).toBeGreaterThan(0));
+    const candidates = screen.getByTestId("project-preview-count").textContent;
+    const region = screen.getByTestId("map-selection").textContent;
+
+    await user.selectOptions(output, "instrument:aat-sami-61core-15arcsec");
+    expect(screen.getByTestId("map-selection").textContent).toBe(region);
+    expect(screen.getByTestId("project-preview-count").textContent).toBe(candidates);
+    expect(screen.getByText(/candidate sites · preview only/)).toBeTruthy();
+    expect(apiMocks.planRegion).not.toHaveBeenCalled();
   });
 
 });

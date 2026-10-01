@@ -253,7 +253,8 @@ describe("minimal browser profile file controls", () => {
     expect(within(summary).getByText("Standalone instrument")).toBeTruthy();
     expect(within(summary).getByText("keck-kcwi-small")).toBeTruthy();
     expect(within(summary).getByText("Exact observed-area geometry")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Select area/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Select area/ })).toBeEnabled();
+    expect(screen.getByText(/candidate-lattice geometry preview only/)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: /^Single tile/ }));
     await user.click(screen.getByRole("button", { name: "Mock place tile" }));

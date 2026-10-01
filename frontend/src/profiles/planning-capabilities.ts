@@ -2,6 +2,14 @@ import type { AnyInstrumentProfile, AnySurveyProfile } from "./registry";
 
 export type PlanningOutputKind = "strategy" | "instrument";
 export type PlanningGeometryRole = "legacy_v2" | "observed_area" | "nominal_envelope" | "target_access" | null;
+export type ProjectPlanningMode = "manual_pointings" | "regional_mosaic";
+
+/** Session facts needed to derive Gate 3 project-lattice actions. */
+export interface ProjectPlanningContext {
+  mode: ProjectPlanningMode;
+  hasSelectedRegion: boolean;
+  hasResolvedInstrumentPA: boolean;
+}
 
 /** Capabilities derived from one registered instrument and its selected strategy, if any. */
 export interface PlanningCapabilities {
@@ -16,6 +24,10 @@ export interface PlanningCapabilities {
   positionAngleRequired: boolean;
   requiresUserPositionAngle: boolean;
   geometryRole: PlanningGeometryRole;
+  canAuthorProjectPlacement: boolean;
+  canPreviewProjectLattice: boolean;
+  projectPlanningMode: ProjectPlanningMode;
+  projectLatticeUnavailableReason: string | null;
 }
 
 /** Derive browser planning actions from the validated profile and strategy semantics.
@@ -25,12 +37,16 @@ export interface PlanningCapabilities {
  *
  * @param instrument - Active validated instrument profile, or `null` if unresolved.
  * @param strategy - Active survey/observing strategy, or `null` for standalone output.
+ * @param projectContext - Current project mode, selected-region availability, and effective PA resolution.
  * @returns The manual, regional, sequence, PA, and diagnostic actions supported by
- *   the current output context.
+ *   the current output and project context.
  */
 export function derivePlanningCapabilities(
   instrument: AnyInstrumentProfile | null,
   strategy: AnySurveyProfile | null,
+  projectContext: ProjectPlanningContext = {
+    mode: "manual_pointings", hasSelectedRegion: false, hasResolvedInstrumentPA: false,
+  },
 ): PlanningCapabilities {
   const outputKind: PlanningOutputKind = strategy ? "strategy" : "instrument";
   const observingSequenceExposureCount = strategy?.schema_version === 3 && strategy.observing_sequence
@@ -45,6 +61,20 @@ export function derivePlanningCapabilities(
   const positionAngleRequired = instrument?.schema_version === 3 && instrument.position_angle.required;
   const canReportAreaCoverage = Boolean(strategy && instrument && geometryRole !== "target_access");
   const supportsAutomaticRegionPlanning = Boolean(strategy && strategy.tiling.type !== "manual" && canReportAreaCoverage);
+  const canAuthorProjectPlacement = geometryRole === "observed_area" || geometryRole === "nominal_envelope";
+  const canPreviewProjectLattice = canAuthorProjectPlacement && projectContext.mode === "regional_mosaic" &&
+    projectContext.hasSelectedRegion && (!positionAngleRequired || projectContext.hasResolvedInstrumentPA);
+  const projectLatticeUnavailableReason = !canAuthorProjectPlacement
+    ? geometryRole === "target_access"
+      ? "Regional project placement is unavailable for target-access geometry; this footprint does not represent observed-area coverage."
+      : "Regional project placement requires an instrument profile with observed-area or nominal-envelope geometry semantics."
+    : projectContext.mode !== "regional_mosaic"
+      ? "Choose Regional mosaic to author and preview project placement."
+      : !projectContext.hasSelectedRegion
+        ? "Select a region before previewing project lattice sites."
+        : positionAngleRequired && !projectContext.hasResolvedInstrumentPA
+          ? "Resolve the required instrument PA before previewing footprint intersections."
+          : null;
 
   return {
     outputKind,
@@ -59,6 +89,10 @@ export function derivePlanningCapabilities(
     requiresUserPositionAngle: Boolean(positionAngleRequired &&
       (positionAngleMode === "per_pointing" || positionAngleMode === "user_selected")),
     geometryRole,
+    canAuthorProjectPlacement,
+    canPreviewProjectLattice,
+    projectPlanningMode: projectContext.mode,
+    projectLatticeUnavailableReason,
   };
 }
 

@@ -329,7 +329,8 @@ describe("Gate 7B scientific browser controls", () => {
     expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Single tile/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /^Import centers/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /^Select area/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Select area/ })).toBeEnabled();
+    expect(screen.getByText(/candidate-lattice geometry preview only/)).toBeVisible();
     expect(screen.getByText(/not defined for this instrument/)).toBeVisible();
     const identity = pointings()[0];
     await select(u, "instrument:vlt-muse-wfm");

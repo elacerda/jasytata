@@ -30,6 +30,8 @@ interface AladinMapProps {
   planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
   anchorTileIds: string[];
   candidateCenters: CenterInput[];
+  /** Project-owned candidate lattice centers; never represented as pointings. */
+  projectCandidateCenters?: CenterInput[];
   /** Optional caller-owned PA and exposure geometry policy for displayed footprints. */
   pointingGeometryContext?: PointingGeometryContext;
   onSkyClick: (ra: number, dec: number) => void;
@@ -162,7 +164,7 @@ export default function AladinMap(props: AladinMapProps) {
 
   useEffect(() => {
     redrawRef.current();
-  }, [props.selectedTileId, props.selectedPolygon, props.referenceMarker, props.anchorTileIds, props.candidateCenters, props.planningLayers, props.profile, props.pointingGeometryContext]);
+  }, [props.selectedTileId, props.selectedPolygon, props.referenceMarker, props.anchorTileIds, props.candidateCenters, props.projectCandidateCenters, props.planningLayers, props.profile, props.pointingGeometryContext]);
 
   useEffect(() => {
     const marker = props.referenceMarker;
@@ -347,6 +349,10 @@ export default function AladinMap(props: AladinMapProps) {
       }
       current.candidateCenters
         .filter((center) => current.planningLayers.lattice && visible(center))
+        .slice(0, 1200)
+        .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045)));
+      current.projectCandidateCenters
+        ?.filter((center) => current.planningLayers.lattice && visible(center))
         .slice(0, 1200)
         .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045)));
     } else if (selected) {

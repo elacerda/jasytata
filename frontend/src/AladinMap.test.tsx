@@ -251,6 +251,7 @@ describe("native Aladin catalogue layers", () => {
       selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null,
       selectedPolygon: polygon, anchorTileIds: [first.tiles[0].id],
       candidateCenters: [{ ra_deg: 150, dec_deg: -30 }],
+      projectCandidateCenters: [{ ra_deg: 150.1, dec_deg: -30.1 }],
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
     };
     const visible = { proposals: true, region: true, anchors: true, lattice: true };
@@ -259,6 +260,7 @@ describe("native Aladin catalogue layers", () => {
     expect(aladinMocks.overlays[1].add).toHaveBeenCalled();
     expect(aladinMocks.overlays[3].add).toHaveBeenCalled();
     expect(aladinMocks.overlays[4].add).toHaveBeenCalled();
+    expect(aladinMocks.overlays[4].shapes).toHaveLength(2);
     expect(aladinMocks.overlays[5].add).toHaveBeenCalled();
     const counts = aladinMocks.overlays.map((overlay) => overlay.add.mock.calls.length);
     view.rerender(<AladinMap {...base} planningLayers={{ proposals: false, region: false, anchors: false, lattice: false }} />);
@@ -266,11 +268,13 @@ describe("native Aladin catalogue layers", () => {
     for (const index of [1, 3, 4, 5]) {
       expect(aladinMocks.overlays[index].add).toHaveBeenCalledTimes(counts[index]);
     }
+    expect(aladinMocks.overlays[4].shapes).toHaveLength(0);
     view.rerender(<AladinMap {...base} planningLayers={visible} />);
     expect(aladinMocks.catalogues[1].show).toHaveBeenCalled();
     for (const index of [1, 3, 4, 5]) {
       expect(aladinMocks.overlays[index].add.mock.calls.length).toBeGreaterThan(counts[index]);
     }
+    expect(aladinMocks.overlays[4].shapes).toHaveLength(2);
     aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
 });

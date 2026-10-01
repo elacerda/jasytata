@@ -4,6 +4,7 @@ import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
 import { RegionAuthoring } from "./RegionAuthoring";
 import { ReferenceCoordinate } from "./ReferenceCoordinate";
+import { ProjectLatticeAuthoring } from "./ProjectLatticeAuthoring";
 import { validatePolygon } from "./science/geometry";
 import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, downloadProfileDocument, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
@@ -15,8 +16,9 @@ import { resolveFootprintForTile } from "./profiles/footprints";
 import { CoverageUnavailableError } from "./science/coverage";
 import { CoverageReadout as MetricsPanel, PointingAngle, PointingScience, ScientificDetails } from "./ScientificReadouts";
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
-import { automaticRegionUnavailableMessage, derivePlanningCapabilities, emptyPlanningStateMessage, planningModeLabel } from "./profiles/planning-capabilities";
+import { automaticRegionUnavailableMessage, derivePlanningCapabilities, emptyPlanningStateMessage, planningModeLabel, type ProjectPlanningMode } from "./profiles/planning-capabilities";
 import type { AnyInstrumentProfile, AnySurveyProfile } from "./profiles/registry";
+import { previewProjectLattice, type ProjectLatticePreviewResult } from "./science/project-lattice-preview";
 import type {
   CenterInput,
   CatalogueDataset,
@@ -24,7 +26,9 @@ import type {
   CoverageStrategy,
   InferenceDiagnostics,
   CoverageResult,
+  LatticeProjectPlacement,
   PositionAngleOptions,
+  ProjectPlacementPolicy,
   SkyPolygon,
   RegionPlanResponse,
   SurveyProfileV2,
@@ -39,6 +43,10 @@ interface ProposalPreview {
   diagnostics: string[];
   metrics: CoverageResult | null;
   solution: string;
+}
+
+interface ActiveProjectLatticePreview extends ProjectLatticePreviewResult {
+  dependencySignature: string;
 }
 
 interface ColumnMapping {
@@ -121,6 +129,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [referenceMarker, setReferenceMarker] = useState<Pick<CenterInput, "ra_deg" | "dec_deg"> | null>(null);
   const [projectSession, setProjectSession] = useState(0);
   const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
+  const [projectPlanningMode, setProjectPlanningMode] = useState<ProjectPlanningMode>("manual_pointings");
+  const [projectPlacement, setProjectPlacement] = useState<ProjectPlacementPolicy | null>(null);
+  const [projectLatticePreview, setProjectLatticePreview] = useState<ActiveProjectLatticePreview | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
   const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectingRegion, setSelectingRegion] = useState(false);
@@ -186,13 +197,60 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const paMode = activeInstrument?.schema_version === 3 ? activeInstrument.position_angle.mode : null;
   const profilePa = activeInstrument && "position_angle_deg" in activeInstrument.footprint ? activeInstrument.footprint.position_angle_deg : undefined;
   const observingSequence = activeSurvey?.schema_version === 3 ? activeSurvey.observing_sequence : undefined;
-  const planningCapabilities = derivePlanningCapabilities(activeInstrument, activeSurvey);
   const geometryBasis = observingSequence && activeSurvey?.schema_version === 3 ? sequenceBasis ?? activeSurvey.coverage_basis_default : "single_exposure";
   const outputStrategyId = activeSurvey?.id ?? null;
   const outputInstrumentId = activeInstrument?.id ?? null;
-  const requiredPositionAngle = planningCapabilities.requiresUserPositionAngle;
   const parsedManualPositionAngle = manualPositionAngle.trim() ? Number(manualPositionAngle) : undefined;
   const validManualPositionAngle = parsedManualPositionAngle !== undefined && Number.isFinite(parsedManualPositionAngle);
+  const projectFootprintGeometry = useMemo(() => {
+    if (!activeInstrument) return null;
+    const positionAngleOptions: PositionAngleOptions | undefined = activeInstrument.schema_version === 3
+      ? {
+        policy: activeInstrument.position_angle.mode,
+        required: activeInstrument.position_angle.required,
+        ...(activeInstrument.position_angle.mode === "user_selected" && validManualPositionAngle
+          ? { plan_position_angle_deg: parsedManualPositionAngle }
+          : {}),
+      }
+      : undefined;
+    const orientationTile: TileRecord = {
+      id: "project-lattice-orientation",
+      name: "Project lattice orientation",
+      ra_deg: 0,
+      dec_deg: 0,
+      source: "proposed",
+      generation_method: "manual",
+      instrument_profile_id: activeInstrument.id,
+      ...(activeInstrument.schema_version === 3 && activeInstrument.position_angle.mode === "per_pointing" && validManualPositionAngle
+        ? { position_angle_deg: parsedManualPositionAngle }
+        : {}),
+      enabled: true,
+      original_values: null,
+      metadata: {},
+    };
+    try {
+      return resolveFootprintForTile(orientationTile, null, profileRegistry, positionAngleOptions);
+    } catch {
+      return null;
+    }
+  }, [activeInstrument, parsedManualPositionAngle, validManualPositionAngle]);
+  const effectiveInstrumentPA = projectFootprintGeometry?.resolved_position_angle_deg;
+  const projectPreviewDependencySignature = JSON.stringify({
+    instrumentId: outputInstrumentId,
+    footprint: projectFootprintGeometry?.footprint ?? null,
+    effectiveInstrumentPA: effectiveInstrumentPA ?? null,
+    region: regionPolygon,
+  });
+  const currentProjectLatticePreview = projectLatticePreview?.dependencySignature === projectPreviewDependencySignature
+    ? projectLatticePreview
+    : null;
+  const planningCapabilities = derivePlanningCapabilities(activeInstrument, activeSurvey, {
+    mode: projectPlanningMode,
+    hasSelectedRegion: Boolean(regionPolygon),
+    hasResolvedInstrumentPA: Boolean(projectFootprintGeometry) &&
+      (!(activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required) || effectiveInstrumentPA !== undefined),
+  });
+  const requiredPositionAngle = planningCapabilities.requiresUserPositionAngle;
   const unresolvedDataset = useMemo(() => datasets.find((dataset) => {
     if (!dataset.instrument_profile_id) return true;
     if (!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id)) return true;
@@ -219,7 +277,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     datasets.length || columnMapping || proposals.length || pending || proposalContext || regionPolygon || referenceMarker ||
     importText.trim() || parsedCenters || activeMetrics || scientificRefusal || selectedTileId ||
     mapMode !== "idle" || selectingRegion || manualPositionAngle !== defaultManualPositionAngle || exportEpoch !== undefined ||
-    sequenceBasis !== null || coverageStrategy !== "complete" || debugRequestJson,
+    sequenceBasis !== null || coverageStrategy !== "complete" || debugRequestJson || projectPlanningMode !== "manual_pointings" ||
+    projectPlacement !== null || projectLatticePreview !== null,
   );
   const outputGeometryContext = useMemo<PointingGeometryContext>(() => ({
     coverageBasis: geometryBasis,
@@ -304,6 +363,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     const ids = new Set(context.inference?.anchor_tile_ids ?? []);
     return planningTiles.filter((tile) => ids.has(tile.id));
   }, [pending, proposalContext, planningTiles]);
+  const mapProjectCandidateCenters = useMemo(
+    () => currentProjectLatticePreview?.candidates.map(({ ra_deg, dec_deg }) => ({ ra_deg, dec_deg })) ?? EMPTY_CENTERS,
+    [currentProjectLatticePreview],
+  );
 
   useEffect(() => {
     try {
@@ -312,6 +375,12 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       // Theme selection still works for this session when storage is unavailable.
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (projectLatticePreview && projectLatticePreview.dependencySignature !== projectPreviewDependencySignature) {
+      setProjectLatticePreview(null);
+    }
+  }, [projectPreviewDependencySignature, projectLatticePreview]);
 
   useEffect(() => {
     if (!regionPolygon || !activeSurvey || !profile || !activeOutputProposals.length || unresolvedDataset || activeResolution.error) {
@@ -650,12 +719,15 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     regionRevisionRef.current += 1;
     setOutputContext(nextContext);
     setExportEpoch(undefined);
-    setManualPositionAngle("");
     const nextInstrument = nextContext.kind === "instrument" ? profileRegistry.resolveAnyInstrumentProfile(nextContext.id)
       : profileRegistry.resolveAnyInstrumentProfile(profileRegistry.resolveAnySurveyProfile(nextContext.id).instrument_id);
-    if (nextInstrument.schema_version === 3 && nextInstrument.position_angle.mode === "user_selected" &&
-        "position_angle_deg" in nextInstrument.footprint && nextInstrument.footprint.position_angle_deg !== undefined) {
-      setManualPositionAngle(String(nextInstrument.footprint.position_angle_deg));
+    if (nextInstrument.id !== outputInstrumentId) {
+      setProjectLatticePreview(null);
+      setManualPositionAngle("");
+      if (nextInstrument.schema_version === 3 && nextInstrument.position_angle.mode === "user_selected" &&
+          "position_angle_deg" in nextInstrument.footprint && nextInstrument.footprint.position_angle_deg !== undefined) {
+        setManualPositionAngle(String(nextInstrument.footprint.position_angle_deg));
+      }
     }
     setApplyBatchPa(false);
     setParsedCenters(null);
@@ -689,6 +761,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setScientificRefusal(null);
     setSelectedTileId(null);
     setRegionPolygon(null);
+    setProjectPlanningMode("manual_pointings");
+    setProjectPlacement(null);
+    setProjectLatticePreview(null);
     setMapMode("idle");
     setSelectingRegion(false);
     setImportText("");
@@ -727,6 +802,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     if (region) validatePolygon(region);
     regionRevisionRef.current += 1;
     setRegionPolygon(region);
+    setProjectLatticePreview(null);
     setSelectingRegion(false);
     setMapMode("idle");
     setPending(null);
@@ -738,18 +814,51 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setError(null);
     setNotice(region ? (planningCapabilities.supportsAutomaticRegionPlanning
       ? "Sky polygon finalized. Generate a plan when ready."
-      : "Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.")
+      : planningCapabilities.canAuthorProjectPlacement
+        ? "Sky region set. Preview project lattice candidate sites when ready; no plan pointings will be generated."
+        : "Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.")
       : "Selected polygon cleared; catalogues and proposals remain.");
   }
 
+  function changeProjectPlanningMode(mode: ProjectPlanningMode) {
+    if (mode === projectPlanningMode) return;
+    setProjectPlanningMode(mode);
+    setProjectPlacement(mode === "manual_pointings"
+      ? { type: "manual_project_placement", provenance: "user_declared" }
+      : null);
+    setProjectLatticePreview(null);
+  }
+
+  function applyProjectLatticePreview(policy: LatticeProjectPlacement) {
+    if (!regionPolygon) throw new Error("Select a region before previewing project lattice sites.");
+    if (!activeInstrument || !projectFootprintGeometry) {
+      throw new Error("The active instrument footprint and PA must resolve before project lattice preview.");
+    }
+    if (!planningCapabilities.canPreviewProjectLattice) {
+      throw new Error(planningCapabilities.projectLatticeUnavailableReason ?? "Project lattice preview is unavailable for this output context.");
+    }
+    const result = previewProjectLattice(
+      regionPolygon,
+      policy,
+      projectFootprintGeometry.footprint,
+      effectiveInstrumentPA,
+    );
+    setProjectPlacement(policy);
+    setProjectLatticePreview({ ...result, dependencySignature: projectPreviewDependencySignature });
+    setError(null);
+    setNotice(`${result.candidates.length} project lattice candidate sites previewed. No plan pointings were created.`);
+  }
+
   function beginRegionSelection() {
-    if (!(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)) return;
+    if (!(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry || planningCapabilities.canAuthorProjectPlacement)) return;
     applySelectedRegion(null);
     setSelectingRegion(true);
     setSelectionRequest((previous) => previous + 1);
     setNotice(planningCapabilities.supportsAutomaticRegionPlanning
       ? "Click successive sky points, then finish the polygon."
-      : "Select an area for geometry diagnostics; this strategy does not place regional pointings.");
+      : planningCapabilities.canAuthorProjectPlacement
+        ? "Select a region for project lattice preview; this does not create regional pointings."
+        : "Select an area for geometry diagnostics; this strategy does not place regional pointings.");
   }
 
   function cancelRegionDrawing() {
@@ -1017,20 +1126,44 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           <section className="panel-section">
             <RegionAuthoring key={`region-${projectSession}`}
               polygonLabel={planningCapabilities.canMeasureSelectedGeometry ? "Measure area" : "Select area"}
-              disabled={busy || !(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)}
+              disabled={busy || !(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry || planningCapabilities.canAuthorProjectPlacement)}
               selecting={selectingRegion} onPolygon={beginRegionSelection}
               onCancelPolygon={cancelRegionDrawing} onApply={applySelectedRegion} />
             <ReferenceCoordinate key={`reference-${projectSession}`} marker={referenceMarker} onChange={setReferenceMarker} />
           </section>
 
+          <section className="panel-section">
+            <ProjectLatticeAuthoring
+              key={`project-placement-${projectSession}`}
+              mode={projectPlanningMode}
+              onModeChange={changeProjectPlanningMode}
+              canAuthor={planningCapabilities.canAuthorProjectPlacement}
+              canPreview={planningCapabilities.canPreviewProjectLattice}
+              unavailableReason={planningCapabilities.projectLatticeUnavailableReason}
+              footprintNotice={activeInstrument?.schema_version === 3 && activeInstrument.footprint_semantics.role === "nominal_envelope"
+                ? "Nominal envelope geometry is approximate; candidate intersections use the declared envelope."
+                : activeInstrument?.schema_version === 3 && activeInstrument.footprint_semantics.fidelity === "approximate"
+                  ? activeInstrument.footprint_semantics.approximation_notice ?? "Candidate intersections use approximate declared footprint geometry."
+                  : null}
+              effectiveInstrumentPA={effectiveInstrumentPA}
+              placement={projectPlacement}
+              preview={currentProjectLatticePreview}
+              disabled={busy}
+              onDraftChange={() => setProjectLatticePreview(null)}
+              onPreview={applyProjectLatticePreview}
+            />
+          </section>
+
           <section className="panel-section planning-section">
-            <SectionHeading title={planningCapabilities.supportsAutomaticRegionPlanning ? "Region plan" : planningCapabilities.canMeasureSelectedGeometry ? "Region diagnostics" : "Region plan"}
+            <SectionHeading title={planningCapabilities.supportsAutomaticRegionPlanning ? "Region plan" : planningCapabilities.canAuthorProjectPlacement ? "Project lattice preview" : planningCapabilities.canMeasureSelectedGeometry ? "Region diagnostics" : "Region plan"}
               trailing={regionPolygon ? "AREA SET" : undefined} />
             {!planningCapabilities.supportsAutomaticRegionPlanning &&
-              <p className="panel-copy planning-capability-message">{planningCapabilities.canMeasureSelectedGeometry
-                ? "Area selection measures declared geometry only; it does not generate regional pointings."
-                : "Area selection is unavailable for this output context."}</p>}
-            {regionPolygon && (planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry) ? (
+              <p className="panel-copy planning-capability-message">{planningCapabilities.canAuthorProjectPlacement
+                ? "Area selection supports candidate-lattice geometry preview only; it does not generate regional pointings."
+                : planningCapabilities.canMeasureSelectedGeometry
+                  ? "Area selection measures declared geometry only; it does not generate regional pointings."
+                  : "Area selection is unavailable for this output context."}</p>}
+            {regionPolygon && (planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry || planningCapabilities.canAuthorProjectPlacement) ? (
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
                 <div className="region-actions">
@@ -1175,7 +1308,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               count={activeContext?.inference?.anchor_tile_ids.length ?? 0}
               onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, anchors: checked }))} />
             <PlanningLayer label="Candidate lattice" color="var(--green)" checked={planningLayers.lattice}
-              count={activeContext?.candidateCenters.length ?? 0}
+              count={(activeContext?.candidateCenters.length ?? 0) + (currentProjectLatticePreview?.candidates.length ?? 0)}
               onChange={(checked) => setPlanningLayers((previous) => ({ ...previous, lattice: checked }))} />
             <p className="fine-print">Visibility affects only the map. Hidden catalogues still contribute to plans. Disabled proposals appear as gray crosses.</p>
           </section>
@@ -1215,6 +1348,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             planningLayers={planningLayers}
             anchorTileIds={activeContext?.inference?.anchor_tile_ids ?? EMPTY_IDS}
             candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
+            projectCandidateCenters={mapProjectCandidateCenters}
             pointingGeometryContext={activePointingGeometryContext}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}

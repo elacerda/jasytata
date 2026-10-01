@@ -88,4 +88,38 @@ describe("derived output planning capabilities", () => {
     expect(planningModeLabel(derivePlanningCapabilities(samiInstrument, threeExposureStrategy)))
       .toBe("Manual target centers + 3-exposure sequence");
   });
+
+  it("derives Gate 3 lattice availability from footprint semantics across instrument classes", () => {
+    const ready = { mode: "regional_mosaic" as const, hasSelectedRegion: true, hasResolvedInstrumentPA: true };
+    const muse = registry.resolveAnyInstrumentProfile("vlt-muse-wfm");
+    const kcwi = registry.resolveAnyInstrumentProfile("keck-kcwi-small");
+    const wideField = registry.resolveAnyInstrumentProfile("ctio-decam-area-equivalent");
+    const targetAccess = registry.resolveAnyInstrumentProfile("subaru-pfs-target-access");
+
+    expect(derivePlanningCapabilities(muse, null, ready)).toMatchObject({
+      geometryRole: "nominal_envelope", canAuthorProjectPlacement: true, canPreviewProjectLattice: true,
+    });
+    expect(derivePlanningCapabilities(kcwi, null, ready)).toMatchObject({
+      geometryRole: "observed_area", canAuthorProjectPlacement: true, canPreviewProjectLattice: true,
+    });
+    expect(derivePlanningCapabilities(wideField, null, ready)).toMatchObject({
+      geometryRole: "nominal_envelope", canAuthorProjectPlacement: true, canPreviewProjectLattice: true,
+    });
+    expect(derivePlanningCapabilities(targetAccess, null, ready)).toMatchObject({
+      geometryRole: "target_access", canAuthorProjectPlacement: false, canPreviewProjectLattice: false,
+    });
+  });
+
+  it("requires a regional mode, selected region, and required resolved PA before preview", () => {
+    const muse = registry.resolveAnyInstrumentProfile("vlt-muse-wfm");
+    expect(derivePlanningCapabilities(muse, null, {
+      mode: "manual_pointings", hasSelectedRegion: true, hasResolvedInstrumentPA: true,
+    })).toMatchObject({ canAuthorProjectPlacement: true, canPreviewProjectLattice: false });
+    expect(derivePlanningCapabilities(muse, null, {
+      mode: "regional_mosaic", hasSelectedRegion: false, hasResolvedInstrumentPA: true,
+    })).toMatchObject({ canPreviewProjectLattice: false, projectLatticeUnavailableReason: expect.stringMatching(/Select a region/) });
+    expect(derivePlanningCapabilities(muse, null, {
+      mode: "regional_mosaic", hasSelectedRegion: true, hasResolvedInstrumentPA: false,
+    })).toMatchObject({ canPreviewProjectLattice: false, projectLatticeUnavailableReason: expect.stringMatching(/instrument PA/) });
+  });
 });
