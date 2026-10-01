@@ -660,7 +660,8 @@ describe("minimal browser profile file controls", () => {
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Small circular camera")).toBeTruthy();
     expect(instruments[0]).toHaveValue("mosaic-camera");
     expect(instruments[1]).toHaveValue("small-camera");
-    expect(screen.queryByText("Selected polygon")).toBeNull();
+    // Gate 2 preserves independently selected regions across output changes.
+    expect(screen.getByText("Selected polygon")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalledTimes(6));

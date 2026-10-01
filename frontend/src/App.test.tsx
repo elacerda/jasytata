@@ -28,6 +28,7 @@ vi.mock("./AladinMap", async () => {
       selectionRequest: number;
       planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
       selectedPolygon: { vertices: CenterInput[] } | null;
+      referenceMarker: CenterInput | null;
       anchorTileIds: string[];
       candidateCenters: CenterInput[];
       onTileSelect: (tile: TileRecord) => void;
@@ -44,6 +45,7 @@ vi.mock("./AladinMap", async () => {
         ),
         React.createElement("output", { "data-testid": "map-layer-state" },
           `${props.tiles.filter((tile) => tile.source === "proposed").length}:${Boolean(props.selectedPolygon)}:${props.planningLayers.region}:${props.planningLayers.anchors}:${props.planningLayers.lattice}`),
+        React.createElement("output", { "data-testid": "map-reference" }, JSON.stringify(props.referenceMarker)),
         React.createElement("output", { "data-testid": "map-selection" },
           JSON.stringify(props.selectedPolygon?.vertices ?? [])),
         React.createElement(
@@ -729,4 +731,163 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
     expect(screen.getByText("1", { selector: ".section-heading span" })).toBeTruthy();
   });
+  it.each([
+    ["37.686125", "-21.1720833"], ["02:30:44.67", "-21:10:19.5"], ["02 30 44.67", "-21 10 19.5"],
+  ])("places and clears independent reference input %s / %s", async (ra, dec) => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByRole("button", { name: /accept proposal/i });
+    const before = screen.getByTestId("map-selection").textContent;
+    const layerBefore = screen.getByTestId("map-layer-state").textContent;
+    const coverageCalls = apiMocks.measureCoverage.mock.calls.length;
+    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
+    await user.type(screen.getByLabelText("Reference RA"), ra);
+    await user.type(screen.getByLabelText("Reference Dec"), dec);
+    await user.click(screen.getByRole("button", { name: "Place marker" }));
+    const marker = JSON.parse(screen.getByTestId("map-reference").textContent!);
+    expect(marker.ra_deg).toBeCloseTo(37.686125, 10); expect(marker.dec_deg).toBeCloseTo(-21.1720833, 6);
+    expect(screen.getByTestId("map-selection").textContent).toBe(before);
+    expect(screen.getByTestId("map-layer-state").textContent).toBe(layerBefore);
+    expect(apiMocks.proposeCenters).not.toHaveBeenCalled();
+    expect(apiMocks.planRegion).toHaveBeenCalledOnce();
+    expect(apiMocks.measureCoverage).toHaveBeenCalledTimes(coverageCalls);
+    expect(screen.getByRole("button", { name: /accept proposal/i })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Clear marker" }));
+    expect(screen.getByTestId("map-reference")).toHaveTextContent("null");
+    expect(screen.getByTestId("map-selection").textContent).toBe(before);
+  });
+
+  it("keeps the marker out of accepted-pointing exports and coverage", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
+    const calls = apiMocks.measureCoverage.mock.calls.length;
+    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
+    await user.type(screen.getByLabelText("Reference RA"), "37.686125");
+    await user.type(screen.getByLabelText("Reference Dec"), "-21.1720833");
+    await user.click(screen.getByRole("button", { name: "Place marker" }));
+    expect(apiMocks.measureCoverage).toHaveBeenCalledTimes(calls);
+    await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
+    const exported = apiMocks.downloadCatalogue.mock.lastCall?.[0] as TileRecord[];
+    expect(exported).toHaveLength(2); expect(exported.every((tile) => tile.ra_deg !== 37.686125)).toBe(true);
+  });
+
+  it("preserves region and marker across instrument/strategy changes, then clears both on New project", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    const before = screen.getByTestId("map-selection").textContent;
+    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
+    await user.type(screen.getByLabelText("Reference RA"), "37.686125");
+    await user.type(screen.getByLabelText("Reference Dec"), "-21.1720833");
+    await user.click(screen.getByRole("button", { name: "Place marker" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:keck-kcwi-small");
+    expect(screen.getByTestId("map-reference")).toHaveTextContent("37.686125");
+    expect(screen.getByTestId("map-selection").textContent).toBe(before);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "survey:splus-t80-south");
+    expect(screen.getByTestId("map-reference")).toHaveTextContent("37.686125");
+    expect(screen.getByTestId("map-selection").textContent).toBe(before);
+    await user.click(screen.getByRole("button", { name: /new project/i }));
+    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
+    expect(screen.getByTestId("map-reference")).toHaveTextContent("null");
+    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
+    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
+    expect(screen.getByLabelText("Reference RA")).toHaveValue("");
+  });
+
+  it("leaves a valid marker and scientific region untouched on invalid coordinate input", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));
+    await user.type(screen.getByLabelText("Reference RA"), "40"); await user.type(screen.getByLabelText("Reference Dec"), "20");
+    await user.click(screen.getByRole("button", { name: "Place marker" }));
+    await user.clear(screen.getByLabelText("Reference RA")); await user.type(screen.getByLabelText("Reference RA"), "02 30");
+    await user.click(screen.getByRole("button", { name: "Place marker" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("three sexagesimal fields");
+    expect(screen.getByTestId("map-reference")).toHaveTextContent('"ra_deg":40');
+    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
+  });
+
+  it("applies RA-wrap opposite corners as canonical planner input, only on submission", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Select region" }), "corners");
+    await user.type(screen.getByLabelText("Corner 1 RA"), "359.9"); await user.type(screen.getByLabelText("Corner 1 Dec"), "-21.2");
+    await user.type(screen.getByLabelText("Corner 2 RA"), "0.1"); await user.type(screen.getByLabelText("Corner 2 Dec"), "-21");
+    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
+    await user.click(screen.getByRole("button", { name: "Set region" }));
+    const points = JSON.parse(screen.getByTestId("map-selection").textContent!) as CenterInput[];
+    points.forEach((point, index) => expect(point.ra_deg).toBeCloseTo([359.9, 0.1, 0.1, 359.9][index], 10));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(apiMocks.planRegion.mock.lastCall?.[0]).toEqual({ vertices: points });
+  });
+
+  it("invalidates dependent preview/candidates/diagnostics on rectangle apply and retains independent inputs", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.click(screen.getByRole("radio", { name: /efficient coverage/i }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByRole("button", { name: /accept proposal/i });
+    const before = screen.getByTestId("map-selection").textContent;
+    await user.selectOptions(screen.getByRole("combobox", { name: "Select region" }), "center-size");
+    for (const [label, value] of [["Center RA", "02:30:44.67"], ["Center Dec", "-21:10:19.5"], ["Width", "-1"], ["Height", "60"]]) {
+      await user.type(screen.getByLabelText(label), value);
+    }
+    await user.selectOptions(screen.getByRole("combobox", { name: "Units" }), "arcmin");
+    await user.click(screen.getByRole("button", { name: "Set region" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("positive");
+    expect(screen.getByTestId("map-selection").textContent).toBe(before);
+    expect(screen.getByRole("button", { name: /accept proposal/i })).toBeEnabled();
+    await user.clear(screen.getByLabelText("Width")); await user.type(screen.getByLabelText("Width"), "120");
+    await user.click(screen.getByRole("button", { name: "Set region" }));
+    expect(screen.getByTestId("map-selection").textContent).not.toBe(before);
+    expect(screen.queryByRole("button", { name: /accept proposal/i })).toBeNull();
+    expect(screen.queryByText(makePlan(2).diagnostics[0])).toBeNull();
+    expect(screen.queryByText("Remaining uncovered")).toBeNull();
+    expect(screen.getByRole("radio", { name: /efficient coverage/i })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:splus-t80-south");
+    expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Width")).toHaveValue("120");
+  });
+
+  it("cancels polygon by keyboard and by its reachable panel control", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: /^Select area/ }));
+    expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("idle:true");
+    await user.keyboard("{Escape}"); expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("idle:false");
+    await user.click(screen.getByRole("button", { name: /^Select area/ }));
+    await user.click(screen.getByRole("button", { name: "Cancel polygon" }));
+    expect(screen.getByTestId("map-interaction-state")).toHaveTextContent("idle:false");
+  });
+
+  it("keeps accepted pointing identity and recomputes coverage for a new canonical region", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(await screen.findByRole("button", { name: /accept proposal/i }));
+    await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
+    const pointsBefore = apiMocks.measureCoverage.mock.lastCall?.[2];
+    await user.selectOptions(screen.getByRole("combobox", { name: "Select region" }), "center-size");
+    for (const [label, value] of [["Center RA", "40"], ["Center Dec", "20"], ["Width", "2"], ["Height", "1"]]) await user.type(screen.getByLabelText(label), value);
+    await user.click(screen.getByRole("button", { name: "Set region" }));
+    const region = { vertices: JSON.parse(screen.getByTestId("map-selection").textContent!) };
+    await waitFor(() => expect(apiMocks.measureCoverage.mock.lastCall?.[0]).toEqual(region));
+    expect(apiMocks.measureCoverage.mock.lastCall?.[2]).toEqual(pointsBefore);
+    expect(screen.getByTestId("map-layer-state")).toHaveTextContent("2:true");
+    expect(screen.queryByText(makePlan(2).diagnostics[0])).toBeNull();
+  });
+
+  it("ignores stale plan errors after clearing the selected region", async () => {
+    const user = userEvent.setup(); let rejectPlan: (error: Error) => void = () => undefined;
+    apiMocks.planRegion.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectPlan = reject; }));
+    render(<App />); await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    rejectPlan(new Error("Stale region failure"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /load reference/i })).toBeEnabled());
+    expect(screen.queryByText("Stale region failure")).toBeNull();
+    expect(screen.getByTestId("map-selection")).toHaveTextContent("[]");
+  });
+
 });

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import A from "aladin-lite";
+import { installMapWheelPolicy } from "./map-wheel";
 import type {
   AladinLiteCatalogue,
   AladinLiteInstance,
@@ -24,6 +25,8 @@ interface AladinMapProps {
   focusRequest: number;
   selectedTileId: string | null;
   selectedPolygon: SkyPolygon | null;
+  /** Independent visual coordinate; never included in tile/science layers. */
+  referenceMarker?: Pick<CenterInput, "ra_deg" | "dec_deg"> | null;
   planningLayers: { proposals: boolean; region: boolean; anchors: boolean; lattice: boolean };
   anchorTileIds: string[];
   candidateCenters: CenterInput[];
@@ -61,6 +64,7 @@ export default function AladinMap(props: AladinMapProps) {
   const cataloguesRef = useRef<Map<string, AladinLiteCatalogue>>(new Map());
   const datasetFootprintsRef = useRef<Map<string, AladinLiteOverlay>>(new Map());
   const proposalCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
+  const referenceCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const disabledCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const sourceLookupRef = useRef<WeakMap<AladinLiteSource, TileRecord>>(new WeakMap());
   const overlaysRef = useRef<AladinLiteOverlay[]>([]);
@@ -77,6 +81,8 @@ export default function AladinMap(props: AladinMapProps) {
   propsRef.current = props;
 
   useEffect(() => {
+    const container = containerRef.current;
+    const removeWheelPolicy = container ? installMapWheelPolicy(container) : undefined;
     let disposed = false;
     let resizeObserver: ResizeObserver | null = null;
     const initialize = async () => {
@@ -95,6 +101,7 @@ export default function AladinMap(props: AladinMapProps) {
           showShareControl: false,
           showStatusBar: true,
           showFov: true,
+          showZoomControl: true,
           showLayersControl: true,
           showProjectionControl: true,
           mode: "dark",
@@ -110,6 +117,9 @@ export default function AladinMap(props: AladinMapProps) {
         rebuildOverlays(instance, overlaysRef);
         syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, propsRef.current.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
         redrawRef.current();
+        if (propsRef.current.referenceMarker) {
+          instance.gotoRaDec(propsRef.current.referenceMarker.ra_deg, propsRef.current.referenceMarker.dec_deg);
+        }
         if (propsRef.current.focusRequest > 0) {
           focusOnCatalogue(instance, propsRef.current.tiles);
         }
@@ -127,6 +137,7 @@ export default function AladinMap(props: AladinMapProps) {
     void initialize();
     return () => {
       disposed = true;
+      removeWheelPolicy?.();
       resizeObserver?.disconnect();
       const instance = aladinRef.current;
       if (instance) {
@@ -151,7 +162,13 @@ export default function AladinMap(props: AladinMapProps) {
 
   useEffect(() => {
     redrawRef.current();
-  }, [props.selectedTileId, props.selectedPolygon, props.anchorTileIds, props.candidateCenters, props.planningLayers, props.profile, props.pointingGeometryContext]);
+  }, [props.selectedTileId, props.selectedPolygon, props.referenceMarker, props.anchorTileIds, props.candidateCenters, props.planningLayers, props.profile, props.pointingGeometryContext]);
+
+  useEffect(() => {
+    const marker = props.referenceMarker;
+    // Placing a marker pans only the view, retaining its zoom and scientific inputs.
+    if (marker) aladinRef.current?.gotoRaDec(marker.ra_deg, marker.dec_deg);
+  }, [props.referenceMarker]);
 
   useEffect(() => {
     const tiles = propsRef.current.tiles;
@@ -252,6 +269,23 @@ export default function AladinMap(props: AladinMapProps) {
       reportedOrientationErrorRef.current = message;
       current.onError(`Could not render pointing geometry: ${message}`);
     };
+    if (current.referenceMarker && !referenceCatalogueRef.current) {
+      referenceCatalogueRef.current = A.catalog({
+        name: "Reference coordinate · visual aid", color: "#ff8fd7",
+        sourceSize: 14, shape: "plus", displayLabel: true, labelColumn: "label", lineWidth: 2,
+      });
+      instance.addCatalog(referenceCatalogueRef.current);
+    }
+    if (referenceCatalogueRef.current) {
+      referenceCatalogueRef.current.removeAll();
+      if (current.referenceMarker) {
+        referenceCatalogueRef.current.addSources([A.source(
+          current.referenceMarker.ra_deg, current.referenceMarker.dec_deg,
+          { label: "Reference coordinate", role: "visual reference only" },
+        )]);
+        referenceCatalogueRef.current.show();
+      } else referenceCatalogueRef.current.hide();
+    }
     const proposals = current.tiles.filter((tile) => tile.source === "proposed");
     const [centerRa, centerDec] = instance.getRaDec();
     const [fovX, fovY] = instance.getFoV();
@@ -330,6 +364,8 @@ export default function AladinMap(props: AladinMapProps) {
   return (
     <div className={`aladin-frame ${props.mode === "add-tile" ? "is-adding" : ""}`}>
       <div ref={containerRef} className="aladin-view" aria-label="Interactive sky map" />
+      <span className="map-zoom-hint">Ctrl / ⌘ + wheel to zoom · drag to pan</span>
+      {props.referenceMarker && <span className="visually-hidden" role="status">Reference coordinate marker: RA {props.referenceMarker.ra_deg.toFixed(6)}°, Dec {props.referenceMarker.dec_deg.toFixed(6)}°. Visual aid only.</span>}
       {props.mode === "add-tile" && <div className="map-instruction">Click the sky to place a tile center · Esc to cancel</div>}
       {isSelecting && <div className="map-instruction map-drawing-controls">
         <span>Click at least 3 sky points, then finish the polygon</span>

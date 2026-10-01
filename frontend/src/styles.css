@@ -570,3 +570,17 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
   .survey-editor-constant { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .instrument-profile-editor-footer { flex-wrap: wrap; }
 }
+
+/* Gate 2 authoring stays in the existing panel flow with one active form. */
+.region-authoring, .reference-coordinate form { display: grid; gap: 8px; }
+.coordinate-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.coordinate-field { display: grid; gap: 4px; min-width: 0; color: var(--ink); font-size: 11px; }
+.coordinate-field input, .coordinate-field select { width: 100%; min-width: 0; min-height: 34px; padding: 6px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 4px; font: 11px var(--mono); }
+.coordinate-field select:focus-visible { outline: 2px solid #038b97; outline-offset: 2px; }
+.coordinate-error { color: var(--danger); font-size: 11px; line-height: 1.5; margin: 6px 0; }
+.reference-coordinate { margin-top: 16px; }
+.reference-coordinate summary { cursor: pointer; color: var(--ink); font-size: 11px; font-weight: 660; padding-block: 5px; }
+.reference-coordinate summary:focus-visible { outline: 2px solid #038b97; outline-offset: 2px; }
+.map-zoom-hint { position: absolute; bottom: 4px; right: 8px; z-index: 30; padding: 3px 6px; color: #e4f1f1; background: #142328eb; border-radius: 3px; font-size: 10px; pointer-events: none; }
+.map-drawing-controls { max-width: calc(100% - 20px); white-space: normal; }
+.app-shell[data-theme="dark"] .coordinate-error { color: #ffaca3; }

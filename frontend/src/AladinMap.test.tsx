@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
+import A from "aladin-lite";
 import { profileRegistry, T80_SOUTH_INSTRUMENT_V2 } from "./profiles";
 import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
 import { tileFootprintBoundaries } from "./sky";
@@ -22,12 +23,12 @@ const aladinMocks = vi.hoisted(() => {
 
 vi.mock("aladin-lite", () => ({ default: {
   init: Promise.resolve(),
-  aladin: () => aladinMocks.instance,
-  catalog: () => {
+  aladin: vi.fn(() => aladinMocks.instance),
+  catalog: vi.fn(() => {
     const catalogue = { show: vi.fn(), hide: vi.fn(), addSources: vi.fn(), removeAll: vi.fn() };
     aladinMocks.catalogues.push(catalogue);
     return catalogue;
-  },
+  }),
   source: (ra: number, dec: number, data: Record<string, unknown>) => ({ ra, dec, data }),
   graphicOverlay: () => {
     const overlay = {
@@ -272,4 +273,32 @@ describe("native Aladin catalogue layers", () => {
     }
     aladinMocks.instance.getFoV.mockReturnValue([100, 80]);
   });
+});
+
+it("renders the reference in a dedicated labelled plus catalogue, independently of proposals", async () => {
+  aladinMocks.catalogues.length = 0;
+  const onTileSelect = vi.fn();
+  const base = {
+    tiles: [], datasets: [], profile, mode: "idle" as const, selectingRegion: false,
+    selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+    anchorTileIds: [], candidateCenters: [], planningLayers: { proposals: false, region: false, anchors: false, lattice: false },
+    onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+  };
+  vi.stubGlobal("ResizeObserver", class { observe() { /* Mock native observer. */ } disconnect() { /* Mock native observer. */ } });
+  const view = render(<AladinMap {...base} referenceMarker={{ ra_deg: 37.686125, dec_deg: -21.1720833 }} />);
+  await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(1));
+  expect(A.catalog).toHaveBeenCalledWith(expect.objectContaining({ name: "Reference coordinate · visual aid", shape: "plus", displayLabel: true, labelColumn: "label" }));
+  expect(A.aladin).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({ showZoomControl: true }));
+  expect(aladinMocks.instance.gotoRaDec).toHaveBeenCalledWith(37.686125, -21.1720833);
+  const catalogue = aladinMocks.catalogues[0];
+  const nativeSource = catalogue.addSources.mock.calls.at(-1)?.[0][0];
+  expect(nativeSource).toEqual({ ra: 37.686125, dec: -21.1720833, data: { label: "Reference coordinate", role: "visual reference only" } });
+  aladinMocks.handlers.get("objectClicked")?.(nativeSource);
+  expect(onTileSelect).not.toHaveBeenCalled();
+  expect(screen.getByRole("status")).toHaveTextContent("Reference coordinate marker");
+  expect(view.container.querySelector(".map-zoom-hint")).toHaveTextContent("wheel to zoom");
+  view.rerender(<AladinMap {...base} referenceMarker={null} />);
+  expect(catalogue.removeAll).toHaveBeenCalled(); expect(catalogue.hide).toHaveBeenCalled();
+  expect(screen.queryByRole("status")).toBeNull();
+  vi.unstubAllGlobals();
 });

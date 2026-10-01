@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import jasytataLogo from "./assets/jasytata_logo.png";
 import AladinMap, { type MapMode } from "./AladinMap";
+import { RegionAuthoring } from "./RegionAuthoring";
+import { ReferenceCoordinate } from "./ReferenceCoordinate";
+import { validatePolygon } from "./science/geometry";
 import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, downloadProfileDocument, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
@@ -115,6 +118,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [proposalContext, setProposalContext] = useState<ProposalPreview | null>(null);
   const [activeMetrics, setActiveMetrics] = useState<CoverageResult | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
+  const [referenceMarker, setReferenceMarker] = useState<Pick<CenterInput, "ra_deg" | "dec_deg"> | null>(null);
+  const [projectSession, setProjectSession] = useState(0);
   const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
   const [selectionRequest, setSelectionRequest] = useState(0);
@@ -211,7 +216,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const hasCatalogue = datasets.length > 0;
   const defaultManualPositionAngle = paMode === "user_selected" && profilePa !== undefined ? String(profilePa) : "";
   const hasProjectContent = Boolean(
-    datasets.length || columnMapping || proposals.length || pending || proposalContext || regionPolygon ||
+    datasets.length || columnMapping || proposals.length || pending || proposalContext || regionPolygon || referenceMarker ||
     importText.trim() || parsedCenters || activeMetrics || scientificRefusal || selectedTileId ||
     mapMode !== "idle" || selectingRegion || manualPositionAngle !== defaultManualPositionAngle || exportEpoch !== undefined ||
     sequenceBasis !== null || coverageStrategy !== "complete" || debugRequestJson,
@@ -347,15 +352,16 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [confirmingNewProject]);
 
-  async function runBusy<T>(work: () => Promise<T>, success?: (result: T) => void) {
+  async function runBusy<T>(work: () => Promise<T>, success?: (result: T) => void, isCurrent = () => true) {
     setBusy(true);
     setError(null);
     setNotice(null);
     setScientificRefusal(null);
     try {
       const result = await work();
-      success?.(result);
+      if (isCurrent()) success?.(result);
     } catch (caught) {
+      if (!isCurrent()) return;
       if (caught instanceof CoverageUnavailableError) setScientificRefusal(caught.result);
       else setError(caught instanceof Error ? caught.message : "The request could not be completed.");
     } finally {
@@ -532,8 +538,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     const revision = regionRevisionRef.current;
     setActiveMetrics(null);
     await runBusy(() => measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext), (result) => {
-      if (revision === regionRevisionRef.current) setActiveMetrics(result);
-    });
+      setActiveMetrics(result);
+    }, () => revision === regionRevisionRef.current);
   }
 
   async function handlePlanRegion() {
@@ -567,6 +573,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           `${result.tiles.length} nominal pointing${result.tiles.length === 1 ? "" : "s"} selected. ${result.metrics.coverage_basis === "nominal_envelope" ? "Nominal envelope overlap" : result.metrics.coverage_basis === "legacy_v2" ? "Legacy survey coverage" : "Observed-area geometry coverage"}: ${Math.round(result.metrics.selected_region_coverage * 100)}%.`,
         );
       },
+      () => regionRevision === regionRevisionRef.current,
     );
   }
 
@@ -655,7 +662,6 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setImportText("");
     setSequenceBasis(null);
     setScientificRefusal(null);
-    setRegionPolygon(null);
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
@@ -695,6 +701,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setDebugRequestJson("");
     setConfirmingNewProject(false);
     setError(null);
+    setReferenceMarker(null);
+    setProjectSession((previous) => previous + 1);
     setNotice(`New empty project started with ${contextName}.`);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (profileFileInputRef.current) profileFileInputRef.current.value = "";
@@ -710,30 +718,47 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     startNewProject();
   }
 
-  function beginRegionSelection() {
-    if (!(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)) return;
-    setScientificRefusal(null);
+  /** Apply canonical region input and invalidate its derived previews/diagnostics.
+   * @param region - Validated ICRS polygon, or null when clearing/redrawing.
+   * @throws Before mutation if a non-null polygon violates the frozen contract.
+   * Accepted pointings remain explicit user data; their coverage is recomputed.
+   */
+  function applySelectedRegion(region: SkyPolygon | null) {
+    if (region) validatePolygon(region);
     regionRevisionRef.current += 1;
+    setRegionPolygon(region);
+    setSelectingRegion(false);
     setMapMode("idle");
-    setRegionPolygon(null);
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
+    setScientificRefusal(null);
+    setDebugRequestJson("");
+    setSelectedTileId((current) => pending?.tiles.some((tile) => tile.id === current) ? null : current);
+    setError(null);
+    setNotice(region ? (planningCapabilities.supportsAutomaticRegionPlanning
+      ? "Sky polygon finalized. Generate a plan when ready."
+      : "Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.")
+      : "Selected polygon cleared; catalogues and proposals remain.");
+  }
+
+  function beginRegionSelection() {
+    if (!(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)) return;
+    applySelectedRegion(null);
     setSelectingRegion(true);
     setSelectionRequest((previous) => previous + 1);
     setNotice(planningCapabilities.supportsAutomaticRegionPlanning
-      ? "Click successive sky points, then double-click to close the polygon."
+      ? "Click successive sky points, then finish the polygon."
       : "Select an area for geometry diagnostics; this strategy does not place regional pointings.");
   }
 
-  function clearRegionSelection() {
-    setScientificRefusal(null);
-    regionRevisionRef.current += 1;
-    setRegionPolygon(null);
+  function cancelRegionDrawing() {
     setSelectingRegion(false);
-    setProposalContext(null);
-    setActiveMetrics(null);
-    setNotice("Selected polygon cleared; catalogues and proposals remain.");
+    setNotice("Polygon drawing cancelled.");
+  }
+
+  function clearRegionSelection() {
+    applySelectedRegion(null);
   }
 
   function setAllProposals(enabled: boolean) {
@@ -982,25 +1007,20 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 <span><strong>Import centers</strong><small>Paste RA / DEC pairs</small></span>
                 <Icon name="chevron" />
               </button>
-              <button
-                className="mode-button"
-                onClick={beginRegionSelection}
-                disabled={busy || !(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)}
-              >
-                <span className="mode-icon"><Icon name="region" /></span>
-                <span><strong>{planningCapabilities.supportsAutomaticRegionPlanning ? "Select area" : planningCapabilities.canMeasureSelectedGeometry ? "Measure area" : "Select area"}</strong>
-                  <small>{planningCapabilities.supportsAutomaticRegionPlanning
-                    ? "Click polygon vertices on the sky"
-                    : planningCapabilities.canMeasureSelectedGeometry
-                      ? "Select a region for geometry diagnostics"
-                      : "Automatic region planning is unavailable"}</small></span>
-                <Icon name="chevron" />
-              </button>
             </div>
             {!planningCapabilities.supportsAutomaticRegionPlanning &&
               <p className="planning-capability-message">{automaticRegionUnavailableMessage(planningCapabilities)}</p>}
             {!hasCatalogue && proposals.length === 0 && !pending &&
               <p className="planning-empty-state">{emptyPlanningStateMessage(planningCapabilities)}</p>}
+          </section>
+
+          <section className="panel-section">
+            <RegionAuthoring key={`region-${projectSession}`}
+              polygonLabel={planningCapabilities.canMeasureSelectedGeometry ? "Measure area" : "Select area"}
+              disabled={busy || !(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)}
+              selecting={selectingRegion} onPolygon={beginRegionSelection}
+              onCancelPolygon={cancelRegionDrawing} onApply={applySelectedRegion} />
+            <ReferenceCoordinate key={`reference-${projectSession}`} marker={referenceMarker} onChange={setReferenceMarker} />
           </section>
 
           <section className="panel-section planning-section">
@@ -1191,25 +1211,15 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             focusRequest={focusRequest}
             selectedTileId={selectedTileId}
             selectedPolygon={regionPolygon}
+            referenceMarker={referenceMarker}
             planningLayers={planningLayers}
             anchorTileIds={activeContext?.inference?.anchor_tile_ids ?? EMPTY_IDS}
             candidateCenters={activeContext?.candidateCenters ?? EMPTY_CENTERS}
             pointingGeometryContext={activePointingGeometryContext}
             onSkyClick={(ra, dec) => void stageCenters([{ ra_deg: ra, dec_deg: dec, label: "Manual sky click" }], "manual")}
             onTileSelect={(tile) => setSelectedTileId(tile.id)}
-            onRegionSelect={(polygon) => {
-              regionRevisionRef.current += 1;
-              setSelectingRegion(false);
-              setRegionPolygon(polygon);
-              setPending(null);
-              setProposalContext(null);
-              setActiveMetrics(null);
-              setScientificRefusal(null);
-              setNotice(planningCapabilities.supportsAutomaticRegionPlanning
-                ? "Sky polygon finalized. Generate a plan when ready."
-                : "Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.");
-            }}
-            onCancelRegion={() => { setSelectingRegion(false); setNotice("Polygon drawing cancelled."); }}
+            onRegionSelect={applySelectedRegion}
+            onCancelRegion={cancelRegionDrawing}
             onError={setError}
           />
           <div className="map-footer">

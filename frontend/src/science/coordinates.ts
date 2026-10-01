@@ -93,3 +93,25 @@ export function formatRaDegrees(raDeg: number, precision = 0): string {
 export function formatDecDegrees(decDeg: number, precision = 0): string {
   return `${decDeg < 0 || Object.is(decDeg, -0) ? "-" : ""}${formatAngle(decDeg, precision)}`;
 }
+
+/** Parse separately labelled RA/Dec authoring fields using the shared parser.
+ *
+ * Decimal RA and Dec are degrees; colon RA is hours and colon Dec is degrees.
+ * Bare whitespace sexagesimal requires all three fields to avoid the legacy
+ * parser's ambiguous two-field RA interpretation. Explicit units retain the
+ * existing parser contract. The exact ICRS poles are permitted for a reference
+ * marker; region constructors separately enforce the local projection domain.
+ *
+ * @param ra - RA field in decimal degrees or astronomical hour angle.
+ * @param dec - Dec field in decimal or sexagesimal degrees.
+ * @returns Canonical ICRS coordinate in degrees; no scientific state is changed.
+ * @throws For invalid or ambiguous fields, with a corrective format message.
+ */
+export function parseSkyCoordinate(ra: string, dec: string): { ra_deg: number; dec_deg: number } {
+  for (const [name, value] of [["RA", ra], ["Dec", dec]]) {
+    if (/^[+\-\d.\s]+$/.test(value.trim()) && value.trim().split(/\s+/).length === 2) {
+      throw new Error(`${name}: use one decimal-degree value or three sexagesimal fields (for example ${name === "RA" ? "02 30 44.67" : "−21 10 19.5"}).`);
+    }
+  }
+  return { ra_deg: parseRaDegrees(ra), dec_deg: parseDecDegrees(dec) };
+}

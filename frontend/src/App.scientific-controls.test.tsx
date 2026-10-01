@@ -363,11 +363,12 @@ describe("Gate 7B scientific browser controls", () => {
     await screen.findByText("Coverage unavailable at required resolution");
     await select(u, "survey:splus-t80-south");
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Automatic region tiling + manual pointings")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /^Select area/ })).toBeEnabled();
     expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeEnabled();
     expect(screen.queryByText("Proposal preview")).toBeNull(); expect(screen.queryByRole("spinbutton")).toBeNull();
-    expect(screen.queryByText("4 vertices · finalized")).toBeNull();
+    // Gate 2 retains the region independently of output context.
+    expect(screen.getByText("4 vertices · finalized")).toBeVisible();
     expect(document.querySelector(".scientific-coverage")).toBeNull();
     await select(u, "survey:sami-dr1-seven-position");
     expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
