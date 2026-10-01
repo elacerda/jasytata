@@ -1,4 +1,4 @@
-import type { CoveragePolicy, TilingModel, TilingProfile } from "../types";
+import type { CoveragePolicy, InstrumentProfileV3, TilingModel, TilingProfile } from "../types";
 import { footprintLocalBounds } from "../science/footprint-engine";
 import { resolveProfile, SPLUS_SURVEY_V2 } from "./index";
 import { profileRegistry, type ProfileRegistry } from "./registry";
@@ -53,4 +53,24 @@ export function resolvePlanningProfile(
     algorithm: survey.tiling.type === "legacy_splus" ? "SPLUS_LEGACY_GRID_V1" : survey.tiling.type,
   };
   return { profile, tiling: survey.tiling, efficientPolicy: survey.coverage.efficient };
+}
+
+/** Runtime coverage bridge for an instrument-only project; never a survey/profile document. */
+export interface ProjectCoverageProfile extends TilingProfile {
+  project_instrument_id: string;
+}
+
+/** Build the geometry bridge consumed by existing coverage machinery.
+ * @param instrument - Registered v3 instrument; dimensions and frame retain profile units.
+ * @returns Runtime-only bridge identifying the real instrument, without a survey strategy.
+ */
+export function projectCoverageProfile(instrument: InstrumentProfileV3): ProjectCoverageProfile {
+  const bounds = footprintLocalBounds(instrument.footprint);
+  return {
+    id: instrument.id, project_instrument_id: instrument.id, display_name: instrument.display_name,
+    tile_width_deg: bounds.max_east_deg - bounds.min_east_deg,
+    tile_height_deg: bounds.max_north_deg - bounds.min_north_deg,
+    effective_overlap_arcsec: 0, coordinate_frame: instrument.coordinate_frame,
+    export_epoch_default: "", export_epoch_options: [], algorithm: "project_lattice",
+  };
 }

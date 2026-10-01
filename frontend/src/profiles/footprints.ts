@@ -12,7 +12,8 @@ import { profileRegistry, type ProfileRegistry } from "./registry";
  * Schema v2/v3 survey profiles link to an instrument geometry by ID. Session-only
  * v1 profiles have no such link and retain their rectangular dimensions.
  *
- * @param profile - Active planner profile, whose ID selects a registered survey when present.
+ * @param profile - Active planner bridge: registered survey, inline rectangle, or
+ *   runtime project bridge explicitly identifying its registered instrument.
  * @param registry - Browser-memory registry for survey and instrument profiles.
  * @returns The active instrument footprint, or the profile's rectangular footprint.
  * @throws If the survey refers to an unknown instrument.
@@ -21,6 +22,9 @@ export function outputFootprintForProfile(
   profile: TilingProfile,
   registry: ProfileRegistry = profileRegistry,
 ): Footprint {
+  if ("project_instrument_id" in profile && typeof profile.project_instrument_id === "string") {
+    return registry.resolveInstrumentProfile(profile.project_instrument_id).footprint;
+  }
   // An explicit v1 bridge is geometry, independent of any equal registry ID.
   const survey = (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1") ? undefined : registry.findAnySurveyProfile(profile.id);
   if (survey) return registry.resolveInstrumentProfile(survey.instrument_id).footprint;

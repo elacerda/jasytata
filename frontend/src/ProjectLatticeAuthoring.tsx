@@ -22,6 +22,7 @@ interface ProjectLatticeAuthoringProps {
   preview: ProjectLatticePreviewResult | null;
   disabled: boolean;
   onDraftChange: () => void;
+  onApply: (policy: LatticeProjectPlacement) => void;
   onPreview: (policy: LatticeProjectPlacement) => void;
 }
 
@@ -101,7 +102,7 @@ function angularVectorLabel(eastDeg: number, northDeg: number): string {
 
 /** Author project placement drafts and request a deterministic candidate-only preview.
  *
- * Numeric drafts stay local until Preview lattice succeeds. The only emitted
+ * Numeric drafts stay local until Apply placement or Preview lattice succeeds. The only emitted
  * policy uses Gate 1's canonical degree units and explicit rotation/origin modes.
  *
  * @param props - Project mode, semantic capabilities, saved policy, preview, and callbacks.
@@ -126,7 +127,9 @@ export function ProjectLatticeAuthoring(props: ProjectLatticeAuthoringProps) {
     event.preventDefault();
     try {
       const policy = buildPolicy(draft);
-      props.onPreview(policy);
+      const action = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+      if (action === "apply") props.onApply(policy);
+      else props.onPreview(policy);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Review the lattice, rotation, origin, and region inputs.");
@@ -217,7 +220,8 @@ export function ProjectLatticeAuthoring(props: ProjectLatticeAuthoringProps) {
         {error && <p className="coordinate-error" role="alert">{error}</p>}
         {props.unavailableReason && <p className="planning-capability-message" role="status">{props.unavailableReason}</p>}
         {followPaUnavailable && <p className="planning-capability-message" role="status">Follow instrument PA requires a resolved physical instrument PA.</p>}
-        <button className="button button-outline button-full" type="submit" disabled={props.disabled || !props.canPreview || followPaUnavailable}>
+        <button className="button button-outline button-full" type="submit" value="apply" disabled={props.disabled || !props.canPreview || followPaUnavailable}>Apply placement</button>
+        <button className="button button-outline button-full" type="submit" value="preview" disabled={props.disabled || !props.canPreview || followPaUnavailable}>
           Preview lattice
         </button>
       </form>

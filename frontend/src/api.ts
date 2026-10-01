@@ -16,7 +16,7 @@ import { buildExportCsv, buildInstrumentCoordinateCsv } from "./science/export";
 import type { PointingExportOptions } from "./science/export";
 import { resolvePointingGeometries, type PointingGeometryContext } from "./science/pointing-geometry";
 import { resolvePlanningProfile } from "./profiles/planning";
-import { planRegion as planRegionLocal } from "./science/planner";
+import { planRegion as planRegionLocal, type ProjectLatticeCandidateSource } from "./science/planner";
 import { measureActiveCoverage } from "./science/coverage";
 
 /** Load the installed default observing profile and its physical tile geometry.
@@ -205,10 +205,11 @@ export async function downloadInstrumentCoordinates(
  * @param profile - Inline custom geometry when selected.
  * @param strategy - Sampled-coverage stopping policy.
  * @param geometryContext - Optional runtime pointing orientation and sequence geometry.
+ * @param projectSource - Canonical project placement and real instrument association; preview is optional.
  * @returns Auditable proposal and sampled metrics.
  */
-export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete", geometryContext?: PointingGeometryContext): Promise<RegionPlanResponse> {
-  return planRegionLocal(polygon, existingTiles, profileId, profile, strategy, profileRegistry, geometryContext);
+export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete", geometryContext?: PointingGeometryContext, projectSource?: ProjectLatticeCandidateSource): Promise<RegionPlanResponse> {
+  return planRegionLocal(polygon, existingTiles, profileId, profile, strategy, profileRegistry, geometryContext, projectSource);
 }
 
 /** Build the scientific planning input shared with development diagnostics.

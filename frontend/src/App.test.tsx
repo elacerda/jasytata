@@ -959,7 +959,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(selectArea).toBeEnabled();
     await user.click(selectArea);
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    expect(screen.getByText(/candidate-lattice geometry preview only/)).toBeTruthy();
+    expect(screen.getByText(/Preview lattice shows all admissible candidate sites/)).toBeTruthy();
     await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
     await user.type(screen.getByLabelText("East spacing"), "3");

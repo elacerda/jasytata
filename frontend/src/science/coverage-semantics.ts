@@ -9,8 +9,8 @@ import type { PointingGeometryContext } from "./pointing-geometry";
  * @returns Persisted v3 semantics, or undefined for the legacy interpretation.
  */
 export function coverageSemanticsForTile(tile: TileRecord, profile: TilingProfile, registry: ProfileRegistry): FootprintSemanticsV3 | undefined {
-  const survey = profile.id === "custom" && profile.algorithm === "RECT_GRID_V1" ? undefined : registry.findAnySurveyProfile(profile.id);
-  const id = tile.source === "original" && tile.instrument_profile_id ? tile.instrument_profile_id : survey?.instrument_id;
+  const survey = ("project_instrument_id" in profile || (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1")) ? undefined : registry.findAnySurveyProfile(profile.id);
+  const id = tile.source === "original" && tile.instrument_profile_id ? tile.instrument_profile_id : survey?.instrument_id ?? ("project_instrument_id" in profile && typeof profile.project_instrument_id === "string" ? profile.project_instrument_id : undefined);
   const instrument = id ? registry.resolveInstrumentProfile(id) : undefined;
   return instrument?.schema_version === 3 ? instrument.footprint_semantics : undefined;
 }
@@ -47,8 +47,9 @@ export function coverageBasisForRun(profile: TilingProfile, registry: ProfileReg
  * @returns Caller context for v2; resolved v3 policy/strategy context otherwise.
  */
 export function coverageGeometryContext(tiles: readonly TileRecord[], profile: TilingProfile, registry: ProfileRegistry, context?: PointingGeometryContext): PointingGeometryContext | undefined {
-  const survey = profile.id === "custom" && profile.algorithm === "RECT_GRID_V1" ? undefined : registry.findAnySurveyProfile(profile.id);
-  const output = survey ? registry.resolveInstrumentProfile(survey.instrument_id) : undefined;
+  const survey = ("project_instrument_id" in profile || (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1")) ? undefined : registry.findAnySurveyProfile(profile.id);
+  const outputId = survey?.instrument_id ?? ("project_instrument_id" in profile && typeof profile.project_instrument_id === "string" ? profile.project_instrument_id : undefined);
+  const output = outputId ? registry.resolveInstrumentProfile(outputId) : undefined;
   if (survey?.schema_version !== 3 && output?.schema_version !== 3 && !tiles.some((tile) => coverageSemanticsForTile(tile, profile, registry))) return context;
   return {
     ...context,

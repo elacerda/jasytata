@@ -47,6 +47,8 @@ export interface CoverageGrid {
 export interface MaskedCenter {
   center: Center;
   mask: Uint8Array;
+  /** Exact user-declared lattice identity, retained unchanged by greedy selection. */
+  latticeSite?: { i: number; j: number };
   /** Physical area used for outside-region metrics when this is a sequence union. */
   physicalAreaDeg2?: number;
   boundaryGeometries?: { center: Center; footprint: Footprint }[];
@@ -360,6 +362,9 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, physicalAreaDeg2:
   return Math.max(0, physicalAreaDeg2 - weightSum(grid, mask) * grid.cellAreaDeg2);
 }
 
+/** Reasons reported by the unchanged selection stopping conditions. */
+export type SelectionStop = "coverage_complete" | "candidate_lattice_exhausted" | "gain_safeguard" | "marginal_efficiency";
+
 /** Greedily select centers by incremental coverage and Python's ordered tie breaks.
  * @param candidates - Unoccupied useful centers in deterministic grid order;
  *   effective-sequence candidates may supply their overlap-aware union area.
@@ -376,10 +381,11 @@ function outsideTileArea(mask: Uint8Array, grid: CoverageGrid, physicalAreaDeg2:
  *   Compound area inherits Gate 3's deterministic adaptive union estimate,
  *   preserving detector gaps and counting overlaps once. The same area is
  *   computed once per selection, independent of candidate count.
+ * @param onStop - Optional diagnostic callback; does not influence selection or thresholds.
  * @returns Chosen centers in ranking order with their masks.
  * @throws If Efficient is requested without explicit policy.
  */
-export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete", efficientPolicy?: CoveragePolicy["efficient"]): MaskedCenter[] {
+export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete", efficientPolicy?: CoveragePolicy["efficient"], onStop?: (reason: SelectionStop) => void): MaskedCenter[] {
   assertResolvedCoverage(grid);
   if (strategy === "efficient" && !efficientPolicy) throw new Error("Efficient selection requires coverage.efficient policy");
   const footprint = toFootprint(geometry);
@@ -388,9 +394,10 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
   for (let index = 0; index < uncovered.length; index += 1) uncovered[index] = existingMask[index] ? 0 : 1;
   const selected: MaskedCenter[] = [];
   const remaining = [...candidates];
+  let stop: SelectionStop = "candidate_lattice_exhausted";
   while (remaining.length) {
     const currentCoverage = 1 - weightSum(grid, uncovered) / Math.max(grid.totalWeight, 1e-12);
-    if (automaticTarget !== undefined && currentCoverage >= automaticTarget) break;
+    if (automaticTarget !== undefined && currentCoverage >= automaticTarget) { stop = "coverage_complete"; break; }
     let bestIndex = -1;
     let bestScore: number[] | null = null;
     for (let index = 0; index < remaining.length; index += 1) {
@@ -404,12 +411,14 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
     }
     const best = remaining.splice(bestIndex, 1)[0];
     const gain = weightSum(grid, best.mask, uncovered);
-    if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) break;
+    if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) { stop = "gain_safeguard"; break; }
     const marginalEfficiency = gain * grid.cellAreaDeg2 / (best.physicalAreaDeg2 ?? physicalAreaDeg2);
-    if (strategy === "efficient" && efficientPolicy && currentCoverage >= efficientPolicy.min_coverage && marginalEfficiency < efficientPolicy.min_marginal_efficiency) break;
+    if (strategy === "efficient" && efficientPolicy && currentCoverage >= efficientPolicy.min_coverage && marginalEfficiency < efficientPolicy.min_marginal_efficiency) { stop = "marginal_efficiency"; break; }
     selected.push(best);
     for (let index = 0; index < uncovered.length; index += 1) if (best.mask[index]) uncovered[index] = 0;
   }
+  if (automaticTarget !== undefined && 1 - weightSum(grid, uncovered) / Math.max(grid.totalWeight, 1e-12) >= automaticTarget) stop = "coverage_complete";
+  onStop?.(stop);
   return selected;
 }
 
@@ -494,7 +503,8 @@ export function measureMetrics(selected: readonly MaskedCenter[], existingMask: 
  * @param existingTiles - All original and accepted pointings; disabled proposals are ignored.
  * @param proposedTiles - Editable proposal preview; only enabled records contribute.
  * @param profileId - Registered survey, bundled preset, or custom profile ID.
- * @param inlineProfile - Session-only custom profile, if any.
+ * @param inlineProfile - Session-only custom rectangle or runtime project coverage
+ *   bridge from `projectCoverageProfile`; never a persisted survey declaration.
  * @param registry - Session-local registry used to resolve source instrument profiles.
  * @param geometryContext - Optional PA and single/effective-sequence coverage basis.
  * @returns Resolved basis-labeled metrics, or a machine-readable unavailable result
@@ -514,7 +524,8 @@ export function measureActiveCoverage(
   validatePolygon(polygon);
   if (existingTiles.length > 20_000 || proposedTiles.length > 500) throw new Error("Too many tile records");
   if (proposedTiles.some((tile) => tile.source !== "proposed")) throw new Error("Coverage edits may contain only proposed tiles");
-  const { profile } = resolvePlanningProfile(profileId, inlineProfile, registry);
+  const profile = inlineProfile && "project_instrument_id" in inlineProfile
+    ? inlineProfile : resolvePlanningProfile(profileId, inlineProfile, registry).profile;
   const outputFootprint = outputFootprintForProfile(profile, registry);
   const activeExisting = existingTiles.filter((tile) => tile.enabled !== false);
   const activeProposed = proposedTiles.filter((tile) => tile.enabled !== false);
@@ -602,7 +613,7 @@ export function prepareCoverageGrid(
   const basis = coverageBasisForRun(profile, registry, context);
   context = coverageGeometryContext([...tiles, ...candidates], profile, registry, context);
   const footprint = outputFootprintForProfile(profile, registry);
-  const survey = profile.id === "custom" && profile.algorithm === "RECT_GRID_V1" ? undefined : registry.findAnySurveyProfile(profile.id);
+  const survey = ("project_instrument_id" in profile || (profile.id === "custom" && profile.algorithm === "RECT_GRID_V1")) ? undefined : registry.findAnySurveyProfile(profile.id);
   const all = [...tiles, ...candidates];
   const sourceSet = new Set(tiles);
   const candidateSet = new Set(candidates);

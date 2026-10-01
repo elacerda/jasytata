@@ -1,13 +1,14 @@
 import { coverageBasisForRun, coverageGeometryContext, tileContributesToBasis } from "./coverage-semantics";
-import type { CenterInput, CoveragePolicy, CoverageStrategy, Footprint, GenericLatticeTiling, InferencePolicy, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
+import type { CenterInput, CoveragePolicy, CoverageStrategy, Footprint, GenericLatticeTiling, InferencePolicy, LatticeProjectPlacement, ResolvedLatticeProjectPlacement, InferenceDiagnostics, RegionPlanResponse, SkyPolygon, TileRecord, TilingProfile } from "../types";
 import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
-import { resolvePlanningProfile } from "../profiles/planning";
-import { outputFootprintForProfile } from "../profiles/footprints";
+import { projectCoverageProfile, resolvePlanningProfile } from "../profiles/planning";
+import { outputFootprintForProfile, resolveFootprintForTile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
-import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, prepareCoverageGrid, assertResolvedCoverage, CoverageUnavailableError, tileMask, type CoverageGrid, type MaskedCenter } from "./coverage";
+import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, prepareCoverageGrid, assertResolvedCoverage, CoverageUnavailableError, tileMask, type CoverageGrid, type MaskedCenter, type SelectionStop } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
-import { generateLatticeCandidates, latticePlanningOrigin } from "./lattice";
+import { generateLatticeCandidates, latticePlanningOrigin, type LatticeCandidate } from "./lattice";
+import { resolveProjectPlacement } from "./project-placement";
 import { inferSurveyLattice, latticeInferenceSearchRadius, latticeSiteOccupied } from "./lattice-inference";
 import { skyToLocalOffset } from "./footprint-engine";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
@@ -530,6 +531,7 @@ function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array
  * @param profile - Active profile used to resolve proposal geometry.
  * @param registry - Session-local instrument registry.
  * @param geometryContext - PA and optional effective-sequence policy.
+ * @param candidateTiles - Optional canonical project records carrying physical PA and lattice identity.
  * @returns Useful nominal proposals, each carrying the union mask of its geometry.
  * @throws If orientation or sequence policy cannot resolve a proposal geometry.
  */
@@ -540,10 +542,11 @@ function usefulPointingCenters(
   profile: TilingProfile,
   registry: ProfileRegistry,
   geometryContext: PointingGeometryContext,
+  candidateTiles?: readonly TileRecord[],
 ): MaskedCenter[] {
   const useful: MaskedCenter[] = [];
   for (const [index, center] of centers.entries()) {
-    const tile: TileRecord = {
+    const tile: TileRecord = candidateTiles?.[index] ?? {
       id: `proposal-candidate-${String(index + 1).padStart(4, "0")}`,
       name: "", ra_deg: center[0], dec_deg: center[1], source: "proposed", enabled: true,
       dataset_id: null, group_id: null, ra_column: null, dec_column: null,
@@ -581,7 +584,8 @@ function usefulPointingCenters(
     const physicalAreaDeg2 = sequence
       ? pointingGeometryUnionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
       : undefined;
-    useful.push({ center, mask, boundaryGeometries: geometries, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) });
+    const site = tile.placement_provenance?.project_lattice;
+    useful.push({ center, mask, ...(site ? { latticeSite: { i: site.i, j: site.j } } : {}), boundaryGeometries: geometries, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) });
   }
   return useful;
 }
@@ -608,6 +612,7 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param geometryContext - Optional runtime PA and exposure-union policy. Context callbacks
  *   receive nominal candidates before final proposal IDs are assigned; resolve policy from
  *   scientific attributes such as center and profile rather than the temporary candidate ID.
+ * @param projectSource - Optional canonical project inputs; skips survey placement/inference only.
  * @returns Deterministic proposal, candidates, diagnostics, and sampled metrics.
  * @throws If tiling is manual, Efficient policy is absent, attempted generic inference fails, profiles/region are invalid, or budgets are exceeded.
  */
@@ -619,9 +624,11 @@ export function planRegion(
   strategy: CoverageStrategy = "complete",
   registry: ProfileRegistry = profileRegistry,
   geometryContext?: PointingGeometryContext,
+  projectSource?: ProjectLatticeCandidateSource,
 ): RegionPlanResponse {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
+  if (projectSource) return planProjectCandidateSource(polygon, existingTiles, strategy, registry, projectSource);
   const { profile, tiling, efficientPolicy } = resolvePlanningProfile(profileId, inlineProfile, registry);
   if (tiling.type === "manual") {
     throw new Error(`Survey profile "${profile.id}" uses manual tiling and does not define an automatic tiling strategy.`);
@@ -780,21 +787,118 @@ function planDeclaredLattice(
   const candidates = generateLatticeCandidates(polygon, runtimeTiling, footprint, MAX_CANDIDATES, fit)
     .filter((candidate) => !latticeSiteOccupied(candidate, activeTiles, projection, runtimeTiling.basis_deg, survey.inference.occupancy_tolerance_fraction));
   const solution = fit ? "extended_existing_grid" : "declared_lattice";
+  const diagnostics = fit
+    ? [`Aligned the declared lattice using ${fit.inlier_count} inliers and ${fit.compatible_pair_count} compatible pairs; rotation ${fit.rotation_deg.toFixed(6)} deg, RMS normalized residual ${fit.rms_residual_fraction.toPrecision(4)}.`]
+    : [`Generic inference: ${inference.status}; used the declared basis-vector lattice with ${tiling.origin.type} placement; candidate order is j ascending, then i ascending.`];
+  return selectLatticeSource(polygon, activeTiles, profile, strategy, registry, efficientPolicy, {
+    type: "registered_survey", candidates, footprint, solution, diagnostics,
+    inference: {
+      nearby_tile_count: inference.considered_tile_count,
+      anchor_tile_ids: fit?.assignments.filter((item) => item.inlier).map((item) => item.tile_id) ?? [],
+      compatible_neighbor_pairs: fit?.compatible_pair_count ?? 0, dec_spacing_deg: null, ra_spacing_deg: null,
+      lattice: inference,
+    },
+  }, geometryContext);
+}
+
+/** Canonical project input to the existing planner. No preview or browser state is accepted. */
+export interface ProjectLatticeCandidateSource {
+  type: "project_lattice";
+  instrumentId: string;
+  placement: LatticeProjectPlacement;
+  /** Explicit physical instrument PA in degrees east of north, independent of lattice rotation. */
+  positionAngleDeg?: number;
+  /** Association only; project placement never derives an observing sequence. */
+  strategyId?: string;
+}
+
+interface CanonicalLatticeSource {
+  type: "registered_survey" | "project_lattice";
+  candidates: LatticeCandidate[];
+  footprint: Footprint;
+  solution: RegionPlanResponse["solution"];
+  inference: InferenceDiagnostics;
+  diagnostics: string[];
+  candidateTiles?: TileRecord[];
+}
+
+/** Resolve project geometry and enumerate exactly the Gate 1/3 admissible lattice. */
+function planProjectCandidateSource(
+  polygon: SkyPolygon, existingTiles: TileRecord[], strategy: CoverageStrategy,
+  registry: ProfileRegistry, source: ProjectLatticeCandidateSource,
+): RegionPlanResponse {
+  const instrument = registry.resolveInstrumentProfile(source.instrumentId);
+  if (instrument.schema_version !== 3) throw new Error("Project regional planning requires declared v3 footprint semantics.");
+  const basis = instrument.footprint_semantics.role;
+  if (basis === "target_access") throw new CoverageUnavailableError({ coverage_basis: basis, coverage_status: "unsupported_basis" });
+  if (source.strategyId && registry.resolveAnySurveyProfile(source.strategyId).instrument_id !== instrument.id) {
+    throw new Error("Selected observing strategy does not belong to the project instrument.");
+  }
+  const profile = projectCoverageProfile(instrument);
+  const seed: TileRecord = {
+    id: "project-candidate", name: "", ra_deg: 0, dec_deg: 0, source: "proposed", enabled: true,
+    instrument_profile_id: instrument.id, output_strategy_id: source.strategyId ?? null,
+    generation_method: "region_lattice", original_values: null, metadata: {},
+    ...(instrument.position_angle.mode === "per_pointing" && source.positionAngleDeg !== undefined ? { position_angle_deg: source.positionAngleDeg } : {}),
+    ...(instrument.position_angle.mode === "user_selected" && source.positionAngleDeg !== undefined ? { output_position_angle_deg: source.positionAngleDeg } : {}),
+  };
+  const context: PointingGeometryContext = {
+    measurementBasis: basis, coverageBasis: "single_exposure", sequenceForTile: () => undefined,
+    orientationPolicyForTile: (tile) => {
+      const active = tile.instrument_profile_id ? registry.resolveInstrumentProfile(tile.instrument_profile_id) : instrument;
+      return active.schema_version === 3 ? {
+        policy: active.position_angle.mode, required: active.position_angle.required,
+        ...(active.position_angle.mode === "user_selected" && tile.output_position_angle_deg !== undefined
+          ? { plan_position_angle_deg: tile.output_position_angle_deg } : {}),
+      } : undefined;
+    },
+  };
+  const resolved = resolveFootprintForTile(seed, profile, registry, context.orientationPolicyForTile?.(seed));
+  if (instrument.position_angle.mode === "per_pointing" && resolved.resolved_position_angle_deg !== undefined) seed.position_angle_deg = resolved.resolved_position_angle_deg;
+  if (instrument.position_angle.mode === "user_selected" && resolved.resolved_position_angle_deg !== undefined) seed.output_position_angle_deg = resolved.resolved_position_angle_deg;
+  const placement = resolveProjectPlacement(source.placement, polygon, resolved.resolved_position_angle_deg);
+  if (placement.type !== "resolved_lattice_project_placement") throw new Error("Regional planning requires a lattice project placement.");
+  const candidates = generateLatticeCandidates(polygon, { type: "lattice", basis_deg: placement.basis_deg, origin: placement.origin }, resolved.footprint, MAX_CANDIDATES);
+  const candidateTiles = candidates.map((point) => projectCandidateTile(seed, point, placement));
+  return selectLatticeSource(polygon, existingTiles.filter((tile) => tile.enabled !== false), profile, strategy, registry,
+    SPLUS_SURVEY_V2.coverage.efficient, {
+      type: "project_lattice", candidates, footprint: resolved.footprint, solution: "project_lattice", candidateTiles,
+      inference: { nearby_tile_count: 0, anchor_tile_ids: [], compatible_neighbor_pairs: 0, dec_spacing_deg: null, ra_spacing_deg: null },
+      diagnostics: ["User-declared project lattice; no catalogue phase inference. Candidate order is j ascending, then i ascending.",
+        ...(basis === "nominal_envelope" ? ["Coverage is approximate and nominal-envelope based; it is not exact physical observed area."] : [])],
+    }, context);
+}
+
+function projectCandidateTile(seed: TileRecord, point: LatticeCandidate, placement: ResolvedLatticeProjectPlacement): TileRecord {
+  return { ...seed, ra_deg: point.ra_deg, dec_deg: point.dec_deg,
+    placement_provenance: { origin: "user_declared", project_lattice: { i: point.i, j: point.j, placement } } };
+}
+
+/** Shared candidate masks, greedy selection, metrics and proposal assembly for both lattice sources. */
+function selectLatticeSource(
+  polygon: SkyPolygon, activeTiles: TileRecord[], profile: TilingProfile, strategy: CoverageStrategy,
+  registry: ProfileRegistry, efficientPolicy: CoveragePolicy["efficient"], source: CanonicalLatticeSource,
+  geometryContext?: PointingGeometryContext,
+): RegionPlanResponse {
+  const { candidates, footprint, solution } = source;
   const centers: Center[] = candidates.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg]);
   const grid = prepareCoverageGrid(polygon, activeTiles, profile, registry, geometryContext,
-    centers.map(([ra_deg, dec_deg]) => ({ id: "sampling-candidate", source: "proposed", ra_deg, dec_deg } as TileRecord)));
+    source.candidateTiles ?? centers.map(([ra_deg, dec_deg]) => ({ id: "sampling-candidate", source: "proposed", ra_deg, dec_deg } as TileRecord)));
   assertResolvedCoverage(grid);
   const existingMask = coveredMask(grid, activeTiles, profile, registry, geometryContext);
   const useful = geometryContext
-    ? usefulPointingCenters(centers, existingMask, grid, profile, registry, geometryContext)
+    ? usefulPointingCenters(centers, existingMask, grid, profile, registry, geometryContext, source.candidateTiles)
     : usefulUncoveredCenters(centers, existingMask, grid, footprint);
-  const chosen = greedyChoose(useful, existingMask, grid, footprint, AUTOMATIC_COVERAGE_TARGET, strategy, efficientPolicy);
+  const selection = { stop: "candidate_lattice_exhausted" as SelectionStop };
+  const chosen = greedyChoose(useful, existingMask, grid, footprint, AUTOMATIC_COVERAGE_TARGET, strategy, efficientPolicy, (reason) => { selection.stop = reason; });
   const contributing = contributingTileCountForTiles(polygon, activeTiles, profile, registry, geometryContext);
   const metrics = measureMetrics(chosen, existingMask, grid, contributing, footprint);
-  const byCenter = new Map(candidates.map((candidate) => [`${candidate.ra_deg},${candidate.dec_deg}`, candidate]));
-  const tiles: TileRecord[] = chosen.map(({ center: [ra, dec] }, index) => {
-    const point = byCenter.get(`${ra},${dec}`)!;
+  const byCenter = new Map(candidates.map((candidate, index) => [`${candidate.ra_deg},${candidate.dec_deg}`, { candidate, tile: source.candidateTiles?.[index] }]));
+  const bySite = new Map(candidates.map((candidate, index) => [`${candidate.i},${candidate.j}`, { candidate, tile: source.candidateTiles?.[index] }]));
+  const tiles: TileRecord[] = chosen.map(({ center: [ra, dec], latticeSite }, index) => {
+    const { candidate: point, tile } = latticeSite ? bySite.get(`${latticeSite.i},${latticeSite.j}`)! : byCenter.get(`${ra},${dec}`)!;
     return {
+      ...tile,
       id: `proposal-region-${String(index + 1).padStart(4, "0")}`, name: "",
       ra_deg: ra, dec_deg: dec, source: "proposed", enabled: true,
       dataset_id: null, group_id: null, ra_column: null, dec_column: null,
@@ -802,24 +906,24 @@ function planDeclaredLattice(
       metadata: { solution, coverage_strategy: strategy, lattice_i: point.i, lattice_j: point.j },
     };
   });
-  const diagnostics = fit
-    ? [`Aligned the declared lattice using ${fit.inlier_count} inliers and ${fit.compatible_pair_count} compatible pairs; rotation ${fit.rotation_deg.toFixed(6)} deg, RMS normalized residual ${fit.rms_residual_fraction.toPrecision(4)}.`]
-    : [`Generic inference: ${inference.status}; used the declared basis-vector lattice with ${tiling.origin.type} placement; candidate order is j ascending, then i ascending.`];
+  const diagnostics = [...source.diagnostics];
   if (metrics.remaining_uncovered_fraction > 0) {
     diagnostics.push(`The declared lattice leaves sampled gaps covering ${(metrics.remaining_uncovered_fraction * 100).toFixed(3)}% of the selected area.`);
   }
   if (!tiles.length) diagnostics.push(metrics.remaining_uncovered_fraction > 0
     ? "No declared lattice centers add coverage to the remaining sampled gaps."
     : "Existing tiles already cover all sampled area in the selected region.");
+  if (source.type === "project_lattice") {
+    if (!candidates.length) diagnostics.push("The valid project placement has zero admissible lattice sites in this region.");
+    diagnostics.push(selection.stop === "coverage_complete" ? "Complete sampled coverage achieved."
+      : selection.stop === "candidate_lattice_exhausted" ? "Candidate lattice exhausted: the declared project placement cannot fully cover the selected sampled region."
+        : selection.stop === "gain_safeguard" ? "The existing minimum-gain safeguard stopped selection; sampled gaps remain."
+          : "Efficient marginal-efficiency stopping rule reached; sampled gaps may remain.");
+  }
   return {
     solution, generation_method: "region_lattice", coverage_strategy: strategy,
     tiles, candidate_centers: candidates.map(({ ra_deg, dec_deg }) => ({ ra_deg, dec_deg, label: null })),
-    inference: {
-      nearby_tile_count: inference.considered_tile_count,
-      anchor_tile_ids: fit?.assignments.filter((item) => item.inlier).map((item) => item.tile_id) ?? [],
-      compatible_neighbor_pairs: fit?.compatible_pair_count ?? 0, dec_spacing_deg: null, ra_spacing_deg: null,
-      lattice: inference,
-    },
-    diagnostics, metrics,
+    inference: source.inference, diagnostics, metrics,
+    ...(source.type === "project_lattice" ? { selection_stop: selection.stop } : {}),
   };
 }

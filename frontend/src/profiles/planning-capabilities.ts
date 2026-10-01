@@ -4,11 +4,14 @@ export type PlanningOutputKind = "strategy" | "instrument";
 export type PlanningGeometryRole = "legacy_v2" | "observed_area" | "nominal_envelope" | "target_access" | null;
 export type ProjectPlanningMode = "manual_pointings" | "regional_mosaic";
 
-/** Session facts needed to derive Gate 3 project-lattice actions. */
+/** Canonical session facts for project authoring, preview and regional plan generation. */
 export interface ProjectPlanningContext {
   mode: ProjectPlanningMode;
   hasSelectedRegion: boolean;
   hasResolvedInstrumentPA: boolean;
+  /** Canonical placement resolves for the current region and PA; preview is irrelevant. */
+  hasValidProjectPlacement?: boolean;
+  hasRequiredPlannerInputs?: boolean;
 }
 
 /** Capabilities derived from one registered instrument and its selected strategy, if any. */
@@ -26,6 +29,7 @@ export interface PlanningCapabilities {
   geometryRole: PlanningGeometryRole;
   canAuthorProjectPlacement: boolean;
   canPreviewProjectLattice: boolean;
+  canGenerateProjectRegionPlan: boolean;
   projectPlanningMode: ProjectPlanningMode;
   projectLatticeUnavailableReason: string | null;
 }
@@ -59,11 +63,14 @@ export function derivePlanningCapabilities(
       : "legacy_v2";
   const positionAngleMode = instrument?.schema_version === 3 ? instrument.position_angle.mode : null;
   const positionAngleRequired = instrument?.schema_version === 3 && instrument.position_angle.required;
-  const canReportAreaCoverage = Boolean(strategy && instrument && geometryRole !== "target_access");
+  const canReportAreaCoverage = Boolean(instrument && geometryRole !== "target_access" &&
+    (strategy || (projectContext.mode === "regional_mosaic" && projectContext.hasValidProjectPlacement)));
   const supportsAutomaticRegionPlanning = Boolean(strategy && strategy.tiling.type !== "manual" && canReportAreaCoverage);
   const canAuthorProjectPlacement = geometryRole === "observed_area" || geometryRole === "nominal_envelope";
   const canPreviewProjectLattice = canAuthorProjectPlacement && projectContext.mode === "regional_mosaic" &&
     projectContext.hasSelectedRegion && (!positionAngleRequired || projectContext.hasResolvedInstrumentPA);
+  const canGenerateProjectRegionPlan = canPreviewProjectLattice && Boolean(projectContext.hasValidProjectPlacement) &&
+    projectContext.hasRequiredPlannerInputs !== false;
   const projectLatticeUnavailableReason = !canAuthorProjectPlacement
     ? geometryRole === "target_access"
       ? "Regional project placement is unavailable for target-access geometry; this footprint does not represent observed-area coverage."
@@ -91,6 +98,7 @@ export function derivePlanningCapabilities(
     geometryRole,
     canAuthorProjectPlacement,
     canPreviewProjectLattice,
+    canGenerateProjectRegionPlan,
     projectPlanningMode: projectContext.mode,
     projectLatticeUnavailableReason,
   };
@@ -102,6 +110,7 @@ export function derivePlanningCapabilities(
  */
 export function planningModeLabel(capabilities: PlanningCapabilities): string {
   const paLabel = capabilities.requiresUserPositionAngle ? " · PA required" : "";
+  if (capabilities.canAuthorProjectPlacement && capabilities.projectPlanningMode === "regional_mosaic") return `Regional mosaic · user-declared project lattice${paLabel}`;
   if (capabilities.supportsAutomaticRegionPlanning) return `Automatic region tiling + manual pointings${paLabel}`;
   if (capabilities.observingSequenceExposureCount !== null) {
     return `Manual target centers + ${capabilities.observingSequenceExposureCount}-exposure sequence${paLabel}`;
@@ -129,6 +138,9 @@ export function automaticRegionUnavailableMessage(capabilities: PlanningCapabili
  * @returns One-sentence guidance for the selected planning mode.
  */
 export function emptyPlanningStateMessage(capabilities: PlanningCapabilities): string {
+  if (capabilities.canAuthorProjectPlacement && capabilities.projectPlanningMode === "regional_mosaic") {
+    return "Select a region and apply project placement, then generate a plan or preview lattice candidates.";
+  }
   if (capabilities.supportsAutomaticRegionPlanning) {
     return "Select an area to generate a plan, add a pointing manually, or import centers.";
   }

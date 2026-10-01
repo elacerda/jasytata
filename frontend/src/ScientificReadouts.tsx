@@ -8,7 +8,7 @@ import type { CoverageResult, InferenceDiagnostics, PlacementOrigin, ProfileProv
 const origins: Record<PlacementOrigin, string> = {
   manual: "Manual", imported_unverified: "Imported · unverified",
   authoritative_import: "Authoritative import", declared_profile_lattice: "Declared profile lattice",
-  local_inference: "Local inference",
+  local_inference: "Local inference", user_declared: "User-declared project placement",
 };
 
 function Reference({ reference }: { reference: ProfileReferenceV3 }) {
@@ -82,6 +82,7 @@ export function PointingScience({ tile, context, fallbackInstrument }: {
     </>}
     {instrument && <p><PointingAngle tile={tile} context={context} /></p>}
     <p>Placement: {tile.placement_provenance ? origins[tile.placement_provenance.origin] : "Not declared (legacy record)"}</p>
+    {tile.placement_provenance?.project_lattice && <p>Lattice site: (i={tile.placement_provenance.project_lattice.i}, j={tile.placement_provenance.project_lattice.j})</p>}
     {tile.placement_provenance?.origin === "authoritative_import" && tile.placement_provenance.source_reference &&
       <p>Source: <Reference reference={tile.placement_provenance.source_reference} /></p>}
     {strategy && <p>Strategy: {strategy.display_name}{strategy.schema_version === 3 && strategy.observing_sequence
@@ -153,7 +154,7 @@ export function CoverageReadout({ metrics, inference = null, candidateCount = 0 
   const envelope = metrics.coverage_basis === "nominal_envelope";
   const fidelity = metrics.contributing_semantics?.filter(({ role }) => role === metrics.coverage_basis).map(({ fidelity }) => fidelity);
   return <div className="metrics-panel scientific-coverage">
-    <p><strong>{basisLabel(metrics)} · sampled estimate{fidelity?.includes("approximate") ? " · Approximate" : fidelity?.includes("exact") ? " · Exact geometry" : ""}</strong></p>
+    <p><strong>{basisLabel(metrics)} · sampled estimate{(envelope || fidelity?.includes("approximate")) ? " · Approximate" : fidelity?.includes("exact") ? " · Exact geometry" : ""}</strong></p>
     {envelope && <p>Planning envelope, not exact active area</p>}
     {metrics.geometry_basis && <p>{metrics.geometry_basis === "effective_sequence" ? "Effective sequence · geometric union only" : "Single exposure"}</p>}
     <Metric label="Selected region" value={`${metrics.coverage_basis === "legacy_v2" ? metrics.selected_region_area_deg2.toFixed(2) : Number(metrics.selected_region_area_deg2.toPrecision(3))} deg²`} />

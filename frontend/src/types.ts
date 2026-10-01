@@ -13,12 +13,15 @@ export type PlacementOrigin =
   | "imported_unverified"
   | "authoritative_import"
   | "declared_profile_lattice"
-  | "local_inference";
+  | "local_inference"
+  | "user_declared";
 
 /** Per-pointing placement provenance; authoritative imports require a source reference. */
 export interface PlacementProvenance {
   origin: PlacementOrigin;
   source_reference?: ProfileReferenceV3;
+  /** Exact project lattice site and resolved placement, independent of session IDs. */
+  project_lattice?: { i: number; j: number; placement: ResolvedLatticeProjectPlacement };
 }
 
 /** Runtime policy controlling how a pointing obtains its astronomical PA. */
@@ -537,13 +540,15 @@ export interface InferenceDiagnostics {
 /** Auditable preview response from existing-grid inference, compatibility fallback, or a declared lattice. */
 export interface RegionPlanResponse {
   coverage_strategy: CoverageStrategy;
-  solution: "extended_existing_grid" | "profile_fallback" | "declared_lattice";
+  solution: "extended_existing_grid" | "profile_fallback" | "declared_lattice" | "project_lattice";
   generation_method: "region_legacy" | "region_extended" | "region_lattice";
   tiles: TileRecord[];
   candidate_centers: CenterInput[];
   inference: InferenceDiagnostics;
   diagnostics: string[];
   metrics: PlanMetrics;
+  /** Project-only diagnostic; registered survey response shape stays frozen. */
+  selection_stop?: "coverage_complete" | "candidate_lattice_exhausted" | "gain_safeguard" | "marginal_efficiency";
 }
 
 /** Coordinate representation accepted by the generic CSV exporter. */

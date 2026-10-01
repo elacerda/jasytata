@@ -18,6 +18,8 @@ import { CoverageReadout as MetricsPanel, PointingAngle, PointingScience, Scient
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
 import { automaticRegionUnavailableMessage, derivePlanningCapabilities, emptyPlanningStateMessage, planningModeLabel, type ProjectPlanningMode } from "./profiles/planning-capabilities";
 import type { AnyInstrumentProfile, AnySurveyProfile } from "./profiles/registry";
+import { resolveProjectPlacement } from "./science/project-placement";
+import { projectCoverageProfile } from "./profiles/planning";
 import { previewProjectLattice, type ProjectLatticePreviewResult } from "./science/project-lattice-preview";
 import type {
   CenterInput,
@@ -130,6 +132,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [projectSession, setProjectSession] = useState(0);
   const [regionPolygon, setRegionPolygon] = useState<SkyPolygon | null>(null);
   const [projectPlanningMode, setProjectPlanningMode] = useState<ProjectPlanningMode>("manual_pointings");
+  const [projectPlacementDirty, setProjectPlacementDirty] = useState(false);
   const [projectPlacement, setProjectPlacement] = useState<ProjectPlacementPolicy | null>(null);
   const [projectLatticePreview, setProjectLatticePreview] = useState<ActiveProjectLatticePreview | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
@@ -244,13 +247,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const currentProjectLatticePreview = projectLatticePreview?.dependencySignature === projectPreviewDependencySignature
     ? projectLatticePreview
     : null;
-  const planningCapabilities = derivePlanningCapabilities(activeInstrument, activeSurvey, {
-    mode: projectPlanningMode,
-    hasSelectedRegion: Boolean(regionPolygon),
-    hasResolvedInstrumentPA: Boolean(projectFootprintGeometry) &&
-      (!(activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required) || effectiveInstrumentPA !== undefined),
-  });
-  const requiredPositionAngle = planningCapabilities.requiresUserPositionAngle;
+  const resolvedProjectPlacement = useMemo(() => {
+    if (!regionPolygon || !projectPlacement || projectPlacementDirty || !projectFootprintGeometry) return null;
+    try { return resolveProjectPlacement(projectPlacement, regionPolygon, effectiveInstrumentPA); }
+    catch { return null; }
+  }, [regionPolygon, projectPlacement, projectPlacementDirty, projectFootprintGeometry, effectiveInstrumentPA]);
+  const usesProjectRegionSource = projectPlanningMode === "regional_mosaic" &&
+    activeInstrument?.schema_version === 3 && (activeInstrument.footprint_semantics.role === "observed_area" || activeInstrument.footprint_semantics.role === "nominal_envelope");
   const unresolvedDataset = useMemo(() => datasets.find((dataset) => {
     if (!dataset.instrument_profile_id) return true;
     if (!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id)) return true;
@@ -261,14 +264,24 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       return true;
     }
   }) ?? null, [datasets, instrumentProfiles]);
+  const planningCapabilities = derivePlanningCapabilities(activeInstrument, activeSurvey, {
+    mode: projectPlanningMode,
+    hasSelectedRegion: Boolean(regionPolygon),
+    hasValidProjectPlacement: resolvedProjectPlacement?.type === "resolved_lattice_project_placement",
+    hasRequiredPlannerInputs: !activeResolution.error && !unresolvedDataset,
+    hasResolvedInstrumentPA: Boolean(projectFootprintGeometry) &&
+      (!(activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required) || effectiveInstrumentPA !== undefined),
+  });
+  const requiredPositionAngle = planningCapabilities.requiresUserPositionAngle;
   const planningUnavailableReason = activeResolution.error
     ?? (unresolvedDataset
       ? unresolvedDataset.instrument_profile_id
         ? `Catalogue “${unresolvedDataset.filename}” references an unavailable instrument. Choose a registered instrument profile before planning.`
         : `Choose an instrument profile for “${unresolvedDataset.filename}” before planning.`
       : null)
-    ?? (!planningCapabilities.supportsAutomaticRegionPlanning
-      ? automaticRegionUnavailableMessage(planningCapabilities)
+    ?? (usesProjectRegionSource
+      ? !planningCapabilities.canGenerateProjectRegionPlan ? planningCapabilities.projectLatticeUnavailableReason ?? "Apply a valid project placement before generating a plan." : null
+      : !planningCapabilities.supportsAutomaticRegionPlanning ? automaticRegionUnavailableMessage(planningCapabilities)
       : null);
 
   const hasCatalogue = datasets.length > 0;
@@ -305,7 +318,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     },
     sequenceForTile: (tile) => {
       const strategyId = tile.output_strategy_id ?? (tile.source === "proposed" && outputContext.kind === "survey" ? outputContext.id : undefined);
-      if (!strategyId) return undefined;
+      if (!strategyId || tile.placement_provenance?.origin === "user_declared") return undefined;
       const strategy = profileRegistry.findAnySurveyProfile(strategyId);
       if (strategy?.schema_version !== 3 || !strategy.observing_sequence) return undefined;
       return { id: strategy.observing_sequence.id, exposures: strategy.observing_sequence.exposures };
@@ -382,14 +395,33 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     }
   }, [projectPreviewDependencySignature, projectLatticePreview]);
 
+  const projectPlanDependencySignature = JSON.stringify({
+    geometry: projectPreviewDependencySignature, placement: projectPlacement, dirty: projectPlacementDirty,
+    mode: projectPlanningMode, strategy: coverageStrategy, outputStrategyId,
+  });
+  const projectPlanDependencyRef = useRef(projectPlanDependencySignature);
   useEffect(() => {
-    if (!regionPolygon || !activeSurvey || !profile || !activeOutputProposals.length || unresolvedDataset || activeResolution.error) {
+    if (projectPlanDependencyRef.current === projectPlanDependencySignature) return;
+    projectPlanDependencyRef.current = projectPlanDependencySignature;
+    regionRevisionRef.current += 1;
+    setPending((current) => current?.solution === "project_lattice" ? null : current);
+    setProposalContext((current) => current?.solution === "project_lattice" ? null : current);
+    if (usesProjectRegionSource || pending?.solution === "project_lattice" || proposalContext?.solution === "project_lattice") {
+      setActiveMetrics(null); setScientificRefusal(null); setDebugRequestJson("");
+    }
+  }, [projectPlanDependencySignature, usesProjectRegionSource, pending?.solution, proposalContext?.solution]);
+
+  const projectCoverageDependency = usesProjectRegionSource ? projectPlanDependencySignature : null;
+  useEffect(() => {
+    if ((usesProjectRegionSource && !resolvedProjectPlacement) || !regionPolygon || (!activeSurvey && !usesProjectRegionSource) || (!profile && !usesProjectRegionSource) || !activeOutputProposals.length || unresolvedDataset || activeResolution.error) {
       setActiveMetrics(null);
       return;
     }
     let cancelled = false;
     setActiveMetrics(null);
-    void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext)
+    void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey?.id,
+      usesProjectRegionSource && activeInstrument?.schema_version === 3 ? projectCoverageProfile(activeInstrument) : undefined,
+      usesProjectRegionSource ? { ...activePointingGeometryContext, coverageBasis: "single_exposure" } : activePointingGeometryContext)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) {
@@ -398,7 +430,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         }
       });
     return () => { cancelled = true; };
-  }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext]);
+  }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext, usesProjectRegionSource, activeInstrument, projectCoverageDependency, resolvedProjectPlacement]);
 
   useEffect(() => {
     if (confirmingNewProject) cancelNewProjectRef.current?.focus();
@@ -612,24 +644,29 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   async function handlePlanRegion() {
-    if (!regionPolygon || !activeSurvey || !activeInstrument || !profile) return;
+    if (!regionPolygon || !activeInstrument || (!usesProjectRegionSource && (!activeSurvey || !profile))) return;
     if (planningUnavailableReason) {
       setError(planningUnavailableReason);
       return;
     }
     const regionRevision = regionRevisionRef.current;
     setSelectingRegion(false);
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV && activeSurvey && !usesProjectRegionSource) {
       setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, activeSurvey.id, undefined, coverageStrategy)));
     }
     await runBusy(
-      () => planRegion(regionPolygon, planningTiles, activeSurvey.id, undefined, coverageStrategy, activePointingGeometryContext),
+      () => usesProjectRegionSource && projectPlacement?.type === "lattice_project_placement"
+        ? planRegion(regionPolygon, planningTiles, activeSurvey?.id, undefined, coverageStrategy, activePointingGeometryContext, {
+          type: "project_lattice", instrumentId: activeInstrument.id, placement: projectPlacement,
+          positionAngleDeg: effectiveInstrumentPA, ...(activeSurvey ? { strategyId: activeSurvey.id } : {}),
+        })
+        : planRegion(regionPolygon, planningTiles, activeSurvey!.id, undefined, coverageStrategy, activePointingGeometryContext),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
           coverageStrategy: result.coverage_strategy,
-          tiles: result.tiles.map((tile) => ({ ...tile, instrument_profile_id: activeInstrument.id, output_strategy_id: activeSurvey.id,
-            ...(paMode === "user_selected" && (parsedManualPositionAngle ?? profilePa) !== undefined
+          tiles: result.tiles.map((tile) => ({ ...tile, instrument_profile_id: activeInstrument.id, output_strategy_id: activeSurvey?.id ?? null,
+            ...(!usesProjectRegionSource && paMode === "user_selected" && (parsedManualPositionAngle ?? profilePa) !== undefined
               ? { output_position_angle_deg: parsedManualPositionAngle ?? profilePa } : {}) })),
           candidateCenters: result.candidate_centers,
           inference: result.inference,
@@ -639,7 +676,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         });
         setSelectedTileId(null);
         setNotice(
-          `${result.tiles.length} nominal pointing${result.tiles.length === 1 ? "" : "s"} selected. ${result.metrics.coverage_basis === "nominal_envelope" ? "Nominal envelope overlap" : result.metrics.coverage_basis === "legacy_v2" ? "Legacy survey coverage" : "Observed-area geometry coverage"}: ${Math.round(result.metrics.selected_region_coverage * 100)}%.`,
+          `${result.tiles.length} nominal pointing${result.tiles.length === 1 ? "" : "s"} selected. ${result.metrics.coverage_basis === "nominal_envelope" ? "Approximate nominal-envelope coverage" : result.metrics.coverage_basis === "legacy_v2" ? "Legacy survey coverage" : "Observed-area geometry coverage"}: ${Math.round(result.metrics.selected_region_coverage * 100)}%.`,
         );
       },
       () => regionRevision === regionRevisionRef.current,
@@ -651,6 +688,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     regionRevisionRef.current += 1;
     setCoverageStrategy(strategy);
     setPending((current) => current?.coverageStrategy ? null : current);
+    if (usesProjectRegionSource) { setProposalContext(null); setActiveMetrics(null); setScientificRefusal(null); }
     setDebugRequestJson("");
   }
 
@@ -762,7 +800,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setSelectedTileId(null);
     setRegionPolygon(null);
     setProjectPlanningMode("manual_pointings");
-    setProjectPlacement(null);
+    setProjectPlacement(null); setProjectPlacementDirty(false);
     setProjectLatticePreview(null);
     setMapMode("idle");
     setSelectingRegion(false);
@@ -815,7 +853,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setNotice(region ? (planningCapabilities.supportsAutomaticRegionPlanning
       ? "Sky polygon finalized. Generate a plan when ready."
       : planningCapabilities.canAuthorProjectPlacement
-        ? "Sky region set. Preview project lattice candidate sites when ready; no plan pointings will be generated."
+        ? "Sky region set. Apply project placement, then preview lattice sites or generate a plan."
         : "Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.")
       : "Selected polygon cleared; catalogues and proposals remain.");
   }
@@ -823,10 +861,24 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   function changeProjectPlanningMode(mode: ProjectPlanningMode) {
     if (mode === projectPlanningMode) return;
     setProjectPlanningMode(mode);
-    setProjectPlacement(mode === "manual_pointings"
-      ? { type: "manual_project_placement", provenance: "user_declared" }
-      : null);
+    invalidateProjectPlan();
     setProjectLatticePreview(null);
+  }
+
+  function invalidateProjectPlan() {
+    regionRevisionRef.current += 1;
+    setPending((current) => current?.solution === "project_lattice" ? null : current);
+    setProposalContext((current) => current?.solution === "project_lattice" ? null : current);
+    setActiveMetrics(null); setScientificRefusal(null); setDebugRequestJson("");
+  }
+
+  /** Validate and save canonical placement without requiring a candidate preview. */
+  function applyProjectPlacement(policy: LatticeProjectPlacement) {
+    if (!regionPolygon || !projectFootprintGeometry) throw new Error("Select a region and resolve instrument PA before applying placement.");
+    resolveProjectPlacement(policy, regionPolygon, effectiveInstrumentPA);
+    invalidateProjectPlan();
+    setProjectPlacement(policy); setProjectPlacementDirty(false); setProjectLatticePreview(null);
+    setNotice("User-declared project placement applied. Generate plan selects a coverage subset; Preview lattice shows all admissible sites.");
   }
 
   function applyProjectLatticePreview(policy: LatticeProjectPlacement) {
@@ -843,7 +895,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       projectFootprintGeometry.footprint,
       effectiveInstrumentPA,
     );
-    setProjectPlacement(policy);
+    invalidateProjectPlan();
+    setProjectPlacement(policy); setProjectPlacementDirty(false);
     setProjectLatticePreview({ ...result, dependencySignature: projectPreviewDependencySignature });
     setError(null);
     setNotice(`${result.candidates.length} project lattice candidate sites previewed. No plan pointings were created.`);
@@ -903,7 +956,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         </div>
         <div className="topbar-state">
           <span className={`status-dot ${activeInstrument ? "is-ready" : ""}`} />
-          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : activeSurvey ? "Survey strategy active · no catalogue loaded" : activeInstrument ? "Standalone instrument · manual centers" : "Resolving output profile"}</span>
+          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : activeSurvey ? "Survey strategy active · no catalogue loaded" : activeInstrument ? usesProjectRegionSource ? "Standalone instrument · Regional mosaic" : "Standalone instrument · manual centers" : "Resolving output profile"}</span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
@@ -1117,7 +1170,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 <Icon name="chevron" />
               </button>
             </div>
-            {!planningCapabilities.supportsAutomaticRegionPlanning &&
+            {!planningCapabilities.supportsAutomaticRegionPlanning && !usesProjectRegionSource &&
               <p className="planning-capability-message">{automaticRegionUnavailableMessage(planningCapabilities)}</p>}
             {!hasCatalogue && proposals.length === 0 && !pending &&
               <p className="planning-empty-state">{emptyPlanningStateMessage(planningCapabilities)}</p>}
@@ -1149,17 +1202,18 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               placement={projectPlacement}
               preview={currentProjectLatticePreview}
               disabled={busy}
-              onDraftChange={() => setProjectLatticePreview(null)}
+              onDraftChange={() => { setProjectLatticePreview(null); setProjectPlacementDirty(true); invalidateProjectPlan(); }}
+              onApply={applyProjectPlacement}
               onPreview={applyProjectLatticePreview}
             />
           </section>
 
           <section className="panel-section planning-section">
-            <SectionHeading title={planningCapabilities.supportsAutomaticRegionPlanning ? "Region plan" : planningCapabilities.canAuthorProjectPlacement ? "Project lattice preview" : planningCapabilities.canMeasureSelectedGeometry ? "Region diagnostics" : "Region plan"}
+            <SectionHeading title={planningCapabilities.supportsAutomaticRegionPlanning || usesProjectRegionSource ? "Region plan" : planningCapabilities.canAuthorProjectPlacement ? "Project placement" : planningCapabilities.canMeasureSelectedGeometry ? "Region diagnostics" : "Region plan"}
               trailing={regionPolygon ? "AREA SET" : undefined} />
             {!planningCapabilities.supportsAutomaticRegionPlanning &&
               <p className="panel-copy planning-capability-message">{planningCapabilities.canAuthorProjectPlacement
-                ? "Area selection supports candidate-lattice geometry preview only; it does not generate regional pointings."
+                ? "Select Regional mosaic and apply project placement to generate a regional plan. Preview lattice shows all admissible candidate sites."
                 : planningCapabilities.canMeasureSelectedGeometry
                   ? "Area selection measures declared geometry only; it does not generate regional pointings."
                   : "Area selection is unavailable for this output context."}</p>}
@@ -1185,21 +1239,22 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             ) : planningCapabilities.canMeasureSelectedGeometry ? (
               <p className="panel-copy">{regionPolygon ? "Measure the declared geometry in this area; no regional pointings will be generated." : "Select an area only to measure declared geometry. Add target centers manually or import centers for this strategy."}</p>
             ) : null}
-            {planningCapabilities.supportsAutomaticRegionPlanning && activeSurvey ? <fieldset className="coverage-strategy">
+            {(planningCapabilities.supportsAutomaticRegionPlanning || usesProjectRegionSource) ? <fieldset className="coverage-strategy">
               <legend>Coverage strategy</legend>
               <label><input type="radio" name="coverage-strategy" value="complete" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} />
                 <span><strong>Complete coverage (default)</strong><small>Attempts to cover every sampled point in the selected region.</small></span></label>
               <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
-                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the selected strategy's coverage floor is met and new physical area falls below its marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
+                <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the coverage policy's floor is met and new physical area falls below its marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
               <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
             </fieldset> : null}
-            {planningUnavailableReason && planningCapabilities.supportsAutomaticRegionPlanning &&
-              <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
+            {planningUnavailableReason && (planningCapabilities.supportsAutomaticRegionPlanning || usesProjectRegionSource) &&
+              <p className="profile-validation-error" role={usesProjectRegionSource ? "status" : "alert"}>{planningUnavailableReason}</p>}
             {planningCapabilities.canMeasureSelectedGeometry && <button className="button button-outline button-full" disabled={busy || !regionPolygon || Boolean(unresolvedDataset)} onClick={() => void handleMeasureGeometry()}>Measure selected geometry</button>}
-            {planningCapabilities.supportsAutomaticRegionPlanning && <button className="button button-plan" onClick={() => void handlePlanRegion()}
-              disabled={!regionPolygon || !profile || !activeSurvey || !activeInstrument || Boolean(planningUnavailableReason) || busy}>
+            {(planningCapabilities.supportsAutomaticRegionPlanning || usesProjectRegionSource) && <button className="button button-plan" onClick={() => void handlePlanRegion()}
+              disabled={!regionPolygon || !activeInstrument || (!usesProjectRegionSource && (!profile || !activeSurvey)) || Boolean(planningUnavailableReason) || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>}
+            {usesProjectRegionSource && <p className="fine-print">Instrument geometry: {activeInstrument?.display_name} · Project placement: User-defined {projectPlacement?.type === "lattice_project_placement" ? projectPlacement.authoring.preset : "unresolved"} grid</p>}
             {planningCapabilities.supportsAutomaticRegionPlanning && <p className="fine-print">Active strategy: {activeSurvey?.display_name}{activeInstrument ? ` · instrument: ${activeInstrument.display_name}` : ""}</p>}
             {planningCapabilities.supportsAutomaticRegionPlanning && activeSurvey &&
               <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>}
@@ -1386,7 +1441,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           {pending && (
             <section className="panel-section proposal-section">
               <SectionHeading title="Proposal preview" trailing="REVIEW" />
-              <p className="scientific-help">{activeInstrument?.display_name}{activeSurvey ? ` · ${activeSurvey.display_name}` : " · standalone instrument"}{observingSequence ? ` · ${geometryBasis === "effective_sequence" ? "Effective sequence" : "Single exposure"} · ${observingSequence.exposures.length} exposures per sequence` : ""}. {pending.tiles.length} nominal pointings.</p>
+              <p className="scientific-help">{activeInstrument?.display_name}{activeSurvey ? ` · ${activeSurvey.display_name}` : " · standalone instrument"}{observingSequence && pending.solution !== "project_lattice" ? ` · ${geometryBasis === "effective_sequence" ? "Effective sequence" : "Single exposure"} · ${observingSequence.exposures.length} exposures per sequence` : ""}. {pending.tiles.length} nominal pointings.</p>
               <div className="solution-stamp">
                 <span className={pending.solution === "extended_existing_grid" ? "stamp-dot is-extended" : "stamp-dot"} />
                 <strong>{solutionLabel(pending.solution)}</strong>
@@ -1411,7 +1466,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                     <span><strong>{tile.ra_deg.toFixed(4)}°</strong><small>{tile.dec_deg.toFixed(4)}°</small></span>
                     <small className="preview-pa"><PointingAngle tile={tile} context={activePointingGeometryContext} /></small>
                   </div>
-                )) : <p className="panel-copy">Existing coverage already satisfies this plan.</p>}
+                )) : <p className="panel-copy">{(pending.metrics?.coverage_status === "resolved" || pending.metrics?.coverage_status === "legacy_compatible") && pending.metrics.remaining_uncovered_fraction === 0 ? "Existing coverage already satisfies this plan." : "No admissible candidate adds sampled coverage; see the scientific diagnostics."}</p>}
                 {pending.tiles.length > 8 && <span className="more-row">+{pending.tiles.length - 8} more preview centers</span>}
               </div>
               <div className="proposal-actions">
@@ -1440,7 +1495,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                   <button className={`accepted-row ${tile.id === selectedTileId ? "is-selected" : ""} ${tile.enabled === false ? "is-disabled" : ""}`} key={tile.id} onClick={() => setSelectedTileId(tile.id)}>
                     <span className="accepted-swatch" />
                     <span><strong>{tile.name || `Pointing ${activeOutputProposals.length - index}`}</strong><small>{tile.ra_deg.toFixed(4)}°, {tile.dec_deg.toFixed(4)}°</small></span>
-                    <span className="accepted-type">{tile.enabled === false ? "DISABLED" : shortMethod(tile.generation_method)}</span>
+                    <span className="accepted-type">{tile.enabled === false ? "DISABLED" : tile.placement_provenance?.origin === "user_declared" ? "project lattice" : shortMethod(tile.generation_method)}</span>
                   </button>
                 ))}
               </div>
@@ -1448,11 +1503,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           </section>
 
           <section className="panel-section export-section">
-            <SectionHeading title={activeSurvey ? "Export new tiles" : "Export manual centers"} />
+            <SectionHeading title={activeSurvey ? "Export new tiles" : "Export instrument centers"} />
             <p className="panel-copy">{activeOutputProposals.length} generated · {enabledProposals.length} enabled · {activeOutputProposals.length - enabledProposals.length} disabled</p>
             <div className="export-fields">
               {observingSequence && <p className="scientific-help">{activeSurvey?.display_name} · {geometryBasis === "effective_sequence"
-                ? `Expanded sequence rows: ${observingSequence.exposures.length} per nominal pointing (${enabledProposals.length * observingSequence.exposures.length} rows).`
+                ? `Expanded sequence rows: ${enabledProposals.reduce((count, tile) => count + (tile.placement_provenance?.origin === "user_declared" ? 1 : observingSequence.exposures.length), 0)} total. Project lattice pointings retain one nominal row.`
                 : `Nominal pointings: one row per pointing (${enabledProposals.length} rows).`}</p>}
               {activeSurvey
                 ? <p className="field-label">Coordinates: {activeSurvey.export.coordinate_format === "sexagesimal" ? "Sexagesimal hours / degrees" : "Decimal degrees"} (selected survey policy)</p>
@@ -1541,6 +1596,7 @@ function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "re
 function solutionLabel(solution: string) {
   if (solution === "extended_existing_grid") return "Existing grid extended";
   if (solution === "profile_fallback") return "Profile fallback";
+  if (solution === "project_lattice") return "User-declared project lattice";
   if (solution === "declared_lattice") return "Declared survey lattice";
   if (solution === "manual") return "Manual sky placement";
   return "Imported centers";

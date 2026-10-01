@@ -122,4 +122,16 @@ describe("derived output planning capabilities", () => {
       mode: "regional_mosaic", hasSelectedRegion: true, hasResolvedInstrumentPA: false,
     })).toMatchObject({ canPreviewProjectLattice: false, projectLatticeUnavailableReason: expect.stringMatching(/instrument PA/) });
   });
+  it("requires resolved placement, mode, region, PA and planner inputs but no preview", () => {
+    const instrument = registry.resolveAnyInstrumentProfile("vlt-muse-wfm");
+    const ready = { mode: "regional_mosaic" as const, hasSelectedRegion: true, hasResolvedInstrumentPA: true,
+      hasValidProjectPlacement: true, hasRequiredPlannerInputs: true };
+    expect(derivePlanningCapabilities(instrument, null, ready).canGenerateProjectRegionPlan).toBe(true);
+    for (const field of ["hasSelectedRegion", "hasResolvedInstrumentPA", "hasValidProjectPlacement", "hasRequiredPlannerInputs"] as const) {
+      expect(derivePlanningCapabilities(instrument, null, { ...ready, [field]: false }).canGenerateProjectRegionPlan).toBe(false);
+    }
+    expect(derivePlanningCapabilities(instrument, null, { ...ready, mode: "manual_pointings" }).canGenerateProjectRegionPlan).toBe(false);
+    expect(derivePlanningCapabilities(registry.resolveAnyInstrumentProfile("subaru-pfs-target-access"), null, ready).canGenerateProjectRegionPlan).toBe(false);
+  });
+
 });
