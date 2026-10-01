@@ -13,8 +13,8 @@ import { loadProfile, listProfiles, validateProfile, parseProfileJson, serialize
 import { T80_SOUTH_INSTRUMENT_V2 } from "./profiles/v2";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./science/catalogue";
 import { buildExportCsv, buildInstrumentCoordinateCsv } from "./science/export";
-import type { PointingExportOptions } from "./science/export";
-import { resolvePointingGeometries, type PointingGeometryContext } from "./science/pointing-geometry";
+import type { PointingExportMode, PointingExportOptions } from "./science/export";
+import { expandPointingExposures, resolvePointingGeometries, type PointingGeometryContext } from "./science/pointing-geometry";
 import { resolvePlanningProfile } from "./profiles/planning";
 import { planRegion as planRegionLocal, type ProjectLatticeCandidateSource } from "./science/planner";
 import { measureActiveCoverage } from "./science/coverage";
@@ -98,8 +98,10 @@ export async function proposeCenters(
  * @param surveyId - Exact active Schema v2 survey or v3 strategy ID, never a source instrument ID.
  * @param epoch - Optional allowed descriptive epoch; the policy supplies its default.
  * @param registry - Validated session registry, injectable for isolated tests.
- * @param geometryContext - Optional Gate 5 runtime orientation and strategy choice.
- * @returns Resolves after triggering new_tiles.csv in the browser.
+ * @param geometryContext - Optional runtime orientation and strategy choice.
+ * @param exportMode - Nominal centers or ordered physical exposures. Expanded
+ *   output requires a registered sequence on the selected strategy.
+ * @returns Resolves after triggering the policy-appropriate local CSV download.
  * @throws For unresolved/invalid surveys or export rows. No backend or fallback is used.
  */
 export async function downloadCatalogue(
@@ -108,37 +110,79 @@ export async function downloadCatalogue(
   epoch?: string,
   registry: ProfileRegistry = profileRegistry,
   geometryContext?: PointingGeometryContext,
+  exportMode: PointingExportMode = "nominal",
 ): Promise<void> {
   const survey = registry.resolveAnySurveyProfile(surveyId);
+  if (exportMode === "expanded" && (survey.schema_version !== 3 || !survey.observing_sequence)) {
+    throw new Error("Expanded exposure export requires a registered observing sequence on the selected strategy.");
+  }
+  if (exportMode === "expanded" && proposedTiles.some((tile) =>
+    tile.enabled !== false && tile.output_strategy_id !== undefined &&
+    tile.output_strategy_id !== null && tile.output_strategy_id !== survey.id,
+  )) {
+    throw new Error("Expanded exposure export cannot mix pointings associated with another observing strategy.");
+  }
   let options: PointingExportOptions | undefined;
-  if (geometryContext) {
+  if (geometryContext || exportMode === "expanded") {
     const profile = resolvePlanningProfile(surveyId, undefined, registry).profile;
-    const nominal = { ...geometryContext, coverageBasis: "single_exposure" as const };
-    const sequences = new Map(proposedTiles.filter((tile) => tile.enabled !== false).map((tile) => [
-      tile, geometryContext.sequenceForTile?.(tile),
-    ] as const));
-    const effective = {
+    const context: PointingGeometryContext = {
       ...geometryContext,
-      coverageBasis: "effective_sequence" as const,
-      sequenceForTile: (tile: TileRecord) => sequences.get(tile),
+      orientationPolicyForTile: geometryContext?.orientationPolicyForTile ?? ((tile) => {
+        const instrumentId = tile.instrument_profile_id ?? (tile.source === "proposed" && survey.schema_version === 3
+          ? survey.instrument_id
+          : undefined);
+        if (!instrumentId) return undefined;
+        const instrument = registry.resolveInstrumentProfile(instrumentId);
+        if (instrument.schema_version !== 3) return undefined;
+        return {
+          policy: instrument.position_angle.mode,
+          required: instrument.position_angle.required,
+          ...(instrument.position_angle.mode === "user_selected" && tile.output_position_angle_deg !== undefined
+            ? { plan_position_angle_deg: tile.output_position_angle_deg }
+            : {}),
+        };
+      }),
+      sequenceForTile: geometryContext?.sequenceForTile ?? ((tile) => {
+        const tileStrategyId = tile.output_strategy_id ?? (tile.source === "proposed" ? survey.id : undefined);
+        const strategy = tileStrategyId ? registry.findAnySurveyProfile(tileStrategyId) : undefined;
+        return strategy?.schema_version === 3 && strategy.observing_sequence
+          ? { id: strategy.observing_sequence.id, exposures: strategy.observing_sequence.exposures }
+          : undefined;
+      }),
     };
-    const hasSequence = [...sequences.values()].some((sequence) => sequence !== undefined);
-    options = {
-      resolvePositionAngle: (tile) => resolvePointingGeometries(tile, profile, registry, nominal)[0].position_angle_deg,
-      ...(hasSequence ? { resolveExposures: (tile: TileRecord) => sequences.get(tile) === undefined ? undefined : resolvePointingGeometries(tile, profile, registry, effective).map((geometry) => ({
-        id: geometry.id,
-        order: geometry.order,
-        ra_deg: geometry.center[0],
-        dec_deg: geometry.center[1],
-        ...(geometry.position_angle_deg === undefined ? {} : { position_angle_deg: geometry.position_angle_deg }),
-      })) } : {}),
-    };
+    if (exportMode === "nominal") {
+      const nominal = { ...context, coverageBasis: "single_exposure" as const };
+      options = {
+        resolvePositionAngle: (tile) => resolvePointingGeometries(tile, profile, registry, nominal)[0].position_angle_deg,
+      };
+    } else {
+      const effective = { ...context, coverageBasis: "effective_sequence" as const };
+      const exposuresByTile = new Map<TileRecord, ReturnType<typeof expandPointingExposures>>();
+      for (const tile of proposedTiles.filter((item) => item.enabled !== false)) {
+        const exposures = expandPointingExposures(tile, profile, registry, effective, survey.id);
+        if (!exposures.length) throw new Error(`Pointing ${tile.id} has no registered exposure sequence to export.`);
+        exposuresByTile.set(tile, exposures);
+      }
+      options = {
+        resolveExposures: (tile) => exposuresByTile.get(tile)?.map((exposure) => ({
+          id: exposure.id,
+          order: exposure.order,
+          ra_deg: exposure.center[0],
+          dec_deg: exposure.center[1],
+          ...(exposure.positionAngleDeg === undefined ? {} : { position_angle_deg: exposure.positionAngleDeg }),
+        })),
+      };
+    }
   }
   const blob = new Blob([buildExportCsv(proposedTiles, survey, epoch, options)], { type: "text/csv; charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "new_tiles.csv";
+  link.download = exportMode === "expanded"
+    ? "new_tiles_expanded_exposures.csv"
+    : survey.schema_version === 3 && survey.observing_sequence
+      ? "new_tiles_nominal_pointings.csv"
+      : "new_tiles.csv";
   document.body.appendChild(link);
   link.click();
   link.remove();

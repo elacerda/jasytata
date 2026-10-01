@@ -12,6 +12,9 @@ export interface PointingExportTable {
   rows: CsvValue[][];
 }
 
+/** Representation requested from a sequence-bearing pointing export. */
+export type PointingExportMode = "nominal" | "expanded";
+
 /** One ordered exposure coordinate supplied to the optional sequence exporter. */
 export interface PointingExposureExport {
   /** Stable runtime identity, unique within this pointing's returned sequence. */

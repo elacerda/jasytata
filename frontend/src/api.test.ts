@@ -3,7 +3,7 @@ import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinate
 import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import golden from "./data/golden.json";
-import type { TileRecord } from "./types";
+import type { InstrumentProfileV3, SurveyProfileV3, TileRecord } from "./types";
 import { makeCenterProposals, readCsv } from "./science/catalogue";
 
 const proposal: TileRecord = {
@@ -184,33 +184,79 @@ describe("local facade and download", () => {
   });
 
   it("exports runtime pointing PA and ordered exposure centers through the canonical geometry resolver", async () => {
-    const document = createBundledProfileRegistry().resolveProfileDocument("splus-t80-south");
-    document.instrument.id = "gate5-export-camera";
-    document.instrument.footprint = { type: "rectangle", width_deg: 0.02, height_deg: 0.01 };
-    document.survey.id = "gate5-export-strategy";
-    document.survey.instrument_id = document.instrument.id;
-    document.survey.tiling = { type: "manual" };
-    document.survey.export = {
-      ra_column: "RA", dec_column: "DEC", coordinate_format: "decimal",
-      position_angle_column: "PA", identifiers: { id_column: "TARGET" },
+    const registry = createBundledProfileRegistry();
+    const realInstrument = registry.resolveInstrumentProfile("vlt-muse-wfm");
+    const realStrategy = registry.resolveAnySurveyProfile("sami-dr1-seven-position");
+    if (realInstrument.schema_version !== 3 || realStrategy.schema_version !== 3 || !realStrategy.observing_sequence) {
+      throw new Error("Expected the registered SAMI sequence for this synthetic geometry test");
+    }
+    const syntheticReference = "https://example.org/jasytata-gate5-synthetic-fixture";
+    const instrument: InstrumentProfileV3 = {
+      ...realInstrument,
+      id: "gate5-synthetic-export-camera",
+      display_name: "Synthetic Gate 5 export camera",
+      description: "Synthetic test-only PA policy using the registered sourced MUSE geometry.",
+      position_angle: { mode: "per_pointing", required: true },
     };
-    const registry = new ProfileRegistry();
-    registry.registerProfileDocument(document);
-    const pointing = { ...proposal, position_angle_deg: 37 };
-    const sequence = { id: "oriented-two-position", exposures: [
-      { order: 1, east_arcsec: 0, north_arcsec: 0, rotation_deg: 0 },
-      { order: 2, east_arcsec: 3600, north_arcsec: 0, rotation_deg: 90 },
-    ] };
+    const strategy: SurveyProfileV3 = {
+      ...realStrategy,
+      id: "gate5-synthetic-export-strategy",
+      display_name: "Synthetic Gate 5 export sequence",
+      description: "Synthetic two-exposure sequence used only to test export geometry.",
+      instrument_id: instrument.id,
+      observing_sequence: { id: "gate5-synthetic-two-position", exposures: [
+        { order: 1, east_arcsec: 0, north_arcsec: 0, rotation_deg: 0 },
+        { order: 2, east_arcsec: 3600, north_arcsec: 0, rotation_deg: 90 },
+      ] },
+      export: {
+        ra_column: "RA", dec_column: "DEC", coordinate_format: "decimal",
+        position_angle_column: "PA", identifiers: { id_column: "TARGET" },
+      },
+      provenance: {
+        references: [{ url: syntheticReference, title: "Synthetic Gate 5 test fixture" }],
+        parameter_sources: [
+          ...[0, 1].flatMap((index) => ["east_arcsec", "north_arcsec", "rotation_deg"].map((axis) => ({
+            parameter_path: `observing_sequence.exposures[${index}].${axis}`,
+            reference_url: syntheticReference, note: "Synthetic test input, not scientific evidence.",
+          }))),
+        ],
+        assumptions: ["Sequence exists only to exercise runtime export behavior."],
+        limitations: ["No real observing strategy or offsets are represented."],
+      },
+    };
+    registry.registerInstrumentProfileV3(instrument);
+    registry.registerSurveyProfileV3(strategy);
+    const pointing = {
+      ...proposal,
+      position_angle_deg: 37,
+      instrument_profile_id: instrument.id,
+      output_strategy_id: strategy.id,
+    };
+    const sequence = strategy.observing_sequence!;
     let downloaded: Blob | undefined;
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:gate5"; }) });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
-    await downloadCatalogue([pointing], document.survey.id, undefined, registry, {
+    await downloadCatalogue([pointing], strategy.id, undefined, registry, {
+      orientationPolicyForTile: () => ({ policy: "per_pointing", required: true }),
+      sequenceForTile: () => sequence,
+      coverageBasis: "effective_sequence",
+    }, "nominal");
+    const nominalCsv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
+    });
+    const nominalRows = readCsv(nominalCsv);
+    expect(nominalRows).toEqual([
+      ["RA", "DEC", "PA", "TARGET"],
+      [proposal.ra_deg.toFixed(8), proposal.dec_deg.toFixed(8), "37.00000000", "PROPOSED_0001"],
+    ]);
+
+    await downloadCatalogue([pointing], strategy.id, undefined, registry, {
       orientationPolicyForTile: () => ({ policy: "per_pointing", required: true }),
       sequenceForTile: () => sequence,
       coverageBasis: "single_exposure",
-    });
+    }, "expanded");
     const csv = await new Promise<string>((resolve) => {
       const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
     });
@@ -226,31 +272,54 @@ describe("local facade and download", () => {
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
-  it("exports the bundled v3 SAMI sequence through the strategy policy", async () => {
+  it("exports SAMI nominal pointings and ordered exposures as separate strategy-policy files", async () => {
     const registry = createBundledProfileRegistry();
     const strategy = registry.resolveAnySurveyProfile("sami-dr1-seven-position");
     if (strategy.schema_version !== 3 || !strategy.observing_sequence) throw new Error("Expected the bundled SAMI v3 strategy");
-    let downloaded: Blob | undefined;
-    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloaded = blob; return "blob:sami-v3"; }) });
+    const acceptedPointings = [
+      { ...proposal, id: "sami-nominal-1", instrument_profile_id: strategy.instrument_id, output_strategy_id: strategy.id },
+      { ...proposal, id: "sami-nominal-2", ra_deg: 151.25, dec_deg: -23.5, instrument_profile_id: strategy.instrument_id, output_strategy_id: strategy.id },
+    ];
+    const downloads: Blob[] = [];
+    const fileNames: string[] = [];
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn((blob: Blob) => { downloads.push(blob); return `blob:sami-v3-${downloads.length}`; }) });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { fileNames.push(this.download); });
 
-    await downloadCatalogue([proposal], strategy.id, undefined, registry, {
+    await downloadCatalogue(acceptedPointings, strategy.id, undefined, registry, {
       coverageBasis: "single_exposure",
       sequenceForTile: () => strategy.observing_sequence,
     });
-    const csv = await new Promise<string>((resolve) => {
-      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloaded!);
+    const nominalCsv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloads[0]);
     });
-    const rows = readCsv(csv);
-    expect(rows[0]).toEqual(["RA", "DEC", "EXPOSURE_ID", "INSTRUMENT_ID", "STRATEGY_ID"]);
-    expect(rows).toHaveLength(8);
-    expect(rows.slice(1).map((row) => row[2])).toEqual(Array.from({ length: 7 }, (_, index) => `PROPOSED_0001_EXP_${String(index + 1).padStart(4, "0")}`));
-    expect(rows.slice(1).every((row) => row[3] === strategy.instrument_id && row[4] === strategy.id)).toBe(true);
-    expect(rows[1].slice(0, 2)).toEqual([proposal.ra_deg.toFixed(8), proposal.dec_deg.toFixed(8)]);
-    expect(Number(rows[2][0])).toBeCloseTo(proposal.ra_deg, 8);
-    expect(Number(rows[2][1])).toBeCloseTo(proposal.dec_deg + 0.7 / 3600, 8);
-    expect(rows[0]).not.toContain("PA");
+    const nominalRows = readCsv(nominalCsv);
+    expect(nominalRows[0]).toEqual(["RA", "DEC", "EXPOSURE_ID", "INSTRUMENT_ID", "STRATEGY_ID"]);
+    expect(nominalRows).toHaveLength(acceptedPointings.length + 1);
+    expect(nominalRows.slice(1).map((row) => row.slice(0, 2))).toEqual(acceptedPointings.map((tile) => [tile.ra_deg.toFixed(8), tile.dec_deg.toFixed(8)]));
+    expect(nominalRows[1][2]).toBe("PROPOSED_0001");
+    expect(nominalRows[2][2]).toBe("PROPOSED_0002");
+
+    await downloadCatalogue(acceptedPointings, strategy.id, undefined, registry, {
+      coverageBasis: "single_exposure",
+      sequenceForTile: () => strategy.observing_sequence,
+    }, "expanded");
+    const expandedCsv = await new Promise<string>((resolve) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(downloads[1]);
+    });
+    const expandedRows = readCsv(expandedCsv);
+    expect(expandedRows[0]).toEqual(["RA", "DEC", "EXPOSURE_ID", "INSTRUMENT_ID", "STRATEGY_ID"]);
+    const sequenceCount = strategy.observing_sequence.exposures.length;
+    expect(expandedRows).toHaveLength(acceptedPointings.length * sequenceCount + 1);
+    expect(expandedRows.slice(1).map((row) => row[2])).toEqual(acceptedPointings.flatMap((_, pointingIndex) =>
+      Array.from({ length: sequenceCount }, (_, index) => `PROPOSED_${String(pointingIndex + 1).padStart(4, "0")}_EXP_${String(index + 1).padStart(4, "0")}`)));
+    expect(expandedRows.slice(1).every((row) => row[3] === strategy.instrument_id && row[4] === strategy.id)).toBe(true);
+    expect(expandedRows[1].slice(0, 2)).toEqual([acceptedPointings[0].ra_deg.toFixed(8), acceptedPointings[0].dec_deg.toFixed(8)]);
+    expect(Number(expandedRows[2][0])).toBeCloseTo(acceptedPointings[0].ra_deg, 8);
+    expect(Number(expandedRows[2][1])).toBeCloseTo(acceptedPointings[0].dec_deg + 0.7 / 3600, 8);
+    expect(expandedRows[1 + sequenceCount].slice(0, 2)).toEqual([acceptedPointings[1].ra_deg.toFixed(8), acceptedPointings[1].dec_deg.toFixed(8)]);
+    expect(expandedRows[0]).not.toContain("PA");
+    expect(fileNames).toEqual(["new_tiles_nominal_pointings.csv", "new_tiles_expanded_exposures.csv"]);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
@@ -258,6 +327,27 @@ describe("local facade and download", () => {
     const create = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
     await expect(downloadCatalogue([proposal], "missing-survey")).rejects.toThrow(/Unknown survey/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps expanded export unavailable for strategies without a registered sequence", async () => {
+    const registry = createBundledProfileRegistry();
+    const create = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    await expect(downloadCatalogue([proposal], "splus-t80-south", undefined, registry, undefined, "expanded"))
+      .rejects.toThrow(/requires a registered observing sequence/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects expanded exports whose nominal pointing is associated with another strategy", async () => {
+    const registry = createBundledProfileRegistry();
+    const create = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    await expect(downloadCatalogue([{
+      ...proposal,
+      output_strategy_id: "califa-ppak-three-point",
+    }], "sami-dr1-seven-position", undefined, registry, undefined, "expanded"))
+      .rejects.toThrow(/cannot mix pointings associated with another observing strategy/);
     expect(create).not.toHaveBeenCalled();
   });
 

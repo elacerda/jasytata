@@ -386,7 +386,7 @@ describe("minimal browser profile file controls", () => {
 
     await user.selectOptions(selector, "survey:sami-dr1-seven-position");
     expect(within(screen.getByLabelText("Active survey summary")).getByText(/AAT \/ SAMI 61-core/)).toBeTruthy();
-    expect(within(screen.getByLabelText("Active survey summary")).getByText("7 ordered exposures")).toBeTruthy();
+    expect(within(screen.getByLabelText("Active survey summary")).getByText(/7 ordered exposures per nominal pointing/)).toBeTruthy();
     await user.selectOptions(selector, "survey:splus-t80-south");
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Legacy S-PLUS grid")).toBeTruthy();
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Legacy v2 behavior · role not classified")).toBeTruthy();

@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { SkyPolygon, TileRecord } from "../types";
+import type { InstrumentProfileV3, SkyPolygon, SurveyProfileV3, TileRecord } from "../types";
 import { createBundledProfileRegistry } from "../profiles/registry";
 import { projectCoverageProfile } from "../profiles/planning";
 import { resolveFootprintForTile } from "../profiles/footprints";
 import { buildInstrumentCoordinateCsv } from "./export";
 import { measureActiveCoverage, CoverageUnavailableError, greedyChoose, type CoverageGrid, type SelectionStop } from "./coverage";
-import { skyToLocalOffset } from "./footprint-engine";
+import { localOffsetToSky, skyToLocalOffset } from "./footprint-engine";
 import { previewProjectLattice } from "./project-lattice-preview";
 import { planRegion, type ProjectLatticeCandidateSource } from "./planner";
+import { expandPointingExposures, type PointingGeometryContext } from "./pointing-geometry";
 
 const registry = createBundledProfileRegistry();
 function region(width: number, height = width): SkyPolygon {
@@ -132,10 +133,166 @@ describe("Gate 4 project source through one regional planner", () => {
     const csv = buildInstrumentCoordinateCsv(plan.tiles, instrument, { resolvePositionAngle: (tile) => tile.position_angle_deg });
     expect(csv).toContain("user_declared"); expect(csv).not.toContain("declared_profile_lattice");
   });
-  it("keeps a real strategy association without expanding its observing sequence", () => {
+  it("keeps project plan output nominal while using the associated sequence for effective coverage", () => {
     const input = { ...source("aat-sami-61core-15arcsec", 0.005), positionAngleDeg: undefined, strategyId: "sami-dr1-seven-position" };
     const result = run(region(0.015), input);
-    expect(result.metrics.geometry_basis).toBe("single_exposure"); result.tiles.forEach((tile) => expect(tile.output_strategy_id).toBe(input.strategyId));
+    expect(result.metrics.geometry_basis).toBe("effective_sequence");
+    expect(result.tiles.length).toBeGreaterThan(0);
+    result.tiles.forEach((tile) => expect(tile.output_strategy_id).toBe(input.strategyId));
+    expect(result.tiles.every((tile) => tile.ra_deg !== undefined && tile.dec_deg !== undefined)).toBe(true);
+    expect(result.tiles.every((tile) => tile.placement_provenance?.origin === "user_declared")).toBe(true);
+  });
+  it.each([
+    ["sami-dr1-seven-position", 7],
+    ["califa-ppak-three-point", 3],
+    ["sdss-manga-19-three-point", 3],
+    ["sdss-manga-37-three-point", 3],
+    ["sdss-manga-61-three-point", 3],
+    ["sdss-manga-91-three-point", 3],
+    ["sdss-manga-127-three-point", 3],
+  ] as const)("expands registered strategy %s from nominal project centers in order", (strategyId, expectedCount) => {
+    const strategy = registry.resolveAnySurveyProfile(strategyId);
+    if (strategy.schema_version !== 3 || !strategy.observing_sequence) throw new Error("Expected a registered sequence-bearing strategy");
+    const sequence = strategy.observing_sequence;
+    expect(sequence.exposures).toHaveLength(expectedCount);
+    const input = { ...source(strategy.instrument_id, 58 / 3600, undefined), strategyId };
+    const polygon = region(0.015);
+    const result = planRegion(polygon, [], undefined, undefined, "complete", registry, undefined, input);
+    expect(result.tiles.length).toBeGreaterThan(0);
+    expect(result.metrics).toMatchObject({ coverage_basis: "nominal_envelope", geometry_basis: "effective_sequence", authoritative_observed_area: false });
+    expect(result.candidate_centers.length).toBeGreaterThanOrEqual(result.tiles.length);
+    result.tiles.forEach((tile) => {
+      expect(tile.output_strategy_id).toBe(strategyId);
+      expect(tile.placement_provenance?.origin).toBe("user_declared");
+      expect(tile.metadata.lattice_i).toBe(tile.placement_provenance?.project_lattice?.i);
+      expect(tile.metadata.lattice_j).toBe(tile.placement_provenance?.project_lattice?.j);
+    });
+    const context: PointingGeometryContext = {
+      coverageBasis: "single_exposure",
+      sequenceForTile: (tile) => tile.output_strategy_id === strategyId
+        ? { id: sequence.id, exposures: sequence.exposures }
+        : undefined,
+    };
+    const expanded = result.tiles.flatMap((tile) => expandPointingExposures(tile, null, registry, context));
+    expect(expanded).toHaveLength(result.tiles.length * sequence.exposures.length);
+    expect(expanded.map(({ parentNominalPointingId, order }) => [parentNominalPointingId, order])).toEqual(
+      result.tiles.flatMap((tile) => sequence.exposures.map((exposure) => [tile.id, exposure.order])),
+    );
+    expect(expanded.map(({ strategyId, sequenceId }) => [strategyId, sequenceId])).toEqual(
+      result.tiles.flatMap(() => sequence.exposures.map(() => [strategyId, sequence.id])),
+    );
+    expect(expanded.map(({ parentLatticeSite }) => parentLatticeSite)).toEqual(
+      result.tiles.flatMap((tile) => sequence.exposures.map(() => ({
+        i: tile.placement_provenance!.project_lattice!.i,
+        j: tile.placement_provenance!.project_lattice!.j,
+      }))),
+    );
+    expect(expanded).toEqual(result.tiles.flatMap((tile) => expandPointingExposures(tile, null, registry, context)));
+  });
+  it("keeps synthetic single-exposure coverage nominal while still expanding observer-facing rows", () => {
+    const local = createBundledProfileRegistry();
+    const realInstrument = local.resolveInstrumentProfile("aat-sami-61core-15arcsec");
+    const realStrategy = local.resolveAnySurveyProfile("sami-dr1-seven-position");
+    if (realInstrument.schema_version !== 3 || realStrategy.schema_version !== 3 || !realStrategy.observing_sequence) {
+      throw new Error("Expected the registered SAMI instrument and strategy");
+    }
+    const sequence = realStrategy.observing_sequence;
+    const instrument: InstrumentProfileV3 = { ...realInstrument, id: "synthetic-single-basis-camera" };
+    const strategy: SurveyProfileV3 = { ...realStrategy, id: "synthetic-single-basis-strategy", instrument_id: instrument.id, coverage_basis_default: "single_exposure" };
+    local.registerInstrumentProfileV3(instrument);
+    local.registerSurveyProfileV3(strategy);
+    const input = { ...source(instrument.id, 58 / 3600, undefined), strategyId: strategy.id };
+    const result = planRegion(region(0.015), [], undefined, undefined, "complete", local, undefined, input);
+    expect(result.metrics.geometry_basis).toBe("single_exposure");
+    expect(result.tiles.length).toBeGreaterThan(0);
+    const context: PointingGeometryContext = {
+      coverageBasis: "single_exposure",
+      sequenceForTile: () => ({ id: sequence.id, exposures: sequence.exposures }),
+    };
+    const expanded = result.tiles.flatMap((tile) => expandPointingExposures(tile, null, local, context));
+    expect(expanded).toHaveLength(result.tiles.length * sequence.exposures.length);
+    expect(expanded.map(({ order }) => order)).toEqual(result.tiles.flatMap(() => [1, 2, 3, 4, 5, 6, 7]));
+  });
+  it("refuses a synthetic target-access sequence as a regional area planner", () => {
+    const local = createBundledProfileRegistry();
+    const targetAccessInstrument = local.resolveInstrumentProfile("subaru-pfs-target-access");
+    const realStrategy = local.resolveAnySurveyProfile("sami-dr1-seven-position");
+    if (targetAccessInstrument.schema_version !== 3 || realStrategy.schema_version !== 3 || !realStrategy.observing_sequence) {
+      throw new Error("Expected registered target-access geometry and SAMI sequence data");
+    }
+    const instrument: InstrumentProfileV3 = {
+      ...targetAccessInstrument,
+      id: "synthetic-target-access-sequence-camera",
+      display_name: "Synthetic target-access sequence test camera",
+      description: "Synthetic association used only to prove sequence presence does not permit area planning.",
+    };
+    const strategy: SurveyProfileV3 = {
+      ...realStrategy,
+      id: "synthetic-target-access-sequence-strategy",
+      instrument_id: instrument.id,
+    };
+    local.registerInstrumentProfileV3(instrument);
+    local.registerSurveyProfileV3(strategy);
+    const input = { ...source(instrument.id), strategyId: strategy.id };
+    expect(() => planRegion(region(0.015), [], undefined, undefined, "complete", local, undefined, input))
+      .toThrow(CoverageUnavailableError);
+  });
+  it.each([
+    ["independent", 17, 17],
+    ["follow_instrument_pa", 45, 45],
+  ] as const)("keeps %s project rotation separate from sky-local sequence offsets", (rotationMode, declaredRotation, resolvedLatticeRotation) => {
+    const local = createBundledProfileRegistry();
+    const realInstrument = local.resolveInstrumentProfile("vlt-muse-wfm");
+    const realStrategy = local.resolveAnySurveyProfile("sami-dr1-seven-position");
+    if (realInstrument.schema_version !== 3 || realStrategy.schema_version !== 3 || !realStrategy.observing_sequence) {
+      throw new Error("Expected the registered SAMI instrument and strategy");
+    }
+    const sequence = realStrategy.observing_sequence;
+    const instrument: InstrumentProfileV3 = {
+      ...realInstrument,
+      id: `synthetic-pa-${rotationMode.replaceAll("_", "-")}-camera`,
+      display_name: "Synthetic PA-policy test camera using MUSE geometry",
+      description: "Synthetic test-only PA policy; geometry remains the registered sourced MUSE footprint.",
+      position_angle: { mode: "per_pointing", required: true },
+    };
+    const strategy: SurveyProfileV3 = {
+      ...realStrategy,
+      id: `synthetic-pa-${rotationMode.replaceAll("_", "-")}-strategy`,
+      instrument_id: instrument.id,
+    };
+    local.registerInstrumentProfileV3(instrument);
+    local.registerSurveyProfileV3(strategy);
+    const input = source(instrument.id, 58 / 3600, 45);
+    input.strategyId = strategy.id;
+    input.placement.rotation = rotationMode === "independent"
+      ? { mode: "independent", rotation_deg: declaredRotation }
+      : { mode: "follow_instrument_pa" };
+    const polygon = region(0.015);
+    const result = planRegion(polygon, [], undefined, undefined, "complete", local, undefined, input);
+    const context: PointingGeometryContext = {
+      coverageBasis: "effective_sequence",
+      orientationPolicyForTile: () => ({ policy: "per_pointing", required: true }),
+      sequenceForTile: () => ({ id: sequence.id, exposures: sequence.exposures }),
+    };
+    const expanded = result.tiles.flatMap((tile) => expandPointingExposures(tile, null, local, context));
+    expect(expanded).toHaveLength(result.tiles.length * sequence.exposures.length);
+    for (const tile of result.tiles) {
+      const site = tile.placement_provenance!.project_lattice!;
+      expect(site.placement.lattice_rotation_deg).toBe(resolvedLatticeRotation);
+      const [east, north] = skyToLocalOffset(tile, site.placement.resolved_origin);
+      const [[e1, n1], [e2, n2]] = site.placement.basis_deg;
+      expect(east).toBeCloseTo(site.i * e1 + site.j * e2, 10);
+      expect(north).toBeCloseTo(site.i * n1 + site.j * n2, 10);
+      const children = expanded.filter((exposure) => exposure.parentNominalPointingId === tile.id);
+      expect(children.map((exposure) => exposure.order)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      children.forEach((exposure) => {
+        expect(exposure.parentLatticeSite).toEqual({ i: site.i, j: site.j });
+        expect(exposure.strategyId).toBe(strategy.id);
+        expect(exposure.positionAngleDeg).toBe(45);
+        const offsetElement = sequence.exposures[exposure.order - 1];
+        expect(exposure.center).toEqual(localOffsetToSky(tile, [offsetElement.east_arcsec / 3600, offsetElement.north_arcsec / 3600]));
+      });
+    }
   });
   it("preserves canonical candidate j/i ordering without mutating placement", () => {
     const input = source(); const before = structuredClone(input.placement); const polygon = region(0.035); const result = run(polygon, input);

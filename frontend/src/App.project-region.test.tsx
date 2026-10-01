@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import * as api from "./api";
+import { profileRegistry } from "./profiles";
 import type { SkyPolygon, TileRecord } from "./types";
 
 vi.mock("./api", async (original) => {
@@ -42,6 +43,19 @@ async function author(preview = false) {
   await user.click(screen.getByRole("button", { name: preview ? "Preview lattice" : "Apply placement" }));
   return user;
 }
+async function authorSequenceProject() {
+  const user = userEvent.setup(); render(<App />);
+  await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "survey:sami-dr1-seven-position");
+  await user.click(screen.getByRole("button", { name: "Small region" }));
+  await user.click(screen.getByRole("radio", { name: "Regional mosaic" }));
+  await user.selectOptions(screen.getByRole("combobox", { name: "Project lattice type" }), "rectangular");
+  await user.type(screen.getByLabelText("East spacing"), "58"); await user.type(screen.getByLabelText("North spacing"), "58");
+  await user.click(screen.getByRole("radio", { name: "Independent" }));
+  await user.type(screen.getByLabelText("Lattice rotation · degrees east of north"), "0");
+  await user.click(screen.getByRole("radio", { name: "Region center" }));
+  await user.click(screen.getByRole("button", { name: "Apply placement" }));
+  return user;
+}
 async function generate(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Generate plan" }));
   await screen.findByRole("button", { name: "Accept proposal" });
@@ -63,6 +77,49 @@ describe("Gate 4 real App project planner integration", () => {
     expect(api.downloadInstrumentCoordinates).toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Clear proposal" }));
     expect(screen.getByTestId("pointings")).toHaveTextContent("[]");
+  });
+  it("keeps SAMI project centers nominal and reports/export ordered exposures separately", async () => {
+    const user = await authorSequenceProject();
+    expect(screen.getByTestId("candidate-sites")).toHaveTextContent("0");
+    const result = await generate(user);
+    const sequence = profileRegistry.resolveAnySurveyProfile("sami-dr1-seven-position");
+    if (sequence.schema_version !== 3 || !sequence.observing_sequence) throw new Error("Expected registered SAMI sequence");
+    expect(sequence.observing_sequence.exposures).toHaveLength(7);
+    expect(result.metrics.geometry_basis).toBe("effective_sequence");
+    expect(result.tiles.length).toBeGreaterThan(0);
+    expect(result.tiles.every((tile) => tile.output_strategy_id === sequence.id && tile.placement_provenance?.origin === "user_declared")).toBe(true);
+    const planCall = vi.mocked(api.planRegion).mock.calls.at(-1)!;
+    expect(planCall[5]).toMatchObject({ coverageBasis: "effective_sequence" });
+    expect(planCall[6]).toMatchObject({ type: "project_lattice", strategyId: sequence.id });
+    expect(screen.getByText(new RegExp(`${result.tiles.length} nominal pointings · ${result.tiles.length * 7} expanded exposures`))).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    await waitFor(() => expect(api.measureCoverage).toHaveBeenCalled());
+    const measureCall = vi.mocked(api.measureCoverage).mock.calls.at(-1)!;
+    expect(measureCall[5]).toMatchObject({ coverageBasis: "effective_sequence" });
+    const accepted = JSON.parse(screen.getByTestId("pointings").textContent!) as TileRecord[];
+    expect(accepted).toHaveLength(result.tiles.length);
+    expect(accepted.map((tile) => tile.placement_provenance?.project_lattice))
+      .toEqual(result.tiles.map((tile) => tile.placement_provenance?.project_lattice));
+    expect(screen.getByText(new RegExp(`${accepted.length} enabled nominal pointings · ${accepted.length * 7} ordered exposures`))).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Export nominal pointings" }));
+    expect(vi.mocked(api.downloadCatalogue).mock.calls.at(-1)?.[5]).toBe("nominal");
+    await user.click(screen.getByRole("button", { name: "Export expanded exposures" }));
+    expect(vi.mocked(api.downloadCatalogue).mock.calls.at(-1)?.[5]).toBe("expanded");
+  });
+  it("preserves the region and project lattice while a strategy association change clears the plan", async () => {
+    const user = await authorSequenceProject();
+    await generate(user);
+    expect(screen.getByText("Proposal preview")).toBeTruthy();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "instrument:aat-sami-61core-15arcsec");
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Export expanded exposures" })).toBeNull();
+    expect(screen.getByLabelText("East spacing")).toHaveValue(58);
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeEnabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "survey:sami-dr1-seven-position");
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "Coverage geometry basis" })).toHaveValue("effective_sequence");
   });
   it("preview includes every selected site and Candidate visibility cannot change inputs, metrics or selection", async () => {
     const user = await author(true); const count = Number(screen.getByTestId("candidate-sites").textContent);

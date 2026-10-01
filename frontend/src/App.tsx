@@ -12,6 +12,7 @@ import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
 import type { AnyProfileDocument, ProfileDocument } from "./profiles/document";
 import { InstrumentProfileEditor } from "./profiles/InstrumentProfileEditor";
 import type { PointingGeometryContext } from "./science/pointing-geometry";
+import type { PointingExportMode } from "./science/export";
 import { resolveFootprintForTile } from "./profiles/footprints";
 import { CoverageUnavailableError } from "./science/coverage";
 import { CoverageReadout as MetricsPanel, PointingAngle, PointingScience, ScientificDetails } from "./ScientificReadouts";
@@ -318,7 +319,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     },
     sequenceForTile: (tile) => {
       const strategyId = tile.output_strategy_id ?? (tile.source === "proposed" && outputContext.kind === "survey" ? outputContext.id : undefined);
-      if (!strategyId || tile.placement_provenance?.origin === "user_declared") return undefined;
+      if (!strategyId) return undefined;
       const strategy = profileRegistry.findAnySurveyProfile(strategyId);
       if (strategy?.schema_version !== 3 || !strategy.observing_sequence) return undefined;
       return { id: strategy.observing_sequence.id, exposures: strategy.observing_sequence.exposures };
@@ -339,6 +340,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     tile.instrument_profile_id === outputInstrumentId && (tile.output_strategy_id ?? null) === outputStrategyId,
   ), [proposals, outputInstrumentId, outputStrategyId]);
   const enabledProposals = useMemo(() => activeOutputProposals.filter((tile) => tile.enabled !== false), [activeOutputProposals]);
+  const expandedExposureCount = (tiles: readonly TileRecord[]) => tiles.reduce((count, tile) =>
+    count + (activePointingGeometryContext.sequenceForTile?.(tile)?.exposures.length ?? 0), 0);
+  const activeExpandedExposureCount = expandedExposureCount(enabledProposals);
+  const pendingExpandedExposureCount = pending ? expandedExposureCount(pending.tiles) : 0;
   const visibleTiles = useMemo(() => [
     ...visibleOriginalTiles,
     ...(planningLayers.proposals ? activeOutputProposals : []),
@@ -421,7 +426,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setActiveMetrics(null);
     void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey?.id,
       usesProjectRegionSource && activeInstrument?.schema_version === 3 ? projectCoverageProfile(activeInstrument) : undefined,
-      usesProjectRegionSource ? { ...activePointingGeometryContext, coverageBasis: "single_exposure" } : activePointingGeometryContext)
+      activePointingGeometryContext)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) {
@@ -631,7 +636,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setProposalContext(null);
     setActiveMetrics(null);
     setScientificRefusal(null);
-    setNotice(`Geometry and export: ${basis === "effective_sequence" ? "effective sequence" : "single exposure"}. Pending preview cleared; nominal pointings retained.`);
+    setNotice(`Coverage geometry: ${basis === "effective_sequence" ? "full sequence footprint" : "single exposure"}. Plan preview cleared; nominal pointings retained.`);
   }
 
   async function handleMeasureGeometry() {
@@ -929,19 +934,22 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setNotice(enabled ? "All pointings for the selected output profile were restored." : "All pointings for the selected output profile were disabled.");
   }
 
-  async function exportFile() {
+  async function exportFile(exportMode: PointingExportMode = "nominal") {
     if (!activeInstrument) {
       setError(activeResolution.error ?? "Select a registered instrument or observing strategy before downloading.");
       return;
     }
     if (exportProblem) { setError(exportProblem); return; }
-    const exportContext = observingSequence && geometryBasis === "single_exposure"
-      ? { ...activePointingGeometryContext, sequenceForTile: undefined } : activePointingGeometryContext;
+    const fileName = !activeSurvey
+      ? "manual_centers.csv"
+      : exportMode === "expanded"
+        ? "new_tiles_expanded_exposures.csv"
+        : observingSequence ? "new_tiles_nominal_pointings.csv" : "new_tiles.csv";
     await runBusy(
       () => activeSurvey
-        ? downloadCatalogue(enabledProposals, activeSurvey.id, exportEpoch, profileRegistry, exportContext)
+        ? downloadCatalogue(enabledProposals, activeSurvey.id, exportEpoch, profileRegistry, activePointingGeometryContext, exportMode)
         : downloadInstrumentCoordinates(enabledProposals, activeInstrument.id, profileRegistry, activePointingGeometryContext),
-      () => setNotice(activeSurvey ? "new_tiles.csv downloaded." : "manual_centers.csv downloaded."),
+      () => setNotice(`${fileName} downloaded.`),
     );
   }
 
@@ -1114,7 +1122,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                 {activeInstrument.schema_version === 3 && <span>PA policy <strong>{paMode === "fixed" ? `Fixed · ${formatDegrees(profilePa!) } east of north` : paMode === "per_pointing" ? `Per pointing${requiredPositionAngle ? " · required" : " · optional"}` : paMode === "user_selected" ? "User selected · plan/session" : "Not applicable · physical PA omitted"}</strong></span>}
                 {activeSurvey && <span>Tiling <strong>{tilingSummary(activeSurvey.tiling)}</strong></span>}
                 {activeSurvey?.schema_version === 3 && activeSurvey.observing_sequence &&
-                  <span>Sequence <strong>{activeSurvey.observing_sequence.exposures.length} ordered exposures</strong></span>}
+                  <span>Sequence <strong>{activeSurvey.observing_sequence.exposures.length} ordered exposures per nominal pointing</strong></span>}
                 {!observingSequence && <span>Sequence <strong>No observing sequence selected</strong></span>}
                 {activeInstrument.schema_version !== 3 && (activeSurvey?.description || activeInstrument.description) &&
                   <p className="fine-print">{activeSurvey?.description ?? activeInstrument.description}</p>}
@@ -1137,13 +1145,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <span className="scientific-help">{paMode === "user_selected" ? "Used for new pointings. Previewed and accepted pointings retain their PA when this value changes." : "Used for the next sky click. Each pointing retains its PA; pasted batches require an explicit common-PA choice."}</span>
             </label>}
             {observingSequence && <div className="scientific-control">
-              <label className="field-label" htmlFor="sequence-basis">Geometry and export basis</label>
+              <label className="field-label" htmlFor="sequence-basis">Coverage geometry basis</label>
               <select id="sequence-basis" className="profile-select" value={geometryBasis} disabled={busy}
                 onChange={(event) => changeSequenceBasis(event.target.value as "single_exposure" | "effective_sequence")}>
                 <option value="single_exposure">Single exposure</option>
                 <option value="effective_sequence">Full sequence footprint</option>
               </select>
-              <p className="scientific-help">Effective sequence is the geometric union of {observingSequence.exposures.length} exposures. Each proposal remains one nominal pointing.</p>
+              <p className="scientific-help">Coverage uses the selected geometry. Proposal review stays nominal; export offers separate nominal-pointing and exposure files.</p>
             </div>}
             {activeSurvey && <p className="scientific-help">Measurement basis: {activeInstrument?.schema_version !== 3 ? "Legacy survey coverage" : activeInstrument.footprint_semantics.role === "observed_area" ? "Observed-area geometry" : activeInstrument.footprint_semantics.role === "nominal_envelope" ? "Nominal envelope overlap" : "Target access · area coverage unsupported"}.</p>}
           </section>
@@ -1441,7 +1449,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           {pending && (
             <section className="panel-section proposal-section">
               <SectionHeading title="Proposal preview" trailing="REVIEW" />
-              <p className="scientific-help">{activeInstrument?.display_name}{activeSurvey ? ` · ${activeSurvey.display_name}` : " · standalone instrument"}{observingSequence && pending.solution !== "project_lattice" ? ` · ${geometryBasis === "effective_sequence" ? "Effective sequence" : "Single exposure"} · ${observingSequence.exposures.length} exposures per sequence` : ""}. {pending.tiles.length} nominal pointings.</p>
+              <p className="scientific-help">{activeInstrument?.display_name}{activeSurvey ? ` · ${activeSurvey.display_name}` : " · standalone instrument"}{observingSequence ? ` · ${observingSequence.exposures.length} ordered exposures per nominal pointing` : ""}. {pending.tiles.length} nominal pointings{observingSequence ? ` · ${pendingExpandedExposureCount} expanded exposures` : ""}.</p>
               <div className="solution-stamp">
                 <span className={pending.solution === "extended_existing_grid" ? "stamp-dot is-extended" : "stamp-dot"} />
                 <strong>{solutionLabel(pending.solution)}</strong>
@@ -1503,12 +1511,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           </section>
 
           <section className="panel-section export-section">
-            <SectionHeading title={activeSurvey ? "Export new tiles" : "Export instrument centers"} />
+            <SectionHeading title={observingSequence ? "Export pointings or exposures" : activeSurvey ? "Export new tiles" : "Export instrument centers"} />
             <p className="panel-copy">{activeOutputProposals.length} generated · {enabledProposals.length} enabled · {activeOutputProposals.length - enabledProposals.length} disabled</p>
             <div className="export-fields">
-              {observingSequence && <p className="scientific-help">{activeSurvey?.display_name} · {geometryBasis === "effective_sequence"
-                ? `Expanded sequence rows: ${enabledProposals.reduce((count, tile) => count + (tile.placement_provenance?.origin === "user_declared" ? 1 : observingSequence.exposures.length), 0)} total. Project lattice pointings retain one nominal row.`
-                : `Nominal pointings: one row per pointing (${enabledProposals.length} rows).`}</p>}
+              {observingSequence && <p className="scientific-help">{activeSurvey?.display_name} · {enabledProposals.length} enabled nominal pointings · {activeExpandedExposureCount} ordered exposures.</p>}
               {activeSurvey
                 ? <p className="field-label">Coordinates: {activeSurvey.export.coordinate_format === "sexagesimal" ? "Sexagesimal hours / degrees" : "Decimal degrees"} (selected survey policy)</p>
                 : <p className="field-label">Coordinates: ICRS decimal degrees · generic instrument-only format</p>}
@@ -1519,11 +1525,18 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               </label>}
             </div>
             {exportProblem && <p className="profile-validation-error" role="alert">{exportProblem}</p>}
-            <button className="button button-download button-full" onClick={() => void exportFile()} disabled={!enabledProposals.length || !activeInstrument || Boolean(exportProblem) || (Boolean(activeSurvey) && !profile) || busy}>
+            {observingSequence ? <>
+              <button className="button button-download button-full" onClick={() => void exportFile("nominal")} disabled={!enabledProposals.length || !activeInstrument || Boolean(exportProblem) || (Boolean(activeSurvey) && !profile) || busy}>
+                <Icon name="download" /> Export nominal pointings
+              </button>
+              <button className="button button-quiet button-full" onClick={() => void exportFile("expanded")} disabled={!enabledProposals.length || !activeInstrument || Boolean(exportProblem) || (Boolean(activeSurvey) && !profile) || busy}>
+                <Icon name="download" /> Export expanded exposures
+              </button>
+            </> : <button className="button button-download button-full" onClick={() => void exportFile("nominal")} disabled={!enabledProposals.length || !activeInstrument || Boolean(exportProblem) || (Boolean(activeSurvey) && !profile) || busy}>
               <Icon name="download" /> Download {activeSurvey ? "new_tiles.csv" : "manual_centers.csv"}
-            </button>
+            </button>}
             <p className="fine-print">{activeSurvey
-              ? `${activeSurvey.display_name} · ICRS ${activeSurvey.export.ra_column}/${activeSurvey.export.dec_column}${activeSurvey.export.epoch ? ` · ${activeSurvey.export.epoch.column} ${exportEpoch ?? activeSurvey.export.epoch.default}` : " · no epoch column"}. Enabled pointings for this strategy only.`
+              ? `${activeSurvey.display_name} · ICRS ${activeSurvey.export.ra_column}/${activeSurvey.export.dec_column}${activeSurvey.export.epoch ? ` · ${activeSurvey.export.epoch.column} ${exportEpoch ?? activeSurvey.export.epoch.default}` : " · no epoch column"}. ${observingSequence ? "Nominal and expanded files are separate; exposure rows follow pointing order, then sequence order." : "Enabled pointings for this strategy only."}`
               : `${activeInstrument?.id ?? "Selected instrument"} · includes placement origin and declared PA when applicable. No epoch, survey constants, or exposure-sequence expansion. Enabled pointings for this instrument only.`}</p>
           </section>
         </aside>

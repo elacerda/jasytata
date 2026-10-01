@@ -612,7 +612,9 @@ export function excludeOccupied(centers: readonly Center[], tiles: readonly Tile
  * @param geometryContext - Optional runtime PA and exposure-union policy. Context callbacks
  *   receive nominal candidates before final proposal IDs are assigned; resolve policy from
  *   scientific attributes such as center and profile rather than the temporary candidate ID.
- * @param projectSource - Optional canonical project inputs; skips survey placement/inference only.
+ * @param projectSource - Optional canonical project placement; supplies nominal
+ *   candidates while the associated strategy continues to supply sequence and
+ *   coverage semantics.
  * @returns Deterministic proposal, candidates, diagnostics, and sampled metrics.
  * @throws If tiling is manual, Efficient policy is absent, attempted generic inference fails, profiles/region are invalid, or budgets are exceeded.
  */
@@ -628,7 +630,7 @@ export function planRegion(
 ): RegionPlanResponse {
   validatePolygon(polygon);
   if (existingTiles.length > 20_000) throw new Error("Too many existing tiles");
-  if (projectSource) return planProjectCandidateSource(polygon, existingTiles, strategy, registry, projectSource);
+  if (projectSource) return planProjectCandidateSource(polygon, existingTiles, strategy, registry, projectSource, geometryContext);
   const { profile, tiling, efficientPolicy } = resolvePlanningProfile(profileId, inlineProfile, registry);
   if (tiling.type === "manual") {
     throw new Error(`Survey profile "${profile.id}" uses manual tiling and does not define an automatic tiling strategy.`);
@@ -808,7 +810,7 @@ export interface ProjectLatticeCandidateSource {
   placement: LatticeProjectPlacement;
   /** Explicit physical instrument PA in degrees east of north, independent of lattice rotation. */
   positionAngleDeg?: number;
-  /** Association only; project placement never derives an observing sequence. */
+  /** Real strategy association, independent of project placement and its lattice. */
   strategyId?: string;
 }
 
@@ -826,14 +828,19 @@ interface CanonicalLatticeSource {
 function planProjectCandidateSource(
   polygon: SkyPolygon, existingTiles: TileRecord[], strategy: CoverageStrategy,
   registry: ProfileRegistry, source: ProjectLatticeCandidateSource,
+  geometryContext?: PointingGeometryContext,
 ): RegionPlanResponse {
   const instrument = registry.resolveInstrumentProfile(source.instrumentId);
   if (instrument.schema_version !== 3) throw new Error("Project regional planning requires declared v3 footprint semantics.");
   const basis = instrument.footprint_semantics.role;
   if (basis === "target_access") throw new CoverageUnavailableError({ coverage_basis: basis, coverage_status: "unsupported_basis" });
-  if (source.strategyId && registry.resolveAnySurveyProfile(source.strategyId).instrument_id !== instrument.id) {
+  const selectedStrategy = source.strategyId ? registry.resolveAnySurveyProfile(source.strategyId) : undefined;
+  if (selectedStrategy && selectedStrategy.instrument_id !== instrument.id) {
     throw new Error("Selected observing strategy does not belong to the project instrument.");
   }
+  const defaultCoverageBasis = selectedStrategy?.schema_version === 3
+    ? selectedStrategy.coverage_basis_default
+    : "single_exposure";
   const profile = projectCoverageProfile(instrument);
   const seed: TileRecord = {
     id: "project-candidate", name: "", ra_deg: 0, dec_deg: 0, source: "proposed", enabled: true,
@@ -843,15 +850,25 @@ function planProjectCandidateSource(
     ...(instrument.position_angle.mode === "user_selected" && source.positionAngleDeg !== undefined ? { output_position_angle_deg: source.positionAngleDeg } : {}),
   };
   const context: PointingGeometryContext = {
-    measurementBasis: basis, coverageBasis: "single_exposure", sequenceForTile: () => undefined,
-    orientationPolicyForTile: (tile) => {
+    ...geometryContext,
+    measurementBasis: basis,
+    coverageBasis: geometryContext?.coverageBasis ?? defaultCoverageBasis,
+    sequenceForTile: geometryContext?.sequenceForTile ?? ((tile) => {
+      const strategyId = tile.output_strategy_id ?? (tile.source === "original" ? undefined : source.strategyId);
+      if (!strategyId) return undefined;
+      const tileStrategy = registry.findAnySurveyProfile(strategyId);
+      return tileStrategy?.schema_version === 3 && tileStrategy.observing_sequence
+        ? { id: tileStrategy.observing_sequence.id, exposures: tileStrategy.observing_sequence.exposures }
+        : undefined;
+    }),
+    orientationPolicyForTile: geometryContext?.orientationPolicyForTile ?? ((tile) => {
       const active = tile.instrument_profile_id ? registry.resolveInstrumentProfile(tile.instrument_profile_id) : instrument;
       return active.schema_version === 3 ? {
         policy: active.position_angle.mode, required: active.position_angle.required,
         ...(active.position_angle.mode === "user_selected" && tile.output_position_angle_deg !== undefined
           ? { plan_position_angle_deg: tile.output_position_angle_deg } : {}),
       } : undefined;
-    },
+    }),
   };
   const resolved = resolveFootprintForTile(seed, profile, registry, context.orientationPolicyForTile?.(seed));
   if (instrument.position_angle.mode === "per_pointing" && resolved.resolved_position_angle_deg !== undefined) seed.position_angle_deg = resolved.resolved_position_angle_deg;

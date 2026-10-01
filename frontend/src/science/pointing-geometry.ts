@@ -19,6 +19,37 @@ export interface PointingGeometry {
   position_angle_deg?: number;
 }
 
+/** Physical exposure derived from one nominal pointing and a registered strategy.
+ *
+ * Coordinates are ICRS decimal degrees. Exposure offsets remain sky-local east
+ * and north arcseconds from the parent nominal center; project-lattice identity
+ * records the parent site and does not transform those offsets.
+ */
+export interface ExpandedPointingExposure {
+  /** Stable identity scoped to the parent nominal pointing and sequence element. */
+  id: string;
+  /** ID of the accepted or selected nominal pointing that owns this exposure. */
+  parentNominalPointingId: string;
+  /** Project-lattice site identity when the parent came from user placement. */
+  parentLatticeSite?: { i: number; j: number };
+  /** Registered observing strategy associated with the parent pointing. */
+  strategyId: string;
+  /** Registered ordered sequence identity. */
+  sequenceId: string;
+  /** One-based position in the registered exposure sequence. */
+  order: number;
+  /** East offset from the nominal center, in arcseconds. */
+  eastOffsetArcsec: number;
+  /** North offset from the nominal center, in arcseconds. */
+  northOffsetArcsec: number;
+  /** Exposure rotation relative to the nominal resolved PA, in degrees. */
+  relativeRotationDeg: number;
+  /** Resolved exposure center as `[RA, DEC]` in ICRS decimal degrees. */
+  center: [number, number];
+  /** Resolved absolute astronomical PA in degrees east of north, when declared. */
+  positionAngleDeg?: number;
+}
+
 /** Runtime choices for interpreting pointing orientation and optional exposures.
  *
  * The context is intentionally caller-owned and is not part of profile, tile, or
@@ -90,6 +121,68 @@ export function resolvePointingGeometries(
     footprint: withFootprintPositionAngle(resolved.footprint, exposure.geometryPositionAngleDeg),
     ...(exposure.positionAngleDeg === undefined ? {} : { position_angle_deg: exposure.positionAngleDeg }),
   }));
+}
+
+/** Expand one nominal pointing through its associated registered sequence.
+ *
+ * Expansion always uses the effective sequence geometry while leaving the
+ * caller's coverage basis unchanged. The profile sequence supplies ordered
+ * offsets; the parent tile supplies its stable identity and optional project
+ * lattice site. No project-lattice rotation is applied to sequence offsets.
+ *
+ * @param tile - Nominal ICRS pointing and provenance.
+ * @param profile - Active survey profile, or null when the tile identifies its
+ *   registered instrument.
+ * @param registry - Session-local validated instrument and strategy registry.
+ * @param context - Resolved PA and sequence lookup policy for the tile.
+ * @param strategyId - Registered strategy association; defaults to the tile's
+ *   `output_strategy_id`.
+ * @returns Ordered physical exposures, or an empty array when the tile has no
+ *   registered sequence.
+ * @throws If an exposure sequence has no strategy association or its resolved
+ *   geometry does not match its ordered source elements.
+ */
+export function expandPointingExposures(
+  tile: TileRecord,
+  profile: TilingProfile | null,
+  registry: ProfileRegistry = profileRegistry,
+  context?: PointingGeometryContext,
+  strategyId = tile.output_strategy_id ?? undefined,
+): ExpandedPointingExposure[] {
+  const sequence = context?.sequenceForTile?.(tile);
+  if (!sequence) return [];
+  if (!strategyId) throw new Error("Expanded exposures require a registered strategy association.");
+
+  const geometries = resolvePointingGeometries(tile, profile, registry, {
+    ...context,
+    coverageBasis: "effective_sequence",
+    sequenceForTile: () => sequence,
+  });
+  if (geometries.length !== sequence.exposures.length) {
+    throw new Error("Resolved exposure geometry does not match the registered sequence length.");
+  }
+  const site = tile.placement_provenance?.origin === "user_declared"
+    ? tile.placement_provenance.project_lattice
+    : undefined;
+  return sequence.exposures.map((offset, index) => {
+    const geometry = geometries[index];
+    if (geometry.order !== offset.order) {
+      throw new Error("Resolved exposure geometry does not match the registered sequence order.");
+    }
+    return {
+      id: `${tile.id}:${sequence.id}:${offset.order}`,
+      parentNominalPointingId: tile.id,
+      ...(site ? { parentLatticeSite: { i: site.i, j: site.j } } : {}),
+      strategyId,
+      sequenceId: sequence.id,
+      order: offset.order,
+      eastOffsetArcsec: offset.east_arcsec,
+      northOffsetArcsec: offset.north_arcsec,
+      relativeRotationDeg: offset.rotation_deg ?? 0,
+      center: [geometry.center[0], geometry.center[1]],
+      ...(geometry.position_angle_deg === undefined ? {} : { positionAngleDeg: geometry.position_angle_deg }),
+    };
+  });
 }
 
 /** Test whether any selected geometry in one nominal pointing intersects a region.

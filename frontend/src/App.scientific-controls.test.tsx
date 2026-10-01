@@ -164,21 +164,24 @@ describe("Gate 7B scientific browser controls", () => {
     expect(await blobText(downloads[0])).toContain("91.00000000");
   });
 
-  it("uses one nominal SAMI pointing, controls geometry/metrics/export basis, and omits nonphysical PA", async () => {
+  it("keeps one nominal SAMI pointing and offers separate nominal and expanded exports", async () => {
     const u = user(); render(<App />); await select(u, "survey:sami-dr1-seven-position");
-    const basis = screen.getByRole("combobox", { name: "Geometry and export basis" });
+    const basis = screen.getByRole("combobox", { name: "Coverage geometry basis" });
     expect(basis).toHaveValue("effective_sequence"); expect(screen.queryByRole("spinbutton")).toBeNull();
     await place(u); expect(pointings()).toHaveLength(1);
     expect(resolvePointingGeometries(pointings()[0], null, session.registry!, session.map!.pointingGeometryContext)).toHaveLength(7);
     expect(document.querySelectorAll(".proposal-row")).toHaveLength(1);
     expect(document.querySelector(".proposal-section")).not.toHaveTextContent("PA 0");
-    await accept(u); await u.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
-    const expanded = readCsv(await blobText(downloads[0])); expect(expanded).toHaveLength(8); expect(expanded[0]).not.toContain("POSITION_ANGLE_DEG");
+    await accept(u); await u.click(screen.getByRole("button", { name: "Export nominal pointings" }));
+    const nominal = readCsv(await blobText(downloads[0])); expect(nominal).toHaveLength(2);
+    expect(nominal[1].slice(0, 2)).toEqual(["150.00000000", "0.00000000"]);
+    await u.click(screen.getByRole("button", { name: "Export expanded exposures" }));
+    const expanded = readCsv(await blobText(downloads[1])); expect(expanded).toHaveLength(8); expect(expanded[0]).not.toContain("POSITION_ANGLE_DEG");
     await u.selectOptions(basis, "single_exposure");
     expect(pointings()).toHaveLength(1);
     expect(resolvePointingGeometries(pointings()[0], null, session.registry!, session.map!.pointingGeometryContext)).toHaveLength(1);
-    await u.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
-    expect(readCsv(await blobText(downloads[1]))).toHaveLength(2);
+    await u.click(screen.getByRole("button", { name: "Export expanded exposures" }));
+    expect(readCsv(await blobText(downloads[2]))).toHaveLength(8);
     await u.click(screen.getByRole("button", { name: "Scientific region" }));
     await waitFor(() => expect(screen.getAllByText("Nominal envelope overlap").find((node) => node.tagName === "SPAN")?.closest(".metric-row")).toBeTruthy());
     expect(document.querySelector(".scientific-coverage")).toHaveTextContent("Approximate");
@@ -190,7 +193,7 @@ describe("Gate 7B scientific browser controls", () => {
     await waitFor(() => expect(document.querySelector(".scientific-coverage")).toHaveTextContent("Effective sequence · geometric union only"));
     expect(pointings()).toHaveLength(1);
     await select(u, "instrument:aat-sami-61core-15arcsec");
-    expect(screen.queryByRole("combobox", { name: "Geometry and export basis" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Coverage geometry basis" })).toBeNull();
     expect(session.map!.pointingGeometryContext.sequenceForTile?.({ ...pointings()[0], source: "proposed" } as TileRecord)).toBeUndefined();
   });
 
@@ -242,7 +245,7 @@ describe("Gate 7B scientific browser controls", () => {
 
   it("resets a strategy-specific sequence basis while preserving the active strategy", async () => {
     const u = user(); render(<App />); await select(u, "survey:sami-dr1-seven-position");
-    const basis = screen.getByRole("combobox", { name: "Geometry and export basis" });
+    const basis = screen.getByRole("combobox", { name: "Coverage geometry basis" });
     await u.selectOptions(basis, "single_exposure");
     expect(basis).toHaveValue("single_exposure");
 
@@ -250,7 +253,7 @@ describe("Gate 7B scientific browser controls", () => {
     await u.click(screen.getByRole("button", { name: "Discard and start new" }));
 
     expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:sami-dr1-seven-position");
-    expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
+    expect(screen.getByRole("combobox", { name: "Coverage geometry basis" })).toHaveValue("effective_sequence");
     expect(within(screen.getByLabelText("Active survey summary")).getByText("Manual target centers + 7-exposure sequence")).toBeVisible();
   });
 
@@ -307,7 +310,7 @@ describe("Gate 7B scientific browser controls", () => {
     expect(screen.queryByRole("radio", { name: /Complete coverage|Efficient coverage/ })).toBeNull();
     expect(screen.getByRole("button", { name: /^Single tile/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /^Import centers/ })).toBeEnabled();
-    expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
+    expect(screen.getByRole("combobox", { name: "Coverage geometry basis" })).toHaveValue("effective_sequence");
     await place(u); await accept(u);
     expect(pointings()).toHaveLength(1);
     expect(pointings()[0].output_strategy_id).toBe(id);
@@ -357,8 +360,8 @@ describe("Gate 7B scientific browser controls", () => {
     expect(screen.queryByRole("radio", { name: /Efficient coverage/ })).toBeNull();
     expect(screen.getByRole("button", { name: /^Measure area/ })).toBeEnabled();
     expect(screen.getByText(/not a regional tiling policy/)).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
-    await u.selectOptions(screen.getByRole("combobox", { name: "Geometry and export basis" }), "single_exposure");
+    expect(screen.getByRole("combobox", { name: "Coverage geometry basis" })).toHaveValue("effective_sequence");
+    await u.selectOptions(screen.getByRole("combobox", { name: "Coverage geometry basis" }), "single_exposure");
     await place(u); await accept(u); session.width = 0.3;
     await u.click(screen.getByRole("button", { name: "Scientific region" }));
     await screen.findByText("Coverage unavailable at required resolution");
@@ -372,7 +375,7 @@ describe("Gate 7B scientific browser controls", () => {
     expect(screen.getByText("4 vertices · finalized")).toBeVisible();
     expect(document.querySelector(".scientific-coverage")).toBeNull();
     await select(u, "survey:sami-dr1-seven-position");
-    expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
+    expect(screen.getByRole("combobox", { name: "Coverage geometry basis" })).toHaveValue("effective_sequence");
     await select(u, "instrument:keck-kcwi-small"); expect(pointings()).toEqual([identity]);
   });
 
