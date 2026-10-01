@@ -179,7 +179,7 @@ describe("minimal browser profile file controls", () => {
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await waitFor(() => expect(apiSession.planRegion).toHaveBeenCalled());
-    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.objectContaining({ vertices: expect.any(Array) }), [], "small-survey", undefined, "complete", expect.any(Object));
+    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.objectContaining({ vertices: expect.any(Array) }), [], "small-survey", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal));
     expect(await screen.findByText("No catalogue is loaded; the active survey supplies the grid for this new project.")).toBeTruthy();
 
     await user.selectOptions(selector, "survey:splus-t80-south");
@@ -738,7 +738,7 @@ describe("minimal browser profile file controls", () => {
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await screen.findByText("Proposal preview");
-    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.anything(), [], "browser-survey", undefined, "complete", expect.any(Object));
+    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.anything(), [], "browser-survey", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal));
     const plan = await apiSession.planRegion.mock.results[0].value as RegionPlanResponse;
     expect(plan.solution).toBe("declared_lattice"); expect(plan.tiles.length).toBeGreaterThan(0);
     await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n150,-30\n", "assign.csv"));
@@ -836,7 +836,7 @@ describe("minimal browser profile file controls", () => {
     await user.click(await screen.findByRole("button", { name: "Accept proposal" }));
     const plan = await apiSession.planRegion.mock.results[0].value as RegionPlanResponse;
     expect(plan.tiles.length).toBeGreaterThan(0);
-    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.anything(), [], "export-survey", undefined, "complete", expect.any(Object));
+    expect(apiSession.planRegion).toHaveBeenLastCalledWith(expect.anything(), [], "export-survey", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal));
     expect(plan.tiles.every((tile) => tile.original_values === null && !Object.hasOwn(tile.metadata, "PID"))).toBe(true);
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/ }));
     await waitFor(() => expect(downloads.blobs).toHaveLength(1));

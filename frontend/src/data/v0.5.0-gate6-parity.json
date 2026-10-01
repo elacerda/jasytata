@@ -1,0 +1,231 @@
+{
+  "baseline_commit": "8512ac9bebf1eca7f84fcaeaf59cdc7b5e9ae5db",
+  "plans": [
+    {
+      "id": "muse-dense",
+      "strategy": "complete",
+      "expected_sha256": "8e85364aa795778683878ddc507d9436a944e26b0596deb73749db2c8cadcf69",
+      "expanded_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "candidates": 323,
+      "selected": 113,
+      "samples": 3577,
+      "stop": "coverage_complete"
+    },
+    {
+      "id": "muse-dense",
+      "strategy": "efficient",
+      "expected_sha256": "f507e47a42becb284a8cd9240c512a9beed2619953ac783932bf26cec93b55f2",
+      "expanded_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "candidates": 323,
+      "selected": 100,
+      "samples": 3577,
+      "stop": "marginal_efficiency"
+    },
+    {
+      "id": "kcwi-high-dec",
+      "strategy": "complete",
+      "expected_sha256": "ccc62c3ddf66512d6bc1955d8a2d8f260995800584ccd9ec4ca8359421f6ff59",
+      "expanded_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "candidates": 181,
+      "selected": 14,
+      "samples": 1470,
+      "stop": "coverage_complete"
+    },
+    {
+      "id": "kcwi-high-dec",
+      "strategy": "efficient",
+      "expected_sha256": "2fce86a371eb7f18e4519729d3de1e774ebb552f4aa679c6f02577dd80dde904",
+      "expanded_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "candidates": 181,
+      "selected": 14,
+      "samples": 1470,
+      "stop": "coverage_complete"
+    },
+    {
+      "id": "decam-ra-wrap",
+      "strategy": "complete",
+      "expected_sha256": "56c9d8205926acc57a698983373125ce05cca2bc0fecffd49964d621f2d57a98",
+      "expanded_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "candidates": 19,
+      "selected": 5,
+      "samples": 117,
+      "stop": "coverage_complete"
+    },
+    {
+      "id": "decam-ra-wrap",
+      "strategy": "efficient",
+      "expected_sha256": "02cd87b0f0af850b867e969fbcde7486e88cbdb49b534b5f0784ca5e1158c552",
+      "expanded_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "candidates": 19,
+      "selected": 5,
+      "samples": 117,
+      "stop": "coverage_complete"
+    },
+    {
+      "id": "sami-effective-sequence",
+      "strategy": "complete",
+      "expected_sha256": "fcfcd22754620bbdf41a593f625fe5abc4d4c40e81799da56c9f24d732d17145",
+      "expanded_sha256": "62b0a475969e25ab3b179bbf5bd358c706a62faead266f23bab53e1471638a9c",
+      "candidates": 41,
+      "selected": 29,
+      "samples": 841,
+      "stop": "coverage_complete"
+    },
+    {
+      "id": "sami-effective-sequence",
+      "strategy": "efficient",
+      "expected_sha256": "c185e6dd764fd7572181390c595186f72ba9c83dc21bd5a8bba48dc6a5f7a550",
+      "expanded_sha256": "62b0a475969e25ab3b179bbf5bd358c706a62faead266f23bab53e1471638a9c",
+      "candidates": 41,
+      "selected": 29,
+      "samples": 841,
+      "stop": "coverage_complete"
+    }
+  ],
+  "grids": [
+    {
+      "id": "compound",
+      "grid_sha256": "d7dd9fc3c570dd1bf8dc2d0067c0b284588b2e58946129bd51e081ba95b5a318",
+      "mask_sha256": "8bb70d8abe6bf9bdd2587eab7e374bf80d2903503d9121f14438e02162ef588c"
+    },
+    {
+      "id": "high-resolution",
+      "grid_sha256": "1e54dbd3ff617ff7ad03b9af9ed6f31195da7376da1fe3cc94f73f70da4e1840",
+      "mask_sha256": "b5d684e61742a6696edf83e2ca9e386b6bee34b538da303fd92b14d7f8382841"
+    },
+    {
+      "id": "wrap",
+      "grid_sha256": "c0978d331226b02979cd5facc5f0bf66188d68daffa24e6a88a0edfb1b5e9165",
+      "mask_sha256": "d9c79ceba96f253c3de82fc472f72ce77b270abffb91f48fe3bec4640e0ff56d"
+    },
+    {
+      "id": "high-dec",
+      "grid_sha256": "81e48b1f4c0fca81c26372fedee63352444d8fd183d6b070dd2d63b43b2557cc",
+      "mask_sha256": "ee848336acf4ca54c3310a1a49a832b6be313c567cbaedf255714e62762bdf7c"
+    }
+  ],
+  "lattice_sha256": "41c66c09006b392ec25fae7ee42d90e2a419de027f4c0af90c7a94ed6a650138",
+  "areas": [
+    {
+      "id": "mixed-rotated",
+      "footprint": {
+        "type": "compound",
+        "position_angle_deg": 31,
+        "components": [
+          {
+            "offset_deg": [
+              -0.02,
+              0
+            ],
+            "rotation_deg": 17,
+            "footprint": {
+              "type": "rectangle",
+              "width_deg": 0.035,
+              "height_deg": 0.02
+            }
+          },
+          {
+            "offset_deg": [
+              0.02,
+              0.005
+            ],
+            "footprint": {
+              "type": "circle",
+              "radius_deg": 0.012
+            }
+          },
+          {
+            "offset_deg": [
+              0,
+              -0.015
+            ],
+            "footprint": {
+              "type": "polygon",
+              "vertices_deg": [
+                [
+                  -0.01,
+                  -0.01
+                ],
+                [
+                  0.015,
+                  -0.01
+                ],
+                [
+                  0,
+                  0.01
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "area_deg2": 0.0014023904236559104
+    },
+    {
+      "id": "overlapping-rotated-detectors",
+      "footprint": {
+        "type": "compound",
+        "position_angle_deg": 90,
+        "components": [
+          {
+            "offset_deg": [
+              0,
+              0
+            ],
+            "footprint": {
+              "type": "rectangle",
+              "width_deg": 0.03,
+              "height_deg": 0.02
+            }
+          },
+          {
+            "offset_deg": [
+              0.005,
+              0.003
+            ],
+            "rotation_deg": -45,
+            "footprint": {
+              "type": "rectangle",
+              "position_angle_deg": 21,
+              "width_deg": 0.02,
+              "height_deg": 0.02
+            }
+          }
+        ]
+      },
+      "area_deg2": 0.0006657446418606538
+    },
+    {
+      "id": "rotated-circles",
+      "footprint": {
+        "type": "compound",
+        "position_angle_deg": 90,
+        "components": [
+          {
+            "offset_deg": [
+              0,
+              0
+            ],
+            "rotation_deg": 17,
+            "footprint": {
+              "type": "circle",
+              "radius_deg": 0.01
+            }
+          },
+          {
+            "offset_deg": [
+              0.005,
+              0.003
+            ],
+            "rotation_deg": 45,
+            "footprint": {
+              "type": "circle",
+              "radius_deg": 0.01
+            }
+          }
+        ]
+      },
+      "area_deg2": 0.00042910562753677373
+    }
+  ]
+}

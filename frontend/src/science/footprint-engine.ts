@@ -125,7 +125,8 @@ export function footprintBoundary(
  * 1/4096 of its local bounding-box scale.
  *
  * @param footprint - Validated Schema v2 footprint centered on `(0, 0)`.
- * @returns Physical footprint area in square degrees.
+ * @returns Physical footprint area in square degrees. Immutable union rotations
+ *   are prepared within this call; integration depth and sum order are unchanged.
  */
 export function footprintArea(footprint: Footprint): number {
   if (footprint.type === "rectangle") return footprint.width_deg * footprint.height_deg;
@@ -616,7 +617,27 @@ function distanceToSegment(point: LocalFootprintPoint, start: LocalFootprintPoin
 
 function signedClearance(primitive: PrimitiveFootprint, point: LocalFootprintPoint): number {
   const intrinsic = rotateLocalOffset(subtract(point, primitive.center), -primitive.positionAngleDeg);
-  const shape = primitive.footprint;
+  return shapeSignedClearance(primitive.footprint, intrinsic);
+}
+
+/** Prepare the exact inverse rotation once for an immutable union primitive. */
+function createPrimitiveClearanceTester(primitive: PrimitiveFootprint): (point: LocalFootprintPoint) => number {
+  const angle = normalizedAngle(-primitive.positionAngleDeg);
+  const angleRad = radians(angle);
+  let cosine = Math.cos(angleRad);
+  let sine = Math.sin(angleRad);
+  if (Math.abs(cosine) < 1e-15) cosine = 0;
+  if (Math.abs(sine) < 1e-15) sine = 0;
+  return (point) => {
+    const east = point[0] - primitive.center[0];
+    const north = point[1] - primitive.center[1];
+    const intrinsic: LocalFootprintPoint = angle === 0 ? [east, north]
+      : [east * cosine + north * sine, north * cosine - east * sine];
+    return shapeSignedClearance(primitive.footprint, intrinsic);
+  };
+}
+
+function shapeSignedClearance(shape: NonCompoundFootprint, intrinsic: LocalFootprintPoint): number {
   if (shape.type === "circle") return shape.radius_deg - Math.hypot(intrinsic[0], intrinsic[1]);
   if (shape.type === "rectangle") {
     const east = shape.width_deg / 2 - Math.abs(intrinsic[0]);
@@ -666,10 +687,14 @@ function compoundUnionArea(primitives: readonly PrimitiveFootprint[]): number {
   const height = bounds.maxNorth - bounds.minNorth;
   if (width <= 0 || height <= 0) return 0;
 
+  // No union approximation changes: only immutable inverse rotations and the
+  // temporary map/spread allocation are removed from the same ordered recursion.
+  const clearanceTesters = primitives.map(createPrimitiveClearanceTester);
   const integrate = (minEast: number, minNorth: number, maxEast: number, maxNorth: number, depth: number): number => {
     const center: LocalFootprintPoint = [(minEast + maxEast) / 2, (minNorth + maxNorth) / 2];
     const halfDiagonal = Math.hypot((maxEast - minEast) / 2, (maxNorth - minNorth) / 2);
-    const clearance = Math.max(...primitives.map((primitive) => signedClearance(primitive, center)));
+    let clearance = -Infinity;
+    for (const test of clearanceTesters) clearance = Math.max(clearance, test(center));
     const area = (maxEast - minEast) * (maxNorth - minNorth);
     if (clearance >= halfDiagonal) return area;
     if (clearance <= -halfDiagonal) return 0;

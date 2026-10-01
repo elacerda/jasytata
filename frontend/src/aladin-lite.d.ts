@@ -19,7 +19,8 @@ declare module "aladin-lite" {
 
   /** Graphic overlay for ICRS tile outlines and lattice positions. */
   export interface AladinLiteOverlay {
-    add(shape: unknown): void;
+    /** Append a shape; false batches repaint until reportChange is called. */
+    add(shape: unknown, redraw?: boolean): void;
     removeAll(): void;
     /** Schedule canvas repaint after removing shapes without adding replacements. */
     reportChange(): void;

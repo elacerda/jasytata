@@ -35,9 +35,9 @@ vi.mock("aladin-lite", () => ({ default: {
       shapes: [] as unknown[], painted: [] as unknown[],
       add: vi.fn(), removeAll: vi.fn(), reportChange: vi.fn(),
     };
-    overlay.add.mockImplementation((shape: unknown) => {
+    overlay.add.mockImplementation((shape: unknown, redraw = true) => {
       overlay.shapes.push(shape);
-      overlay.painted = [...overlay.shapes];
+      if (redraw) overlay.painted = [...overlay.shapes];
     });
     overlay.removeAll.mockImplementation(() => { overlay.shapes = []; });
     overlay.reportChange.mockImplementation(() => { overlay.painted = [...overlay.shapes]; });
@@ -236,6 +236,28 @@ describe("native Aladin catalogue layers", () => {
     view.rerender(<AladinMap {...base} selectingRegion selectionRequest={2} selectedPolygon={null} />);
     await user.click(screen.getByRole("button", { name: "Cancel drawing" }));
     expect(base.onCancelRegion).toHaveBeenCalledOnce();
+  });
+
+  it("batches candidate repaint while retaining full input and visual culling", async () => {
+    aladinMocks.instance.getFoV.mockReturnValue([20, 20]);
+    const candidates = Array.from({ length: 1500 }, (_, i) => ({ ra_deg: 150 + i / 10000, dec_deg: -30 }));
+    const base = { datasets: [], tiles: [], profile, mode: "idle" as const, selectingRegion: false, focusRequest: 0,
+      selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [], projectCandidateCenters: candidates,
+      planningLayers: { proposals: false, region: false, anchors: false, lattice: true },
+      onTileSelect: vi.fn(), onSkyClick: vi.fn(), onRegionSelect: vi.fn(), onError: vi.fn(), onCancelRegion: vi.fn(), selectionRequest: 0 };
+    const view = render(<AladinMap {...base} />);
+    await waitFor(() => expect(aladinMocks.overlays[4]?.shapes).toHaveLength(1200));
+    const layer = aladinMocks.overlays[4];
+    expect(layer.add.mock.calls.every((call) => call[1] === false)).toBe(true);
+    layer.add.mockClear(); layer.reportChange.mockClear();
+    view.rerender(<AladinMap {...base} planningLayers={{ ...base.planningLayers, lattice: false }} />);
+    expect(layer.add).not.toHaveBeenCalled(); expect(layer.reportChange).toHaveBeenCalledOnce();
+    expect(layer.painted).toEqual([]); expect(candidates).toHaveLength(1500);
+    layer.reportChange.mockClear();
+    view.rerender(<AladinMap {...base} />);
+    expect(layer.add).toHaveBeenCalledTimes(1200); expect(layer.reportChange).toHaveBeenCalledOnce();
+    expect(layer.painted).toHaveLength(1200); expect(candidates).toHaveLength(1500);
+    view.unmount();
   });
 
   it("applies planning visibility to native markers and overlays", async () => {

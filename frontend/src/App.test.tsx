@@ -290,13 +290,13 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(screen.getByText("Already covered").parentElement).toHaveTextContent("0.0%");
     expect(screen.getByText("Legacy survey coverage").parentElement).toHaveTextContent("100.0%");
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
-      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete", expect.any(Object),
+      expect.objectContaining({ vertices: expect.any(Array) }), [], "splus-t80-south", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal),
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
     await waitFor(() => expect(apiMocks.measureCoverage).toHaveBeenCalled());
     expect(apiMocks.measureCoverage).toHaveBeenLastCalledWith(
-      expect.anything(), [], expect.arrayContaining([expect.objectContaining({ source: "proposed" })]), "splus-t80-south", undefined, expect.any(Object),
+      expect.anything(), [], expect.arrayContaining([expect.objectContaining({ source: "proposed" })]), "splus-t80-south", undefined, expect.any(Object), expect.any(AbortSignal),
     );
     await user.click(screen.getByRole("button", { name: /download new_tiles.csv/i }));
     expect(apiMocks.downloadCatalogue).toHaveBeenCalledWith(
@@ -341,7 +341,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       { vertices: [{ ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 }, { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 }] },
       expect.arrayContaining([expect.objectContaining({ name: original.name, original_values: original.original_values })]),
-      "splus-t80-south", undefined, "complete", expect.any(Object),
+      "splus-t80-south", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal),
     );
 
     await user.click(screen.getByRole("button", { name: /accept proposal/i }));
@@ -352,7 +352,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(screen.getByText("DISABLED")).toBeTruthy();
     expect(apiMocks.measureCoverage).toHaveBeenLastCalledWith(
       expect.anything(), expect.anything(),
-      expect.arrayContaining([expect.objectContaining({ enabled: false })]), "splus-t80-south", undefined, expect.any(Object),
+      expect.arrayContaining([expect.objectContaining({ enabled: false })]), "splus-t80-south", undefined, expect.any(Object), expect.any(AbortSignal),
     );
     await user.click(screen.getByRole("button", { name: "Enable tile" }));
     expect(screen.getByRole("button", { name: "Disable tile" })).toBeTruthy();
@@ -583,7 +583,7 @@ describe("Jasytata v0.2.0 T80-South compatibility workflow", () => {
     expect(apiMocks.planRegion).toHaveBeenLastCalledWith(
       expect.anything(), expect.arrayContaining([
         expect.objectContaining({ name: original.name }), expect.objectContaining({ name: second.name }),
-      ]), "splus-t80-south", undefined, "complete", expect.any(Object),
+      ]), "splus-t80-south", undefined, "complete", expect.any(Object), undefined, expect.any(AbortSignal),
     );
     const firstPlanInputs = apiMocks.planRegion.mock.lastCall?.[1] as TileRecord[];
     const initialMetrics = screen.getByText("Already covered").closest(".metrics-panel")?.textContent;

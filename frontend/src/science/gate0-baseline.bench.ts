@@ -1,10 +1,11 @@
 import { bench, describe } from "vitest";
 import type { CoveragePolicy, Footprint, GenericLatticeTiling, SkyPolygon } from "../types";
 import { DEFAULT_PROFILE } from "../profiles";
-import { sampleRegion } from "./coverage";
+import { greedyChoose, sampleRegion, tileMask } from "./coverage";
 import { footprintIntersectsRegion, localOffsetToSky } from "./footprint-engine";
 import { candidateLatticeRange, generateLatticeCandidates, latticePlanningOrigin, latticePoint } from "./lattice";
 import { planRegion } from "./planner";
+import { performanceBox, performanceCompound, performancePlans, runPerformancePlan } from "./gate6-performance-workloads";
 
 const benchmarkOptions = { time: 250, warmupTime: 100 };
 
@@ -115,6 +116,8 @@ console.info("v0.5.0 Gate 0 benchmark inputs", JSON.stringify({
   planner_selection: {
     region_local_degrees: [3, 1.5],
     profile: DEFAULT_PROFILE.id,
+    candidate_count: completeFixturePlan.candidate_centers.length,
+    sample_count: sampleRegion(planRegionFixture).ra.length,
     complete_pointings: completeFixturePlan.tiles.length,
     efficient_pointings: efficientFixturePlan.tiles.length,
   },
@@ -146,4 +149,28 @@ describe("v0.5.0 Gate 0 performance baseline", () => {
   bench("planner selection and candidate ranking: Efficient", () => {
     planRegion(planRegionFixture, [], DEFAULT_PROFILE.id, undefined, "efficient");
   }, benchmarkOptions);
+});
+
+// Gate 6 extends the canonical harness without replacing Gate 0 inputs.
+const maskGrid = sampleRegion(performanceBox(0.4, 0.3), performanceCompound,
+  { sampling: { target_samples_per_footprint_axis: 8, max_samples: 100_000 } });
+const maskCenters = Array.from({ length: 120 }, (_, index) => [149.84 + (index % 12) * 0.03, -0.12 + Math.floor(index / 12) * 0.025] as [number, number]);
+const selectorCandidates = maskCenters.map((center) => ({ center, mask: tileMask(maskGrid, center[0], center[1], performanceCompound) }));
+console.info("Gate 6 additional inputs", JSON.stringify({
+  mask_samples: maskGrid.ra.length, mask_candidates: maskCenters.length,
+  plans: performancePlans.map((fixture) => { const result = runPerformancePlan(fixture); return {
+    id: fixture.id, candidates: result.candidate_centers.length, samples: result.metrics.sampling?.sample_count,
+    selected: result.tiles.length, stop: result.selection_stop,
+  }; }),
+}));
+describe("v0.5.0 Gate 6 measured paths", () => {
+  bench("candidate masks: rotated compound", () => {
+    for (const [ra, dec] of maskCenters) tileMask(maskGrid, ra, dec, performanceCompound);
+  }, benchmarkOptions);
+  bench("greedyChoose: compound masks", () => {
+    greedyChoose(selectorCandidates, new Uint8Array(maskGrid.ra.length), maskGrid, performanceCompound, 0.999);
+  }, benchmarkOptions);
+  for (const fixture of performancePlans) for (const strategy of ["complete", "efficient"] as const) {
+    bench(`project planning: ${fixture.id} / ${strategy}`, () => { runPerformancePlan(fixture, strategy); }, benchmarkOptions);
+  }
 });

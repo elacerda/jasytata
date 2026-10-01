@@ -347,17 +347,17 @@ export default function AladinMap(props: AladinMapProps) {
         const geometries = displayGeometriesForTile(selected, profile, current.pointingGeometryContext, reportOrientationError);
         if (geometries) addGeometryBoundaries(selectedLayer, selected, geometries);
       }
-      current.candidateCenters
-        .filter((center) => current.planningLayers.lattice && visible(center))
-        .slice(0, 1200)
-        .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045)));
-      current.projectCandidateCenters
-        ?.filter((center) => current.planningLayers.lattice && visible(center))
-        .slice(0, 1200)
-        .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045)));
+      if (current.planningLayers.lattice) {
+        current.candidateCenters.filter(visible).slice(0, 1200)
+          .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045), false));
+        current.projectCandidateCenters?.filter(visible).slice(0, 1200)
+          .forEach((center) => candidateLayer.add(A.circle(center.ra_deg, center.dec_deg, 0.045), false));
+      }
     } else if (selected) {
       selectedLayer.add(A.circle(selected.ra_deg, selected.dec_deg, 0.07));
     }
+    // One repaint per candidate layer, including when it has just been hidden.
+    candidateLayer.reportChange();
     if (current.selectedPolygon && current.planningLayers.region) {
       const points = current.selectedPolygon.vertices.map(({ ra_deg, dec_deg }) => [ra_deg, dec_deg] as [number, number]);
       regionLayer.add(A.polyline([...points, points[0]]));

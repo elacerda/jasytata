@@ -1,3 +1,5 @@
+import { serializedPlanningChoices } from "./science/planning-operation";
+import { runPlanningOperation } from "./planning-execution";
 import type {
   CenterInput,
   CatalogueResponse,
@@ -250,9 +252,16 @@ export async function downloadInstrumentCoordinates(
  * @param strategy - Sampled-coverage stopping policy.
  * @param geometryContext - Optional runtime pointing orientation and sequence geometry.
  * @param projectSource - Canonical project placement and real instrument association; preview is optional.
- * @returns Auditable proposal and sampled metrics.
+ * @param signal - Optional cancellation of canonical worker execution.
+ * @returns Auditable proposal and sampled metrics; canonical App choices run in a
+ *   dedicated local Worker when available, with the same synchronous core.
  */
-export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete", geometryContext?: PointingGeometryContext, projectSource?: ProjectLatticeCandidateSource): Promise<RegionPlanResponse> {
+export async function planRegion(polygon: SkyPolygon, existingTiles: TileRecord[], profileId?: string, profile?: TilingProfile, strategy: CoverageStrategy = "complete", geometryContext?: PointingGeometryContext, projectSource?: ProjectLatticeCandidateSource, signal?: AbortSignal): Promise<RegionPlanResponse> {
+  const geometryChoices = serializedPlanningChoices(geometryContext);
+  if (geometryChoices) return await runPlanningOperation({
+    kind: "plan", polygon, existingTiles, profileId, profile, strategy, projectSource,
+    geometryChoices, instruments: profileRegistry.listAnyInstrumentProfiles(), surveys: profileRegistry.listAnySurveyProfiles(),
+  }, signal) as RegionPlanResponse;
   return planRegionLocal(polygon, existingTiles, profileId, profile, strategy, profileRegistry, geometryContext, projectSource);
 }
 
@@ -276,11 +285,17 @@ export function buildRegionPlanRequest(polygon: SkyPolygon, existingTiles: TileR
  * @param profile - Optional inline custom profile.
  * @param geometryContext - Scientific measurement basis and Gate 5 single/effective
  *   exposure geometry; v2 retains its separate legacy interpretation.
+ * @param signal - Optional cancellation of canonical worker execution.
  * @returns Basis-labeled resolved measurements, or unavailable coverage without
  *   numeric fractions when the requested basis/resolution cannot be measured.
  * @throws On invalid region/profile, unknown instruments or invalid editable rows.
  */
-export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile, geometryContext?: PointingGeometryContext): Promise<CoverageResult> {
+export async function measureCoverage(polygon: SkyPolygon, existingTiles: TileRecord[], proposedTiles: TileRecord[], profileId?: string, profile?: TilingProfile, geometryContext?: PointingGeometryContext, signal?: AbortSignal): Promise<CoverageResult> {
+  const geometryChoices = serializedPlanningChoices(geometryContext);
+  if (geometryChoices) return await runPlanningOperation({
+    kind: "coverage", polygon, existingTiles, proposedTiles, profileId, profile,
+    geometryChoices, instruments: profileRegistry.listAnyInstrumentProfiles(), surveys: profileRegistry.listAnySurveyProfiles(),
+  }, signal) as CoverageResult;
   return measureActiveCoverage(polygon, existingTiles, proposedTiles, profileId, profile, profileRegistry, geometryContext);
 }
 

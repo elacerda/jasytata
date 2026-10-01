@@ -1,3 +1,4 @@
+import { planningGeometryContext } from "./science/planning-operation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import jasytataLogo from "./assets/jasytata_logo.png";
@@ -152,6 +153,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [sequenceBasis, setSequenceBasis] = useState<"single_exposure" | "effective_sequence" | null>(null);
   const [scientificRefusal, setScientificRefusal] = useState<CoverageResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [planningActive, setPlanningActive] = useState(false);
+  const planningAbortRef = useRef<AbortController | null>(null);
+  const busyRunRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmingNewProject, setConfirmingNewProject] = useState(false);
@@ -294,37 +298,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     sequenceBasis !== null || coverageStrategy !== "complete" || debugRequestJson || projectPlanningMode !== "manual_pointings" ||
     projectPlacement !== null || projectLatticePreview !== null,
   );
-  const outputGeometryContext = useMemo<PointingGeometryContext>(() => ({
+  const outputGeometryContext = useMemo<PointingGeometryContext>(() => planningGeometryContext({
     coverageBasis: geometryBasis,
     ...(activeInstrument?.schema_version === 3 ? { measurementBasis: activeInstrument.footprint_semantics.role } : {}),
-    orientationPolicyForTile: (tile) => {
-      const instrumentId = tile.instrument_profile_id ?? (tile.source === "proposed" ? activeInstrument?.id : undefined);
-      if (!instrumentId) return undefined;
-      let instrument: AnyInstrumentProfile;
-      try {
-        instrument = profileRegistry.resolveAnyInstrumentProfile(instrumentId);
-      } catch {
-        return undefined;
-      }
-      if (instrument.schema_version !== 3) return undefined;
-      const options: PositionAngleOptions = {
-        policy: instrument.position_angle.mode,
-        required: instrument.position_angle.required,
-        ...(instrument.position_angle.mode === "user_selected" && (tile.output_position_angle_deg !== undefined ||
-          (tile.source === "proposed" && !tile.instrument_profile_id && instrument.id === activeInstrument?.id && validManualPositionAngle))
-          ? { plan_position_angle_deg: tile.output_position_angle_deg ?? parsedManualPositionAngle }
-          : {}),
-      };
-      return options;
-    },
-    sequenceForTile: (tile) => {
-      const strategyId = tile.output_strategy_id ?? (tile.source === "proposed" && outputContext.kind === "survey" ? outputContext.id : undefined);
-      if (!strategyId) return undefined;
-      const strategy = profileRegistry.findAnySurveyProfile(strategyId);
-      if (strategy?.schema_version !== 3 || !strategy.observing_sequence) return undefined;
-      return { id: strategy.observing_sequence.id, exposures: strategy.observing_sequence.exposures };
-    },
-  }), [activeInstrument, geometryBasis, outputContext, parsedManualPositionAngle, validManualPositionAngle]);
+    outputInstrumentId: activeInstrument?.id,
+    outputStrategyId: outputContext.kind === "survey" ? outputContext.id : undefined,
+    planPositionAngleDeg: validManualPositionAngle ? parsedManualPositionAngle ?? undefined : undefined,
+  }, profileRegistry), [activeInstrument, geometryBasis, outputContext, parsedManualPositionAngle, validManualPositionAngle]);
   const activePointingGeometryContext = pointingGeometryContext ?? outputGeometryContext;
   const originalTiles = useMemo(() => datasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
     ...tile,
@@ -340,10 +320,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     tile.instrument_profile_id === outputInstrumentId && (tile.output_strategy_id ?? null) === outputStrategyId,
   ), [proposals, outputInstrumentId, outputStrategyId]);
   const enabledProposals = useMemo(() => activeOutputProposals.filter((tile) => tile.enabled !== false), [activeOutputProposals]);
-  const expandedExposureCount = (tiles: readonly TileRecord[]) => tiles.reduce((count, tile) =>
-    count + (activePointingGeometryContext.sequenceForTile?.(tile)?.exposures.length ?? 0), 0);
-  const activeExpandedExposureCount = expandedExposureCount(enabledProposals);
-  const pendingExpandedExposureCount = pending ? expandedExposureCount(pending.tiles) : 0;
+  const activeExpandedExposureCount = useMemo(() => enabledProposals.reduce((count, tile) =>
+    count + (activePointingGeometryContext.sequenceForTile?.(tile)?.exposures.length ?? 0), 0), [enabledProposals, activePointingGeometryContext]);
+  const pendingExpandedExposureCount = useMemo(() => pending?.tiles.reduce((count, tile) =>
+    count + (activePointingGeometryContext.sequenceForTile?.(tile)?.exposures.length ?? 0), 0) ?? 0, [pending, activePointingGeometryContext]);
   const visibleTiles = useMemo(() => [
     ...visibleOriginalTiles,
     ...(planningLayers.proposals ? activeOutputProposals : []),
@@ -416,6 +396,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     }
   }, [projectPlanDependencySignature, usesProjectRegionSource, pending?.solution, proposalContext?.solution]);
 
+  useEffect(() => () => { planningAbortRef.current?.abort(); }, [regionPolygon, planningTiles, activePointingGeometryContext,
+    coverageStrategy, outputContext, projectPlacement, projectPlacementDirty, projectPlanningMode]);
+
   const projectCoverageDependency = usesProjectRegionSource ? projectPlanDependencySignature : null;
   useEffect(() => {
     if ((usesProjectRegionSource && !resolvedProjectPlacement) || !regionPolygon || (!activeSurvey && !usesProjectRegionSource) || (!profile && !usesProjectRegionSource) || !activeOutputProposals.length || unresolvedDataset || activeResolution.error) {
@@ -423,10 +406,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     setActiveMetrics(null);
     void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey?.id,
       usesProjectRegionSource && activeInstrument?.schema_version === 3 ? projectCoverageProfile(activeInstrument) : undefined,
-      activePointingGeometryContext)
+      activePointingGeometryContext, controller.signal)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
       .catch((caught: unknown) => {
         if (!cancelled) {
@@ -434,7 +418,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           else setError(caught instanceof Error ? caught.message : "Could not update coverage.");
         }
       });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext, usesProjectRegionSource, activeInstrument, projectCoverageDependency, resolvedProjectPlacement]);
 
   useEffect(() => {
@@ -459,6 +443,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }, [confirmingNewProject]);
 
   async function runBusy<T>(work: () => Promise<T>, success?: (result: T) => void, isCurrent = () => true) {
+    const run = ++busyRunRef.current;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -471,7 +456,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       if (caught instanceof CoverageUnavailableError) setScientificRefusal(caught.result);
       else setError(caught instanceof Error ? caught.message : "The request could not be completed.");
     } finally {
-      setBusy(false);
+      if (run === busyRunRef.current) setBusy(false);
     }
   }
 
@@ -655,6 +640,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       return;
     }
     const regionRevision = regionRevisionRef.current;
+    planningAbortRef.current?.abort();
+    const controller = new AbortController();
+    planningAbortRef.current = controller;
+    setPlanningActive(true);
+    setPending(null);
     setSelectingRegion(false);
     if (import.meta.env.DEV && activeSurvey && !usesProjectRegionSource) {
       setDebugRequestJson(JSON.stringify(buildRegionPlanRequest(regionPolygon, planningTiles, activeSurvey.id, undefined, coverageStrategy)));
@@ -664,8 +654,8 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         ? planRegion(regionPolygon, planningTiles, activeSurvey?.id, undefined, coverageStrategy, activePointingGeometryContext, {
           type: "project_lattice", instrumentId: activeInstrument.id, placement: projectPlacement,
           positionAngleDeg: effectiveInstrumentPA, ...(activeSurvey ? { strategyId: activeSurvey.id } : {}),
-        })
-        : planRegion(regionPolygon, planningTiles, activeSurvey!.id, undefined, coverageStrategy, activePointingGeometryContext),
+        }, controller.signal)
+        : planRegion(regionPolygon, planningTiles, activeSurvey!.id, undefined, coverageStrategy, activePointingGeometryContext, undefined, controller.signal),
       (result: RegionPlanResponse) => {
         if (regionRevision !== regionRevisionRef.current) return;
         setPending({
@@ -684,8 +674,19 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           `${result.tiles.length} nominal pointing${result.tiles.length === 1 ? "" : "s"} selected. ${result.metrics.coverage_basis === "nominal_envelope" ? "Approximate nominal-envelope coverage" : result.metrics.coverage_basis === "legacy_v2" ? "Legacy survey coverage" : "Observed-area geometry coverage"}: ${Math.round(result.metrics.selected_region_coverage * 100)}%.`,
         );
       },
-      () => regionRevision === regionRevisionRef.current,
+      () => regionRevision === regionRevisionRef.current && planningAbortRef.current === controller && !controller.signal.aborted,
     );
+    if (planningAbortRef.current === controller) { planningAbortRef.current = null; setPlanningActive(false); }
+  }
+
+  /** Terminate the current operation without publishing a partial plan or editing inputs. */
+  function cancelPlanningRun() {
+    planningAbortRef.current?.abort();
+    planningAbortRef.current = null;
+    busyRunRef.current += 1;
+    setPlanningActive(false);
+    setBusy(false);
+    setNotice("Planning cancelled; region and project placement retained.");
   }
 
   function changeCoverageStrategy(strategy: CoverageStrategy) {
@@ -1262,6 +1263,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               disabled={!regionPolygon || !activeInstrument || (!usesProjectRegionSource && (!profile || !activeSurvey)) || Boolean(planningUnavailableReason) || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>}
+            {planningActive && <button className="button button-quiet button-full" onClick={cancelPlanningRun}>Cancel planning</button>}
             {usesProjectRegionSource && <p className="fine-print">Instrument geometry: {activeInstrument?.display_name} · Project placement: User-defined {projectPlacement?.type === "lattice_project_placement" ? projectPlacement.authoring.preset : "unresolved"} grid</p>}
             {planningCapabilities.supportsAutomaticRegionPlanning && <p className="fine-print">Active strategy: {activeSurvey?.display_name}{activeInstrument ? ` · instrument: ${activeInstrument.display_name}` : ""}</p>}
             {planningCapabilities.supportsAutomaticRegionPlanning && activeSurvey &&

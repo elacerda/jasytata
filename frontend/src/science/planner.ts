@@ -4,7 +4,7 @@ import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
 import { projectCoverageProfile, resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile, resolveFootprintForTile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
-import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, prepareCoverageGrid, assertResolvedCoverage, CoverageUnavailableError, tileMask, type CoverageGrid, type MaskedCenter, type SelectionStop } from "./coverage";
+import { contributingTileCountForTiles, coveredMask, greedyChoose, measureMetrics, prepareCoverageGrid, assertResolvedCoverage, CoverageUnavailableError, createTileMasker, type CoverageGrid, type MaskedCenter, type SelectionStop } from "./coverage";
 import { angularSeparationDeg, polygonBounds, validatePolygon, type RegionBounds } from "./geometry";
 import { legacyGridCenters, rectangularGridCenters, type Center } from "./grid";
 import { generateLatticeCandidates, latticePlanningOrigin, type LatticeCandidate } from "./lattice";
@@ -12,7 +12,7 @@ import { resolveProjectPlacement } from "./project-placement";
 import { inferSurveyLattice, latticeInferenceSearchRadius, latticeSiteOccupied } from "./lattice-inference";
 import { skyToLocalOffset } from "./footprint-engine";
 import { compareNumbers, median, modulo, radians, roundDecimal, wrappedRaDelta } from "./math";
-import { pointingGeometryUnionArea, resolvePointingGeometries, type PointingGeometryContext } from "./pointing-geometry";
+import { createPointingUnionAreaMeasurer, resolvePointingGeometries, type PointingGeometryContext } from "./pointing-geometry";
 
 interface LegacyInferenceSettings {
   policy: InferencePolicy;
@@ -516,8 +516,9 @@ function nearestGapAnchor(gap: CoverageGap, localTiles: readonly TileRecord[], l
  */
 function usefulUncoveredCenters(centers: readonly Center[], coverage: Uint8Array, grid: CoverageGrid, footprint: Footprint): MaskedCenter[] {
   const useful: MaskedCenter[] = [];
+  const maskForTile = createTileMasker(grid);
   for (const center of centers) {
-    const mask = tileMask(grid, center[0], center[1], footprint);
+    const mask = maskForTile(center[0], center[1], footprint);
     if (mask.some((covered, index) => Boolean(covered) && !coverage[index])) useful.push({ center, mask });
   }
   return useful;
@@ -545,6 +546,8 @@ function usefulPointingCenters(
   candidateTiles?: readonly TileRecord[],
 ): MaskedCenter[] {
   const useful: MaskedCenter[] = [];
+  const maskForTile = createTileMasker(grid);
+  const unionArea = createPointingUnionAreaMeasurer();
   for (const [index, center] of centers.entries()) {
     const tile: TileRecord = candidateTiles?.[index] ?? {
       id: `proposal-candidate-${String(index + 1).padStart(4, "0")}`,
@@ -577,12 +580,12 @@ function usefulPointingCenters(
     }
     const mask = new Uint8Array(grid.ra.length);
     for (const geometry of geometries) {
-      const exposureMask = tileMask(grid, geometry.center[0], geometry.center[1], geometry.footprint);
+      const exposureMask = maskForTile(geometry.center[0], geometry.center[1], geometry.footprint);
       for (let sample = 0; sample < mask.length; sample += 1) if (exposureMask[sample]) mask[sample] = 1;
     }
     if (!mask.some((covered, sample) => Boolean(covered) && !coverage[sample])) continue;
     const physicalAreaDeg2 = sequence
-      ? pointingGeometryUnionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
+      ? unionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
       : undefined;
     const site = tile.placement_provenance?.project_lattice;
     useful.push({ center, mask, ...(site ? { latticeSite: { i: site.i, j: site.j } } : {}), boundaryGeometries: geometries, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) });

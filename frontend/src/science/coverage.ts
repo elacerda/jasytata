@@ -9,7 +9,7 @@ import { DEFAULT_PROFILE, SPLUS_SURVEY_V2 } from "../profiles";
 import { resolvePlanningProfile } from "../profiles/planning";
 import { outputFootprintForProfile } from "../profiles/footprints";
 import { profileRegistry, type ProfileRegistry } from "../profiles/registry";
-import { pointingGeometriesIntersectRegion, pointingGeometryUnionArea, resolvePointingGeometries, type PointingGeometryContext } from "./pointing-geometry";
+import { pointingGeometriesIntersectRegion, createPointingUnionAreaMeasurer, resolvePointingGeometries, type PointingGeometryContext } from "./pointing-geometry";
 
 // Minimum eight cells per axis is a frozen compatibility algorithm rule.
 // Scientific resolution and budget come from the validated survey profile.
@@ -238,33 +238,75 @@ export function tileMask(
   decDeg: number,
   geometry: Footprint | Pick<TilingProfile, "tile_width_deg" | "tile_height_deg">,
 ): Uint8Array {
-  const footprint = toFootprint(geometry);
-  const mask = new Uint8Array(grid.ra.length);
-  maskGeometries.set(mask, [{ center: [raDeg, decDeg], footprint }]);
-  const pointing = { ra_deg: raDeg, dec_deg: decDeg };
-  const project = createSkyToLocalProjector(pointing);
-  const contains = createFootprintContainmentTester(footprint);
-  const footprintBounds = footprintLocalBounds(footprint);
-  const centerRaDelta = wrappedRaDelta(grid.centerRaDeg, raDeg);
-  const halfRaSpan = grid.raSpanDeg / 2;
-  if (Math.abs(centerRaDelta) + halfRaSpan < 180) {
-    const eastScale = Math.max(Math.cos(radians(decDeg)), 0.01);
-    const minEast = (centerRaDelta - halfRaSpan) * eastScale;
-    const maxEast = (centerRaDelta + halfRaSpan) * eastScale;
-    const minNorth = grid.decMinDeg - decDeg;
-    const maxNorth = grid.decMaxDeg - decDeg;
-    const tolerance = 1e-12;
-    if (maxEast < footprintBounds.min_east_deg - tolerance || minEast > footprintBounds.max_east_deg + tolerance ||
-      maxNorth < footprintBounds.min_north_deg - tolerance || minNorth > footprintBounds.max_north_deg + tolerance) return mask;
-  }
-  const localPoint: [number, number] = [0, 0];
-  for (let index = 0; index < mask.length; index += 1) {
-    if (grid.weights[index] > 0) {
-      project(grid.ra[index], grid.dec[index], localPoint);
-      if (contains(localPoint[0], localPoint[1])) mask[index] = 1;
+  return createTileMasker(grid)(raDeg, decDeg, geometry);
+}
+
+/** Prepare immutable footprint testers and bounds for one coverage operation.
+ *
+ * @param grid - Fixed ICRS RA/DEC degree arrays and selected-region weights.
+ * @returns A mask builder taking ICRS center degrees and local-degree geometry.
+ *   Structurally identical footprints share preparation only within this closure.
+ *   Conservative sample rejection does not change grid density or projection.
+ */
+export function createTileMasker(grid: CoverageGrid): (raDeg: number, decDeg: number, geometry: FootprintGeometry) => Uint8Array {
+  const footprints = new Map<string, { contains: ReturnType<typeof createFootprintContainmentTester>; bounds: ReturnType<typeof footprintLocalBounds>; padding: number }>();
+  return (raDeg, decDeg, geometry) => {
+    const footprint = toFootprint(geometry);
+    const mask = new Uint8Array(grid.ra.length);
+    maskGeometries.set(mask, [{ center: [raDeg, decDeg], footprint }]);
+    const pointing = { ra_deg: raDeg, dec_deg: decDeg };
+    const project = createSkyToLocalProjector(pointing);
+    const key = JSON.stringify(footprint);
+    let prepared = footprints.get(key);
+    if (!prepared) {
+      prepared = { contains: createFootprintContainmentTester(footprint), bounds: footprintLocalBounds(footprint), padding: containmentRejectionPadding(footprint) };
+      footprints.set(key, prepared);
     }
+    const { contains, bounds: footprintBounds } = prepared;
+    // Bounds rejection includes the frozen containment predicate's tolerances,
+    // including polygon cross/dot tests whose angular reach scales with edge
+    // length. The ulp margin protects arithmetic at large local extents.
+    const tolerance = prepared.padding + 8 * Number.EPSILON * Math.max(1, ...Object.values(footprintBounds).map(Math.abs));
+    const centerRaDelta = wrappedRaDelta(grid.centerRaDeg, raDeg);
+    const halfRaSpan = grid.raSpanDeg / 2;
+    if (Math.abs(centerRaDelta) + halfRaSpan < 180) {
+      const eastScale = Math.max(Math.cos(radians(decDeg)), 0.01);
+      const minEast = (centerRaDelta - halfRaSpan) * eastScale;
+      const maxEast = (centerRaDelta + halfRaSpan) * eastScale;
+      const minNorth = grid.decMinDeg - decDeg;
+      const maxNorth = grid.decMaxDeg - decDeg;
+      const rejectionTolerance = 1e-12;
+      if (maxEast < footprintBounds.min_east_deg - rejectionTolerance || minEast > footprintBounds.max_east_deg + rejectionTolerance ||
+        maxNorth < footprintBounds.min_north_deg - rejectionTolerance || minNorth > footprintBounds.max_north_deg + rejectionTolerance) return mask;
+    }
+    const localPoint: [number, number] = [0, 0];
+    for (let index = 0; index < mask.length; index += 1) {
+      if (grid.weights[index] > 0) {
+        const north = grid.dec[index] - decDeg;
+        if (north < footprintBounds.min_north_deg - tolerance || north > footprintBounds.max_north_deg + tolerance) continue;
+        project(grid.ra[index], grid.dec[index], localPoint);
+        if (localPoint[0] < footprintBounds.min_east_deg - tolerance || localPoint[0] > footprintBounds.max_east_deg + tolerance) continue;
+        if (contains(localPoint[0], localPoint[1])) mask[index] = 1;
+      }
+    }
+    return mask;
+  };
+}
+
+/** Conservative angular allowance for the existing inclusive shape predicates. */
+function containmentRejectionPadding(footprint: Footprint): number {
+  if (footprint.type === "compound") return Math.max(2e-12, ...footprint.components.map((child) => containmentRejectionPadding(child.footprint)));
+  if (footprint.type !== "polygon") return 2e-12;
+  let padding = 2e-12;
+  for (let index = 0; index < footprint.vertices_deg.length; index += 1) {
+    const start = footprint.vertices_deg[index]; const end = footprint.vertices_deg[(index + 1) % footprint.vertices_deg.length];
+    const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    // A degenerate edge has unbounded legacy boundary allowance. Refuse to
+    // prune it, rather than repairing or altering the scientific predicate.
+    if (length * length === 0) return Infinity;
+    padding = Math.max(padding, 4e-12 * Math.max(1, length) / length);
   }
-  return mask;
+  return padding;
 }
 
 /** Union enabled existing pointings over weighted selected-region samples.
@@ -284,6 +326,7 @@ export function coveredMask(
   geometryContext?: PointingGeometryContext,
 ): Uint8Array {
   const covered = new Uint8Array(grid.ra.length);
+  const maskForTile = createTileMasker(grid);
   const footprints = new Map<string, Footprint>();
   const outputFootprint = outputFootprintForProfile(profile, registry);
   let selectedSampleCount = 0;
@@ -304,7 +347,7 @@ export function coveredMask(
       : [{ center: [tile.ra_deg, tile.dec_deg] as [number, number], footprint }];
     for (const geometry of geometries) {
       boundaries.push(geometry);
-      const mask = tileMask(grid, geometry.center[0], geometry.center[1], geometry.footprint);
+      const mask = maskForTile(geometry.center[0], geometry.center[1], geometry.footprint);
       for (let index = 0; index < mask.length; index += 1) {
         if (mask[index] && !covered[index]) { covered[index] = 1; coveredCount += 1; }
       }
@@ -382,7 +425,9 @@ export type SelectionStop = "coverage_complete" | "candidate_lattice_exhausted" 
  *   preserving detector gaps and counting overlaps once. The same area is
  *   computed once per selection, independent of candidate count.
  * @param onStop - Optional diagnostic callback; does not influence selection or thresholds.
- * @returns Chosen centers in ranking order with their masks.
+ * @returns Chosen centers in ranking order with their masks. Sparse mask indices
+ *   and immutable scores are scoped to this call; weighted sums retain ascending
+ *   sample order, with no subtraction-based or parallel floating-point reduction.
  * @throws If Efficient is requested without explicit policy.
  */
 export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: Uint8Array, grid: CoverageGrid, geometry: FootprintGeometry, automaticTarget?: number, strategy: CoverageStrategy = "complete", efficientPolicy?: CoveragePolicy["efficient"], onStop?: (reason: SelectionStop) => void): MaskedCenter[] {
@@ -393,7 +438,17 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
   const uncovered = new Uint8Array(existingMask.length);
   for (let index = 0; index < uncovered.length; index += 1) uncovered[index] = existingMask[index] ? 0 : 1;
   const selected: MaskedCenter[] = [];
-  const remaining = [...candidates];
+  // Operation-local sparse indices retain ascending sample order, including
+  // zero-weight cells. Static sums are evaluated exactly as in the full scan.
+  const remaining = candidates.map((candidate) => {
+    const samples: number[] = [];
+    let insideWeight = 0;
+    for (let sample = 0; sample < candidate.mask.length; sample += 1) {
+      if (candidate.mask[sample]) { samples.push(sample); insideWeight += grid.weights[sample]; }
+    }
+    return { candidate, samples: Uint32Array.from(samples), inside: Math.max(insideWeight, 1e-12),
+      outsideArea: Math.max(0, (candidate.physicalAreaDeg2 ?? physicalAreaDeg2) - insideWeight * grid.cellAreaDeg2) };
+  });
   let stop: SelectionStop = "candidate_lattice_exhausted";
   while (remaining.length) {
     const currentCoverage = 1 - weightSum(grid, uncovered) / Math.max(grid.totalWeight, 1e-12);
@@ -401,21 +456,23 @@ export function greedyChoose(candidates: readonly MaskedCenter[], existingMask: 
     let bestIndex = -1;
     let bestScore: number[] | null = null;
     for (let index = 0; index < remaining.length; index += 1) {
-      const { center: [ra, dec], mask, physicalAreaDeg2: candidateArea } = remaining[index];
-      const gain = weightSum(grid, mask, uncovered);
-      const overlap = weightSum(grid, mask, uncovered, false);
-      const inside = Math.max(weightSum(grid, mask), 1e-12);
-      const outsideArea = outsideTileArea(mask, grid, candidateArea ?? physicalAreaDeg2);
+      const { candidate: { center: [ra, dec] }, samples, inside, outsideArea } = remaining[index];
+      let gain = 0;
+      let overlap = 0;
+      for (const sample of samples) {
+        if (uncovered[sample]) gain += grid.weights[sample];
+        else overlap += grid.weights[sample];
+      }
       const score = [gain, -overlap / inside, -outsideArea, -dec, -ra, index];
       if (bestScore === null || compareScore(score, bestScore) > 0) { bestScore = score; bestIndex = index; }
     }
-    const best = remaining.splice(bestIndex, 1)[0];
-    const gain = weightSum(grid, best.mask, uncovered);
+    const { candidate: best, samples } = remaining.splice(bestIndex, 1)[0];
+    const gain = bestScore![0];
     if (gain / Math.max(grid.totalWeight, 1e-12) < MIN_INCREMENTAL_GAIN) { stop = "gain_safeguard"; break; }
     const marginalEfficiency = gain * grid.cellAreaDeg2 / (best.physicalAreaDeg2 ?? physicalAreaDeg2);
     if (strategy === "efficient" && efficientPolicy && currentCoverage >= efficientPolicy.min_coverage && marginalEfficiency < efficientPolicy.min_marginal_efficiency) { stop = "marginal_efficiency"; break; }
     selected.push(best);
-    for (let index = 0; index < uncovered.length; index += 1) if (best.mask[index]) uncovered[index] = 0;
+    for (const sample of samples) uncovered[sample] = 0;
   }
   if (automaticTarget !== undefined && 1 - weightSum(grid, uncovered) / Math.max(grid.totalWeight, 1e-12) >= automaticTarget) stop = "coverage_complete";
   onStop?.(stop);
@@ -540,9 +597,11 @@ export function measureActiveCoverage(
   const grid = prepareCoverageGrid(polygon, activeExisting, profile, registry, context, activeProposed);
   if (grid.sampling?.status === "under_resolved") return unavailableCoverage(grid);
   const existing = coveredMask(grid, activeExisting, profile, registry, geometryContext);
+  const maskForTile = createTileMasker(grid);
+  const unionArea = createPointingUnionAreaMeasurer();
   const selected = activeProposed.filter((tile) => tileContributesToBasis(tile, profile, registry, basis)).map((tile) => {
     if (!geometryContext) {
-      return { center: [tile.ra_deg, tile.dec_deg] as Center, mask: tileMask(grid, tile.ra_deg, tile.dec_deg, outputFootprint) };
+      return { center: [tile.ra_deg, tile.dec_deg] as Center, mask: maskForTile(tile.ra_deg, tile.dec_deg, outputFootprint) };
     }
     const sequence = geometryContext.coverageBasis === "effective_sequence"
       ? geometryContext.sequenceForTile?.(tile)
@@ -553,11 +612,11 @@ export function measureActiveCoverage(
     const geometries = resolvePointingGeometries(tile, profile, registry, tileGeometryContext);
     const mask = new Uint8Array(grid.ra.length);
     for (const pointingGeometry of geometries) {
-      const exposureMask = tileMask(grid, pointingGeometry.center[0], pointingGeometry.center[1], pointingGeometry.footprint);
+      const exposureMask = maskForTile(pointingGeometry.center[0], pointingGeometry.center[1], pointingGeometry.footprint);
       for (let index = 0; index < mask.length; index += 1) if (exposureMask[index]) mask[index] = 1;
     }
     const physicalAreaDeg2 = sequence
-      ? pointingGeometryUnionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
+      ? unionArea(geometries, { ra_deg: tile.ra_deg, dec_deg: tile.dec_deg })
       : undefined;
     return { center: [tile.ra_deg, tile.dec_deg] as Center, mask, boundaryGeometries: geometries, ...(physicalAreaDeg2 === undefined ? {} : { physicalAreaDeg2 }) };
   });

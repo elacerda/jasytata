@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -146,6 +146,25 @@ describe("Gate 4 real App project planner integration", () => {
       expect(screen.getByLabelText("East spacing")).toHaveValue(58);
     }
   });
+  it("cancels an old plan without partial publication and retains inputs for a newer run", async () => {
+    const user = await author();
+    let finishOld!: (result: Awaited<ReturnType<typeof api.planRegion>>) => void;
+    vi.mocked(api.planRegion).mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    expect(screen.getByRole("button", { name: "Cancel planning" })).toBeEnabled();
+    const oldSignal = vi.mocked(api.planRegion).mock.calls[0][7];
+    await user.click(screen.getByRole("button", { name: "Cancel planning" }));
+    expect(oldSignal?.aborted).toBe(true);
+    expect(screen.queryByRole("button", { name: "Accept proposal" })).toBeNull();
+    expect(screen.getByLabelText("East spacing")).toHaveValue(58);
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeEnabled();
+    const newer = await generate(user);
+    await act(async () => { finishOld({ ...newer, tiles: [], diagnostics: ["obsolete plan"] }); });
+    expect(screen.getByRole("button", { name: "Accept proposal" })).toBeEnabled();
+    expect(screen.queryByText("obsolete plan")).toBeNull();
+    expect(screen.queryByText("Existing coverage already satisfies this plan.")).toBeNull();
+  });
+
   it("reference marker leaves generated scientific result intact", async () => {
     const user = await author(); const first = await generate(user);
     await user.click(screen.getByText("Reference coordinate", { selector: "summary" }));

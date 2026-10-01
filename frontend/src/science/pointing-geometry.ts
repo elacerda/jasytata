@@ -224,6 +224,31 @@ export function pointingGeometryUnionArea(
   if (geometries.length === 0) throw new Error("A pointing geometry union requires at least one exposure.");
   if (geometries.length === 1) return footprintArea(geometries[0].footprint);
 
+  return footprintArea(pointingGeometryUnionFootprint(geometries, nominalCenter));
+}
+
+/** Memoize exactly identical resolved union geometry within one operation.
+ *
+ * @returns A physical-area measurer taking ordered exposure geometry and nominal
+ *   ICRS center in degrees. Keys retain every unrounded local offset and PA;
+ *   no equivalence across near-equal sky round trips or separate runs is assumed.
+ * @throws If called with no geometries, as for pointingGeometryUnionArea.
+ */
+export function createPointingUnionAreaMeasurer(): typeof pointingGeometryUnionArea {
+  const areas = new Map<string, number>();
+  return (geometries, nominalCenter) => {
+    if (geometries.length <= 1) return pointingGeometryUnionArea(geometries, nominalCenter);
+    const union = pointingGeometryUnionFootprint(geometries, nominalCenter);
+    const key = JSON.stringify(union);
+    const cached = areas.get(key);
+    if (cached !== undefined) return cached;
+    const area = footprintArea(union);
+    areas.set(key, area);
+    return area;
+  };
+}
+
+function pointingGeometryUnionFootprint(geometries: readonly PointingGeometry[], nominalCenter: Pick<CenterInput, "ra_deg" | "dec_deg">): CompoundFootprint {
   const components: CompoundFootprint["components"] = [];
   for (const geometry of geometries) {
     const centerOffset = skyToLocalOffset(
@@ -250,8 +275,7 @@ export function pointingGeometryUnionArea(
     }
   }
 
-  const union: CompoundFootprint = { type: "compound", components };
-  return footprintArea(union);
+  return { type: "compound", components };
 }
 
 function withoutPositionAngle(footprint: NonCompoundFootprint): NonCompoundFootprint {
