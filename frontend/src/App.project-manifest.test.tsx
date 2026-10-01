@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import packageMetadata from "../package.json";
 import App from "./App";
 import * as api from "./api";
 import { createProjectManifest, parseProjectManifest, serializeProjectManifest } from "./project-manifest";
@@ -126,6 +127,7 @@ describe("Gate 7 integrated project workflow", () => {
       reader.readAsText(blob);
     });
     const exported = parseProjectManifest(json, profileRegistry);
+    expect(exported.app_version).toBe(packageMetadata.version);
     expect(exported.project.instrument.id).toBe("vlt-muse-wfm");
     expect(exported.project.region).toEqual({ vertices: [
       { ra_deg: 149.9825, dec_deg: -0.0175 }, { ra_deg: 150.0175, dec_deg: -0.0175 },

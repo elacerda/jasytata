@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import packageMetadata from "../package.json";
 import { expandPointingExposures } from "./science/pointing-geometry";
 import { planRegion } from "./science/planner";
 import { rectangleRegionFromCenterSize } from "./science/regions";
@@ -141,7 +142,12 @@ describe("Gate 7 project manifest contract", () => {
     }
     const first = serializeProjectManifest(createProjectManifest(input(), registry), registry);
     const second = serializeProjectManifest(createProjectManifest(input(), registry), registry);
-    expect(JSON.parse(first)).toMatchObject({ format: JASYTATA_PROJECT_FORMAT, schema_version: JASYTATA_PROJECT_SCHEMA_VERSION });
+    expect(JSON.parse(first)).toMatchObject({
+      format: JASYTATA_PROJECT_FORMAT,
+      schema_version: JASYTATA_PROJECT_SCHEMA_VERSION,
+      app_version: packageMetadata.version,
+    });
+    expect(packageMetadata.version).toBe("0.5.0");
     expect(first).toBe(second);
   });
 
