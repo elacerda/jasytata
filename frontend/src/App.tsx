@@ -23,6 +23,15 @@ import type { AnyInstrumentProfile, AnySurveyProfile } from "./profiles/registry
 import { resolveProjectPlacement } from "./science/project-placement";
 import { projectCoverageProfile } from "./profiles/planning";
 import { previewProjectLattice, type ProjectLatticePreviewResult } from "./science/project-lattice-preview";
+import {
+  createProjectManifest,
+  describeProjectCatalogueDependencies,
+  installProjectProfileDependencies,
+  matchProjectCatalogueDependencies,
+  parseProjectManifest,
+  serializeProjectManifest,
+  type ProjectCatalogueDependency,
+} from "./project-manifest";
 import type {
   CenterInput,
   CatalogueDataset,
@@ -137,6 +146,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [projectPlacementDirty, setProjectPlacementDirty] = useState(false);
   const [projectPlacement, setProjectPlacement] = useState<ProjectPlacementPolicy | null>(null);
   const [projectLatticePreview, setProjectLatticePreview] = useState<ActiveProjectLatticePreview | null>(null);
+  const [projectCatalogueDependencies, setProjectCatalogueDependencies] = useState<ProjectCatalogueDependency[] | null>(null);
+  const [matchedProjectCatalogueDatasetIds, setMatchedProjectCatalogueDatasetIds] = useState<string[]>([]);
+  const [projectCatalogueDependenciesReady, setProjectCatalogueDependenciesReady] = useState(true);
   const [mapMode, setMapMode] = useState<MapMode>("idle");
   const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectingRegion, setSelectingRegion] = useState(false);
@@ -161,6 +173,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [confirmingNewProject, setConfirmingNewProject] = useState(false);
   const [debugRequestJson, setDebugRequestJson] = useState("");
   const profileFileInputRef = useRef<HTMLInputElement>(null);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newProjectButtonRef = useRef<HTMLButtonElement>(null);
   const cancelNewProjectRef = useRef<HTMLButtonElement>(null);
@@ -259,7 +272,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }, [regionPolygon, projectPlacement, projectPlacementDirty, projectFootprintGeometry, effectiveInstrumentPA]);
   const usesProjectRegionSource = projectPlanningMode === "regional_mosaic" &&
     activeInstrument?.schema_version === 3 && (activeInstrument.footprint_semantics.role === "observed_area" || activeInstrument.footprint_semantics.role === "nominal_envelope");
-  const unresolvedDataset = useMemo(() => datasets.find((dataset) => {
+  const matchedCatalogueIds = useMemo(() => new Set(matchedProjectCatalogueDatasetIds), [matchedProjectCatalogueDatasetIds]);
+  const projectInputDatasets = useMemo(() => projectCatalogueDependencies?.length
+    ? datasets.filter((dataset) => matchedCatalogueIds.has(dataset.id))
+    : datasets, [datasets, projectCatalogueDependencies, matchedCatalogueIds]);
+  const unresolvedDataset = useMemo(() => projectInputDatasets.find((dataset) => {
     if (!dataset.instrument_profile_id) return true;
     if (!instrumentProfiles.some((instrument) => instrument.id === dataset.instrument_profile_id)) return true;
     try {
@@ -268,17 +285,24 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     } catch {
       return true;
     }
-  }) ?? null, [datasets, instrumentProfiles]);
+  }) ?? null, [projectInputDatasets, instrumentProfiles]);
+  const missingProjectCatalogueCount = Math.max(0,
+    (projectCatalogueDependencies?.length ?? 0) - matchedProjectCatalogueDatasetIds.length);
+  const projectCatalogueProblem = projectCatalogueDependencies?.length &&
+      (!projectCatalogueDependenciesReady || missingProjectCatalogueCount > 0)
+    ? `Incomplete project: supply ${missingProjectCatalogueCount || projectCatalogueDependencies.length} matching catalogue file${(missingProjectCatalogueCount || projectCatalogueDependencies.length) === 1 ? "" : "s"} from the manifest before planning.`
+    : null;
   const planningCapabilities = derivePlanningCapabilities(activeInstrument, activeSurvey, {
     mode: projectPlanningMode,
     hasSelectedRegion: Boolean(regionPolygon),
     hasValidProjectPlacement: resolvedProjectPlacement?.type === "resolved_lattice_project_placement",
-    hasRequiredPlannerInputs: !activeResolution.error && !unresolvedDataset,
+    hasRequiredPlannerInputs: !activeResolution.error && !unresolvedDataset && !projectCatalogueProblem,
     hasResolvedInstrumentPA: Boolean(projectFootprintGeometry) &&
       (!(activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required) || effectiveInstrumentPA !== undefined),
   });
   const requiredPositionAngle = planningCapabilities.requiresUserPositionAngle;
   const planningUnavailableReason = activeResolution.error
+    ?? projectCatalogueProblem
     ?? (unresolvedDataset
       ? unresolvedDataset.instrument_profile_id
         ? `Catalogue “${unresolvedDataset.filename}” references an unavailable instrument. Choose a registered instrument profile before planning.`
@@ -296,7 +320,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     importText.trim() || parsedCenters || activeMetrics || scientificRefusal || selectedTileId ||
     mapMode !== "idle" || selectingRegion || manualPositionAngle !== defaultManualPositionAngle || exportEpoch !== undefined ||
     sequenceBasis !== null || coverageStrategy !== "complete" || debugRequestJson || projectPlanningMode !== "manual_pointings" ||
-    projectPlacement !== null || projectLatticePreview !== null,
+    projectPlacement !== null || projectLatticePreview !== null || projectCatalogueDependencies !== null,
   );
   const outputGeometryContext = useMemo<PointingGeometryContext>(() => planningGeometryContext({
     coverageBasis: geometryBasis,
@@ -311,6 +335,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     instrument_profile_id: dataset.instrument_profile_id,
     inference_role: dataset.inference_role,
   }))), [datasets]);
+  const planningOriginalTiles = useMemo(() => projectInputDatasets.flatMap((dataset) => dataset.tiles.map((tile) => ({
+    ...tile,
+    instrument_profile_id: dataset.instrument_profile_id,
+    inference_role: dataset.inference_role,
+  }))), [projectInputDatasets]);
   const visibleOriginalTiles = useMemo(() => datasets.filter((dataset) => dataset.visible).flatMap((dataset) => dataset.tiles.map((tile) => ({
     ...tile,
     instrument_profile_id: dataset.instrument_profile_id,
@@ -329,9 +358,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     ...(planningLayers.proposals ? activeOutputProposals : []),
   ], [visibleOriginalTiles, planningLayers.proposals, activeOutputProposals]);
   const planningTiles = useMemo(() => [
-    ...originalTiles,
+    ...planningOriginalTiles,
     ...activeOutputProposals.filter((tile) => tile.enabled !== false),
-  ], [originalTiles, activeOutputProposals]);
+  ], [planningOriginalTiles, activeOutputProposals]);
   const mapTiles = useMemo(
     () => (pending && planningLayers.proposals ? [...visibleTiles, ...pending.tiles] : visibleTiles),
     [pending, planningLayers.proposals, visibleTiles],
@@ -375,6 +404,27 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }, [theme]);
 
   useEffect(() => {
+    let current = true;
+    if (!projectCatalogueDependencies?.length) {
+      setMatchedProjectCatalogueDatasetIds((previous) => previous.length ? [] : previous);
+      setProjectCatalogueDependenciesReady(true);
+      return () => { current = false; };
+    }
+    void matchProjectCatalogueDependencies(projectCatalogueDependencies, datasets)
+      .then((match) => {
+        if (!current) return;
+        setMatchedProjectCatalogueDatasetIds(match.matchedDatasetIds);
+        setProjectCatalogueDependenciesReady(match.complete);
+      })
+      .catch(() => {
+        if (!current) return;
+        setMatchedProjectCatalogueDatasetIds([]);
+        setProjectCatalogueDependenciesReady(false);
+      });
+    return () => { current = false; };
+  }, [projectCatalogueDependencies, datasets]);
+
+  useEffect(() => {
     if (projectLatticePreview && projectLatticePreview.dependencySignature !== projectPreviewDependencySignature) {
       setProjectLatticePreview(null);
     }
@@ -408,7 +458,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     let cancelled = false;
     const controller = new AbortController();
     setActiveMetrics(null);
-    void measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey?.id,
+    void measureCoverage(regionPolygon, planningOriginalTiles, activeOutputProposals, activeSurvey?.id,
       usesProjectRegionSource && activeInstrument?.schema_version === 3 ? projectCoverageProfile(activeInstrument) : undefined,
       activePointingGeometryContext, controller.signal)
       .then((metrics) => { if (!cancelled) setActiveMetrics(metrics); })
@@ -419,7 +469,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         }
       });
     return () => { cancelled = true; controller.abort(); };
-  }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext, usesProjectRegionSource, activeInstrument, projectCoverageDependency, resolvedProjectPlacement]);
+  }, [regionPolygon, activeSurvey, profile, activeOutputProposals, planningOriginalTiles, unresolvedDataset, activeResolution.error, projectCatalogueProblem, activePointingGeometryContext, usesProjectRegionSource, activeInstrument, projectCoverageDependency, resolvedProjectPlacement]);
 
   useEffect(() => {
     if (confirmingNewProject) cancelNewProjectRef.current?.focus();
@@ -478,6 +528,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     const current = datasets.find((dataset) => dataset.id === datasetId);
     if (!current || Object.entries(patch).every(([key, value]) => current[key as "instrument_profile_id" | "inference_role"] === value)) return;
     regionRevisionRef.current += 1;
+    if (projectCatalogueDependencies?.length) setProjectCatalogueDependenciesReady(false);
     setDatasets((previous) => previous.map((dataset) => dataset.id === datasetId ? { ...dataset, ...patch } : dataset));
     setProposals([]);
     setPending(null);
@@ -628,7 +679,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     if (!regionPolygon || !activeSurvey) return;
     const revision = regionRevisionRef.current;
     setActiveMetrics(null);
-    await runBusy(() => measureCoverage(regionPolygon, originalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext), (result) => {
+    await runBusy(() => measureCoverage(regionPolygon, planningOriginalTiles, activeOutputProposals, activeSurvey.id, undefined, activePointingGeometryContext), (result) => {
       setActiveMetrics(result);
     }, () => revision === regionRevisionRef.current);
   }
@@ -792,8 +843,15 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
 
   /** Clear project data and drafts in place; retain output context, registry and display preferences. */
   function startNewProject() {
-    if (busy) return;
+    if (busy && !planningActive) return;
     const contextName = activeSurvey?.display_name ?? activeInstrument?.display_name ?? "the selected output";
+    planningAbortRef.current?.abort();
+    planningAbortRef.current = null;
+    if (planningActive) {
+      busyRunRef.current += 1;
+      setBusy(false);
+      setPlanningActive(false);
+    }
     regionRevisionRef.current += 1;
     proposalBatchRef.current = 0;
     setDatasets([]);
@@ -808,6 +866,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setProjectPlanningMode("manual_pointings");
     setProjectPlacement(null); setProjectPlacementDirty(false);
     setProjectLatticePreview(null);
+    setProjectCatalogueDependencies(null);
+    setMatchedProjectCatalogueDatasetIds([]);
+    setProjectCatalogueDependenciesReady(true);
     setMapMode("idle");
     setSelectingRegion(false);
     setImportText("");
@@ -829,7 +890,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }
 
   function requestNewProject() {
-    if (busy) return;
+    if (busy && !planningActive) return;
     if (hasProjectContent) {
       setConfirmingNewProject(true);
       return;
@@ -954,6 +1015,140 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     );
   }
 
+  async function exportProjectManifest() {
+    if (!activeInstrument || activeResolution.error) {
+      setError(activeResolution.error ?? "Select a registered instrument or observing strategy before exporting a project.");
+      return;
+    }
+    if (projectCatalogueProblem) {
+      setError("Cannot export a complete project recipe while a required catalogue dependency is missing.");
+      return;
+    }
+    if (unresolvedDataset) {
+      setError(`Cannot export a reproducible project until an instrument profile is assigned to “${unresolvedDataset.filename}”.`);
+      return;
+    }
+    await runBusy(async () => {
+      const catalogueDependencies = projectCatalogueDependencies?.length
+        ? projectCatalogueDependencies
+        : await describeProjectCatalogueDependencies(datasets);
+      const manifest = createProjectManifest({
+        instrumentId: activeInstrument.id,
+        observingStrategyId: activeSurvey?.id ?? null,
+        planningMode: projectPlanningMode,
+        region: regionPolygon,
+        placement: projectPlacement,
+        positionAngleInputDeg: manualPositionAngle.trim() ? Number(manualPositionAngle) : null,
+        coverageStrategy,
+        sequenceCoverageBasis: sequenceBasis,
+        catalogueDependencies,
+        importedProfileDocuments,
+      }, profileRegistry);
+      return serializeProjectManifest(manifest, profileRegistry);
+    }, (json) => {
+      const blob = new Blob([json], { type: "application/json; charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "jasytata-project.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setNotice("jasytata-project.json downloaded. Catalogue files remain external dependencies; pointing CSV exports remain separate.");
+    });
+  }
+
+  async function importProjectManifest(file?: File) {
+    if (!file) return;
+    const projectRevision = regionRevisionRef.current;
+    await runBusy(async () => {
+      const manifest = parseProjectManifest(await file.text(), profileRegistry);
+      const catalogueMatch = await matchProjectCatalogueDependencies(manifest.project.catalogue_dependencies, datasets);
+      const matchedDatasets = catalogueMatch.matchedDatasetIds.flatMap((id) => {
+        const dataset = datasets.find((item) => item.id === id);
+        return dataset ? [dataset] : [];
+      });
+      if (projectRevision !== regionRevisionRef.current) {
+        throw new Error("Project import was cancelled because the current project changed while the file was being validated. Import it again when ready.");
+      }
+      // Profile registration follows every parsing, science, reference and catalogue check.
+      const profileDependencies = installProjectProfileDependencies(manifest, profileRegistry);
+      return { manifest, catalogueMatch, matchedDatasets, profileDependencies };
+    }, ({ manifest, catalogueMatch, matchedDatasets, profileDependencies }) => {
+      planningAbortRef.current?.abort();
+      planningAbortRef.current = null;
+      regionRevisionRef.current += 1;
+      proposalBatchRef.current = 0;
+      setPlanningActive(false);
+      setDatasets(matchedDatasets);
+      setColumnMapping(null);
+      setProposals([]);
+      setPending(null);
+      setProposalContext(null);
+      setActiveMetrics(null);
+      setScientificRefusal(null);
+      setSelectedTileId(null);
+      setReferenceMarker(null);
+      setRegionPolygon(manifest.project.region);
+      setProjectPlanningMode(manifest.project.planning_mode);
+      setProjectPlacement(manifest.project.placement);
+      setProjectPlacementDirty(false);
+      setProjectLatticePreview(null);
+      setProjectCatalogueDependencies(manifest.project.catalogue_dependencies);
+      setMatchedProjectCatalogueDatasetIds(catalogueMatch.matchedDatasetIds);
+      setProjectCatalogueDependenciesReady(catalogueMatch.complete);
+      setCoverageStrategy(manifest.project.coverage_strategy);
+      setSequenceBasis(manifest.project.sequence_coverage_basis);
+      setOutputContext(manifest.project.observing_strategy
+        ? { kind: "survey", id: manifest.project.observing_strategy.id }
+        : { kind: "instrument", id: manifest.project.instrument.id });
+      setInstrumentProfiles(profileRegistry.listAnyInstrumentProfiles());
+      setSurveyProfiles(profileRegistry.listAnySurveyProfiles());
+      setImportedProfileDocuments((previous) => {
+        const next = new Map(previous);
+        for (const dependency of profileDependencies) {
+          if ("instrument" in dependency && dependency.instrument) next.set(`instrument:${dependency.instrument.id}`, dependency);
+          if ("survey" in dependency && dependency.survey) next.set(`survey:${dependency.survey.id}`, dependency);
+        }
+        return next;
+      });
+      setManualPositionAngle(manifest.project.position_angle?.input_deg === null || !manifest.project.position_angle
+        ? ""
+        : String(manifest.project.position_angle.input_deg));
+      setExportEpoch(undefined);
+      setImportText("");
+      setParsedCenters(null);
+      setApplyBatchPa(false);
+      setDebugRequestJson("");
+      setMapMode("idle");
+      setSelectingRegion(false);
+      setSelectionRequest((previous) => previous + 1);
+      setConfirmingNewProject(false);
+      setProjectSession((previous) => previous + 1);
+      setError(null);
+      setNotice(catalogueMatch.missingCount
+        ? `Project imported. ${catalogueMatch.missingCount} external catalogue file${catalogueMatch.missingCount === 1 ? " is" : "s are"} still required before planning.`
+        : "Project imported. Candidate preview and plan are empty; generate again from the restored inputs.");
+    }, () => projectRevision === regionRevisionRef.current);
+    if (projectFileInputRef.current) projectFileInputRef.current.value = "";
+  }
+
+  const projectPlacementSummary = projectPlacement?.type === "lattice_project_placement"
+    ? `${projectPlacement.authoring.preset} · ${projectPlacement.rotation.mode === "independent" ? "independent rotation" : "follows instrument PA"}`
+    : projectPlacement?.type === "manual_project_placement" ? "user-declared manual placement" : "not set";
+  const projectPlanStatus = pending
+    ? `${pending.tiles.length} pointings ready for review`
+    : enabledProposals.length
+      ? `${enabledProposals.length} accepted nominal pointings`
+      : projectCatalogueProblem ? "catalogue required"
+        : !regionPolygon ? "region needed"
+          : usesProjectRegionSource && !projectPlacement ? "placement needed"
+            : usesProjectRegionSource ? "ready to generate" : "manual mode";
+  const catalogueSummary = projectCatalogueDependencies?.length
+    ? `${matchedProjectCatalogueDatasetIds.length}/${projectCatalogueDependencies.length} referenced files loaded`
+    : datasets.length ? `${datasets.length} optional catalogue${datasets.length === 1 ? "" : "s"}` : "none required";
+
   return (
     <main className="app-shell" data-theme={theme}>
       <header className="topbar">
@@ -980,7 +1175,16 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             <Icon name={theme === "dark" ? "sun" : "moon"} />
             <span className="theme-toggle-label">{theme === "dark" ? "Light" : "Dark"}</span>
           </button>
-          <button ref={newProjectButtonRef} className="button button-quiet new-project-button" type="button" onClick={requestNewProject} disabled={busy}>
+          <input ref={projectFileInputRef} className="visually-hidden" type="file" accept=".json,application/json"
+            aria-label="Choose Jasytata project JSON" onChange={(event) => void importProjectManifest(event.target.files?.[0])} />
+          <button className="button button-outline project-action" type="button" onClick={() => projectFileInputRef.current?.click()} disabled={busy && !planningActive}>
+            <Icon name="upload" /> Import project
+          </button>
+          <button className="button button-outline project-action" type="button" onClick={() => void exportProjectManifest()}
+            disabled={busy || !activeInstrument || Boolean(activeResolution.error) || Boolean(projectCatalogueProblem) || Boolean(unresolvedDataset)}>
+            <Icon name="download" /> Export project
+          </button>
+          <button ref={newProjectButtonRef} className="button button-quiet new-project-button" type="button" onClick={requestNewProject} disabled={busy && !planningActive}>
             New project
           </button>
           <button className="button button-quiet" onClick={() => void runBusy(loadReferenceCatalogue, applyCatalogue)} disabled={busy}>
@@ -1008,7 +1212,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               setConfirmingNewProject(false);
               newProjectButtonRef.current?.focus();
             }}>Cancel</button>
-            <button className="button button-danger" type="button" onClick={startNewProject} disabled={busy}>Discard and start new</button>
+            <button className="button button-danger" type="button" onClick={startNewProject} disabled={busy && !planningActive}>Discard and start new</button>
           </div>
         </div>
       )}
@@ -1220,6 +1424,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           <section className="panel-section planning-section">
             <SectionHeading title={planningCapabilities.supportsAutomaticRegionPlanning || usesProjectRegionSource ? "Region plan" : planningCapabilities.canAuthorProjectPlacement ? "Project placement" : planningCapabilities.canMeasureSelectedGeometry ? "Region diagnostics" : "Region plan"}
               trailing={regionPolygon ? "AREA SET" : undefined} />
+            <p className="fine-print project-workflow-summary" data-testid="project-summary">
+              Instrument: {activeInstrument?.display_name ?? "unavailable"} · Strategy: {activeSurvey?.display_name ?? "none"} ·
+              {" "}Region: {regionPolygon ? `${regionPolygon.vertices.length} vertices` : "not set"} · Placement: {projectPlacementSummary} ·
+              {" "}Coverage: {coverageStrategy === "complete" ? "Complete" : "Efficient"} · Plan: {projectPlanStatus} · Catalogue: {catalogueSummary}
+            </p>
             {!planningCapabilities.supportsAutomaticRegionPlanning &&
               <p className="panel-copy planning-capability-message">{planningCapabilities.canAuthorProjectPlacement
                 ? "Select Regional mosaic and apply project placement to generate a regional plan. Preview lattice shows all admissible candidate sites."
@@ -1264,8 +1473,6 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
             </button>}
             {planningActive && <button className="button button-quiet button-full" onClick={cancelPlanningRun}>Cancel planning</button>}
-            {usesProjectRegionSource && <p className="fine-print">Instrument geometry: {activeInstrument?.display_name} · Project placement: User-defined {projectPlacement?.type === "lattice_project_placement" ? projectPlacement.authoring.preset : "unresolved"} grid</p>}
-            {planningCapabilities.supportsAutomaticRegionPlanning && <p className="fine-print">Active strategy: {activeSurvey?.display_name}{activeInstrument ? ` · instrument: ${activeInstrument.display_name}` : ""}</p>}
             {planningCapabilities.supportsAutomaticRegionPlanning && activeSurvey &&
               <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>}
           </section>

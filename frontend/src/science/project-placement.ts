@@ -143,6 +143,20 @@ function validatePolicy(value: unknown): ProjectPlacementPolicy {
   throw new Error("Project placement type must be manual_project_placement or lattice_project_placement");
 }
 
+/** Validate and normalize a project-owned placement policy from an untrusted value.
+ *
+ * The returned policy uses the existing Gate 1 placement discriminators and
+ * canonical degree fields. Fixed anchors are ICRS degrees; basis vectors use
+ * local east/north degrees. No profile, React state, or derived cache is read.
+ *
+ * @param value - JSON-compatible placement input from a project manifest.
+ * @returns Defensive canonical project placement policy.
+ * @throws If the provenance, authoring mode, basis, rotation, or origin is invalid.
+ */
+export function normalizeProjectPlacementPolicy(value: unknown): ProjectPlacementPolicy {
+  return validatePolicy(value);
+}
+
 /** Resolve project placement authoring into serializable canonical sky geometry.
  *
  * Rectangular, triangular, and advanced authoring all resolve to the existing

@@ -49,6 +49,32 @@ const INITIAL_DRAFT: Draft = {
   rotationMode: "", rotation: "", originMode: "", anchorRa: "", anchorDec: "",
 };
 
+function draftFromPlacement(placement: ProjectPlacementPolicy | null): Draft {
+  if (!placement || placement.type !== "lattice_project_placement") return INITIAL_DRAFT;
+  const authoring = placement.authoring;
+  return {
+    ...INITIAL_DRAFT,
+    unit: "deg",
+    preset: authoring.preset,
+    ...(authoring.preset === "rectangular" ? {
+      eastSpacing: String(authoring.east_spacing_deg),
+      northSpacing: String(authoring.north_spacing_deg),
+    } : {}),
+    ...(authoring.preset === "triangular" ? { pitch: String(authoring.pitch_deg) } : {}),
+    ...(authoring.preset === "advanced_basis" ? {
+      vector1East: String(authoring.basis_deg[0][0]),
+      vector1North: String(authoring.basis_deg[0][1]),
+      vector2East: String(authoring.basis_deg[1][0]),
+      vector2North: String(authoring.basis_deg[1][1]),
+    } : {}),
+    rotationMode: placement.rotation.mode,
+    rotation: placement.rotation.mode === "independent" ? String(placement.rotation.rotation_deg) : "",
+    originMode: placement.origin.type,
+    anchorRa: placement.origin.type === "fixed_anchor" ? String(placement.origin.ra_deg) : "",
+    anchorDec: placement.origin.type === "fixed_anchor" ? String(placement.origin.dec_deg) : "",
+  };
+}
+
 function parseFiniteDraft(value: string, label: string): number {
   if (!value.trim()) throw new Error(`${label} is required.`);
   const parsed = Number(value);
@@ -109,7 +135,7 @@ function angularVectorLabel(eastDeg: number, northDeg: number): string {
  * @returns Compact project-placement controls and the resolved candidate summary.
  */
 export function ProjectLatticeAuthoring(props: ProjectLatticeAuthoringProps) {
-  const [draft, setDraft] = useState<Draft>(INITIAL_DRAFT);
+  const [draft, setDraft] = useState<Draft>(() => draftFromPlacement(props.placement));
   const [error, setError] = useState<string | null>(null);
   const updateField = (key: keyof Draft, value: string) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
