@@ -15,9 +15,9 @@ import type {
 } from "../types";
 
 import { ProfileError, profileValidation } from "./errors";
+import { validateFixedLatticeAnchor, validateLatticeBasis } from "../science/lattice-validation";
 
 const PROFILE_ID = /^[a-z][a-z0-9-]*$/;
-const FRACTION_EPSILON = 1e-12;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -222,15 +222,8 @@ function validateTiling(value: unknown): TilingModel {
       if (!Array.isArray(tiling.basis_deg) || tiling.basis_deg.length !== 2) throw new Error("Lattice requires two basis vectors");
       const first = validateOffset(tiling.basis_deg[0], "First lattice basis vector");
       const second = validateOffset(tiling.basis_deg[1], "Second lattice basis vector");
-      const firstLength = Math.hypot(first[0], first[1]);
-      const secondLength = Math.hypot(second[0], second[1]);
-      if (!Number.isFinite(firstLength) || !Number.isFinite(secondLength)) throw new Error("Lattice vector lengths must be finite");
-      if (firstLength === 0 || secondLength === 0) throw new Error("Lattice basis vectors must be non-zero");
-      const normalizedDeterminant = (first[0] / firstLength) * (second[1] / secondLength) -
-        (first[1] / firstLength) * (second[0] / secondLength);
-      if (!Number.isFinite(normalizedDeterminant) || Math.abs(normalizedDeterminant) <= FRACTION_EPSILON) {
-        throw new Error("Lattice basis vectors must not be collinear or degenerate");
-      }
+      const basis: [TangentPlaneOffset, TangentPlaneOffset] = [first, second];
+      validateLatticeBasis(basis);
       const placement = requireRecord(tiling.origin, "Lattice origin");
       let origin: LatticeOrigin;
       if (placement.type === "region_center") {
@@ -240,12 +233,10 @@ function validateTiling(value: unknown): TilingModel {
         rejectUnknownFields(placement, ["type", "ra_deg", "dec_deg"], "Fixed-anchor lattice origin");
         const ra = requireFiniteNumber(placement.ra_deg, "Lattice anchor RA");
         const dec = requireFiniteNumber(placement.dec_deg, "Lattice anchor DEC");
-        if (ra < 0 || ra >= 360 || Math.abs(dec) >= 90) {
-          throw new Error("Lattice anchor must have RA in [0, 360) and DEC in (-90, 90)");
-        }
+        validateFixedLatticeAnchor(ra, dec);
         origin = { type: "fixed_anchor", ra_deg: ra, dec_deg: dec };
       } else throw new Error("Invalid lattice origin type");
-      return { type: "lattice", basis_deg: [first, second], origin };
+      return { type: "lattice", basis_deg: basis, origin };
     }
     default:
       throw new Error(`Unknown tiling model type: ${String(tiling.type)}`);

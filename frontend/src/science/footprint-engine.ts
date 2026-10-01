@@ -236,11 +236,13 @@ export function footprintIntersectsRegion(
   return flattenFootprint(footprint).some((primitive) => primitiveIntersectsPolygon(primitive, localRegion));
 }
 
-/** Project a local east/north offset to ICRS with the project's tangent approximation.
+/** Project a local east/north offset to ICRS with Jasytata's frozen local approximation.
  *
- * Right ascension is scaled by `max(cos(DEC), 0.01)` and wrapped to `[0, 360)`.
- * The clamp avoids a singular RA scale near the poles; this is not spherical
- * polygon projection.
+ * RA is `modulo(reference RA + east / max(cos(reference DEC), 0.01), 360)` and
+ * DEC is `reference DEC + north`, with all angles in degrees. RA output is
+ * canonicalized to `[0, 360)`. East/north values are local angular offsets,
+ * not raw RA/DEC differences. The cosine clamp is an approximation near either
+ * pole; this is not a full spherical or gnomonic polygon projection.
  *
  * @param pointing - ICRS center in decimal-degree RA/DEC.
  * @param offset - Local east/north offset in degrees.
@@ -254,10 +256,14 @@ export function localOffsetToSky(
   return [modulo(pointing.ra_deg + offset[0] / cosine, 360), pointing.dec_deg + offset[1]];
 }
 
-/** Project ICRS coordinates into a pointing-centered east/north tangent plane.
+/** Project ICRS coordinates into Jasytata's frozen local east/north approximation.
  *
- * Uses the same wrapped-RA and clamped cosine convention as
- * {@link localOffsetToSky}.
+ * East is the shortest wrapped RA difference times
+ * `max(cos(reference DEC), 0.01)`; north is `sky DEC - reference DEC`.
+ * The RA branch is the shortest wrapped branch. Candidate planning separately
+ * rejects regions that exceed its supported finite branch and excludes remote
+ * padded sites rather than wrapping them into duplicate centers. The clamped
+ * cosine remains an approximation near either pole, not spherical geometry.
  *
  * @param sky - ICRS position in decimal-degree RA/DEC.
  * @param pointing - ICRS center in decimal-degree RA/DEC.
@@ -273,7 +279,9 @@ export function skyToLocalOffset(
 /** Create a reusable local projector with the pointing's cosine scale precomputed.
  *
  * This is the same transform as {@link skyToLocalOffset} and is intended for
- * sample loops that project many ICRS cells around one pointing.
+ * sample loops that project many ICRS cells around one pointing. Wrapped RA
+ * chooses the shortest branch; the `0.01` cosine clamp near the poles is an
+ * approximation, and broad unsupported regions are refused by planning code.
  *
  * @param pointing - ICRS center in decimal-degree RA/DEC.
  * @returns Projector accepting ICRS RA and DEC degrees and returning east/north degrees.

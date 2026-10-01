@@ -189,6 +189,60 @@ export interface GenericLatticeTiling {
   origin: LatticeOrigin;
 }
 
+/** Project-owned rectangular, triangular, or advanced lattice authoring input. */
+export type ProjectLatticeAuthoring =
+  | { preset: "rectangular"; east_spacing_deg: number; north_spacing_deg: number }
+  | { preset: "triangular"; pitch_deg: number }
+  | { preset: "advanced_basis"; basis_deg: [TangentPlaneOffset, TangentPlaneOffset] };
+
+/** Project-owned rule for resolving lattice rotation independently of camera PA. */
+export type ProjectLatticeRotation =
+  | { mode: "independent"; rotation_deg: number }
+  | { mode: "follow_instrument_pa" };
+
+/** Explicit user choice to place pointings manually in one project. */
+export interface ManualProjectPlacement {
+  type: "manual_project_placement";
+  provenance: "user_declared";
+}
+
+/** Explicit user-declared placement lattice belonging to one project, never a profile. */
+export interface LatticeProjectPlacement {
+  type: "lattice_project_placement";
+  provenance: "user_declared";
+  authoring: ProjectLatticeAuthoring;
+  rotation: ProjectLatticeRotation;
+  origin: LatticeOrigin;
+}
+
+/** Project-level placement policy, separate from instrument and survey profiles. */
+export type ProjectPlacementPolicy = ManualProjectPlacement | LatticeProjectPlacement;
+
+/** Canonical resolved manual project placement. */
+export interface ResolvedManualProjectPlacement {
+  type: "resolved_manual_project_placement";
+  provenance: "user_declared";
+}
+
+/** Canonical project lattice after rotation and origin have been resolved. */
+export interface ResolvedLatticeProjectPlacement {
+  type: "resolved_lattice_project_placement";
+  provenance: "user_declared";
+  /** Canonical east/north lattice vectors in degrees; columns are b1 then b2. */
+  basis_deg: [TangentPlaneOffset, TangentPlaneOffset];
+  /** Declared origin policy, retained for project persistence. */
+  origin: LatticeOrigin;
+  /** Resolved ICRS coordinates of the declared lattice origin. */
+  resolved_origin: Pick<CenterInput, "ra_deg" | "dec_deg">;
+  /** Explicit project rotation semantics, independent of region orientation. */
+  rotation_mode: ProjectLatticeRotation["mode"];
+  /** Effective astronomical lattice rotation, normalized to [0, 360) degrees. */
+  lattice_rotation_deg: number;
+}
+
+/** Serializable canonical result of resolving project placement authoring. */
+export type ResolvedProjectPlacement = ResolvedManualProjectPlacement | ResolvedLatticeProjectPlacement;
+
 /** Compatibility generation, a declared local lattice, or manual coverage only. */
 export type TilingModel =
   | { type: "legacy_splus"; grid_extent_deg: [width_deg: number, height_deg: number]; effective_overlap_arcsec: number }

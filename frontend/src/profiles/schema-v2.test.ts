@@ -120,6 +120,8 @@ describe("Profile Schema v2", () => {
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[0, 0], [1, 1]] } }))).toThrow(/non-zero/);
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[1, 1], [2, 2]] } }))).toThrow(/collinear/);
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[1, 0], [0, Number.POSITIVE_INFINITY]] } }))).toThrow(/finite/);
+    expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[1, 0], [1, 0.9e-12]] } }))).toThrow(/collinear/);
+    expect(validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, basis_deg: [[1, 0], [1, 1.1e-12]] } })).tiling).toMatchObject({ basis_deg: [[1, 0], [1, 1.1e-12]] });
     expect(() => validateSurveyProfileV2(surveyWith({ tiling: { ...lattice, origin: { type: "unknown" } } }))).toThrow(/origin type/);
   });
 

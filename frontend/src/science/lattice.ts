@@ -1,6 +1,7 @@
 import type { CenterInput, Footprint, GenericLatticeTiling, LatticeAlignment, SkyPolygon, TangentPlaneOffset } from "../types";
 import { footprintIntersectsRegion, footprintLocalBounds, localOffsetToSky, skyToLocalOffset } from "./footprint-engine";
 import { polygonBounds } from "./geometry";
+import { validateLatticeBasis } from "./lattice-validation";
 import { modulo, radians } from "./math";
 
 type Basis = GenericLatticeTiling["basis_deg"];
@@ -73,6 +74,7 @@ export function latticePlanningOrigin(region: SkyPolygon, tiling: GenericLattice
  * @throws If projection crosses the anchor's RA branch or inverse/range is unrepresentable.
  */
 export function candidateLatticeRange(region: SkyPolygon, basis: Basis, origin: CenterInput, footprint: Footprint, phaseOffset: TangentPlaneOffset = [0, 0]): LatticeRange {
+  validateLatticeBasis(basis);
   const vertices = region.vertices.map((point) => skyToLocalOffset(point, origin));
   const cosine = Math.max(Math.cos(radians(origin.dec_deg)), 0.01);
   const east = vertices.map((point) => point[0]);
@@ -96,7 +98,6 @@ export function candidateLatticeRange(region: SkyPolygon, basis: Basis, origin: 
   const [a, c] = basis[0].map((value) => value / firstLength);
   const [b, d] = basis[1].map((value) => value / secondLength);
   const determinant = a * d - b * c;
-  if (!Number.isFinite(determinant) || Math.abs(determinant) <= 1e-12) throw new Error("Lattice basis is degenerate");
   const corners = [[minX, minY], [minX, maxY], [maxX, minY], [maxX, maxY]];
   const indices = corners.map(([east, north]) => {
     const x = east - phaseOffset[0]; const y = north - phaseOffset[1];
