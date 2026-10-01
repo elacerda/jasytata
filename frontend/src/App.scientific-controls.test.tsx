@@ -222,27 +222,152 @@ describe("Gate 7B scientific browser controls", () => {
     await select(u, "survey:splus-t80-south"); expect(document.querySelector(".scientific-coverage")).toBeNull();
   });
 
+  it("clears an under-resolved diagnostic when a confirmed New project starts", async () => {
+    registerTestStrategy("test-reset-under-resolved", 1000, true); session.width = 0.05;
+    const u = user(); render(<App />); await select(u, "survey:test-reset-under-resolved");
+    await u.click(screen.getByRole("button", { name: "Scientific region" }));
+    await u.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByText("Coverage unavailable at required resolution");
+
+    await u.click(screen.getByRole("button", { name: "New project" }));
+    expect(screen.getByRole("alertdialog", { name: "Discard this project?" })).toBeVisible();
+    await u.click(screen.getByRole("button", { name: "Discard and start new" }));
+
+    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:test-reset-under-resolved");
+    expect(screen.getByRole("status")).toHaveTextContent("New empty project started with Synthetic test-reset-under-resolved.");
+    expect(screen.queryByText("Coverage unavailable at required resolution")).toBeNull();
+    expect(document.querySelector(".scientific-coverage")).toBeNull();
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+  });
+
+  it("resets a strategy-specific sequence basis while preserving the active strategy", async () => {
+    const u = user(); render(<App />); await select(u, "survey:sami-dr1-seven-position");
+    const basis = screen.getByRole("combobox", { name: "Geometry and export basis" });
+    await u.selectOptions(basis, "single_exposure");
+    expect(basis).toHaveValue("single_exposure");
+
+    await u.click(screen.getByRole("button", { name: "New project" }));
+    await u.click(screen.getByRole("button", { name: "Discard and start new" }));
+
+    expect(screen.getByRole("combobox", { name: "Output profile" })).toHaveValue("survey:sami-dr1-seven-position");
+    expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("Manual target centers + 7-exposure sequence")).toBeVisible();
+  });
+
+  it("clears parsed-center consent, PA drafts and import errors on New project", async () => {
+    const u = user(); render(<App />); await select(u, "instrument:vlt-muse-wfm");
+    await u.type(screen.getByRole("spinbutton", { name: /Required pointing PA/ }), "27");
+    const centers = screen.getByRole("textbox", { name: "RA and DEC pairs" });
+    await u.type(centers, "150, 0");
+    await u.click(screen.getByRole("button", { name: "Validate and preview" }));
+    await u.click(screen.getByRole("button", { name: "Stage import preview" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Apply pointing PA to this pasted batch");
+    await u.click(screen.getByRole("checkbox", { name: "Apply pointing PA to this pasted batch" }));
+    await u.click(screen.getByRole("button", { name: "New project" }));
+    await u.click(screen.getByRole("button", { name: "Discard and start new" }));
+    expect(centers).toHaveValue("");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stage import preview" })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Apply pointing PA to this pasted batch" })).not.toBeChecked();
+    expect(screen.getByRole("spinbutton", { name: /Required pointing PA/ })).toHaveValue(null);
+    expect(screen.getByRole("button", { name: /^Single tile/ })).toBeDisabled();
+    await u.type(centers, "150, 0");
+    await u.click(screen.getByRole("button", { name: "Validate and preview" }));
+    expect(screen.getByRole("checkbox", { name: "Apply pointing PA to this pasted batch" })).not.toBeChecked();
+  });
+
+  it("retains an imported user-selected PA default for an empty project without repeated confirmation", async () => {
+    const muse = instrument("vlt-muse-wfm");
+    session.registry!.registerInstrumentProfileV3({ ...muse, id: "reset-default-pa", display_name: "Session default PA",
+      footprint: { ...muse.footprint, position_angle_deg: 17 }, position_angle: { mode: "user_selected", required: true },
+      provenance: { ...muse.provenance, parameter_sources: [...muse.provenance.parameter_sources,
+        { parameter_path: "footprint.position_angle_deg", reference_url: muse.provenance.references[0].url! }] } });
+    const u = user(); render(<App />); await select(u, "instrument:reset-default-pa");
+    const pa = screen.getByRole("spinbutton", { name: "Plan/session PA in degrees east of north" });
+    expect(pa).toHaveValue(17);
+    await u.click(screen.getByRole("button", { name: "New project" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(pa).toHaveValue(17);
+    await place(u); await accept(u);
+    await u.clear(pa); await u.type(pa, "84");
+    await u.click(screen.getByRole("button", { name: "New project" }));
+    await u.click(screen.getByRole("button", { name: "Discard and start new" }));
+    expect(pointings()).toEqual([]);
+    expect(pa).toHaveValue(17);
+    await u.click(screen.getByRole("button", { name: "New project" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("New empty project started with Session default PA.");
+  });
+
+  it.each(["califa-ppak-three-point", "sdss-manga-19-three-point"])("derives the three-exposure workflow for %s", async (id) => {
+    const u = user(); render(<App />); await select(u, `survey:${id}`);
+    expect(screen.getByLabelText("Active survey summary")).toHaveTextContent("Manual target centers + 3-exposure sequence");
+    expect(screen.getByText(/not a regional tiling policy/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Complete coverage|Efficient coverage/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Single tile/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Import centers/ })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
+    await place(u); await accept(u);
+    expect(pointings()).toHaveLength(1);
+    expect(pointings()[0].output_strategy_id).toBe(id);
+    expect(resolvePointingGeometries(pointings()[0], null, session.registry!, session.map!.pointingGeometryContext)).toHaveLength(3);
+  });
+
   it("isolates transient state through S-PLUS → KCWI → MUSE → PFS → SAMI → S-PLUS and restores accepted identity", async () => {
     const u = user(); render(<App />);
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("Automatic region tiling + manual pointings")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Select area/ })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeEnabled();
+    expect(screen.getByText(/Select an area to generate a plan, add a pointing manually, or import centers/)).toBeVisible();
+    await u.click(screen.getByRole("button", { name: /^Select area/ }));
+    await u.click(screen.getByRole("button", { name: "Scientific region" }));
+    expect(await screen.findByText("4 vertices · finalized")).toBeVisible();
     await select(u, "instrument:keck-kcwi-small"); await place(u); await accept(u);
+    expect(within(screen.getByLabelText("Active instrument summary")).getByText("Manual pointings")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Single tile/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Import centers/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Select area/ })).toBeDisabled();
+    expect(screen.getByText(/not defined for this instrument/)).toBeVisible();
     const identity = pointings()[0];
     await select(u, "instrument:vlt-muse-wfm");
+    expect(within(screen.getByLabelText("Active instrument summary")).getByText("Manual pointings · PA required")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
     await u.type(screen.getByRole("spinbutton", { name: /Required pointing PA/ }), "37"); await place(u);
     await select(u, "instrument:subaru-pfs-target-access");
+    expect(within(screen.getByLabelText("Active instrument summary")).getByText("Manual target-access centers · PA required")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
+    expect(within(screen.getByLabelText("Active instrument summary")).getByText(/target-access field · not observed coverage/)).toBeVisible();
     expect(screen.getByRole("spinbutton", { name: /Required pointing PA/ })).toHaveValue(null);
+    expect(screen.getByRole("button", { name: /^Import centers/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Select area/ })).toBeDisabled();
+    expect(screen.queryByText("4 vertices · finalized")).toBeNull();
     expect(screen.queryByText("Proposal preview")).toBeNull(); expect(pointings()).toHaveLength(0);
     await u.type(screen.getByRole("spinbutton", { name: /Required pointing PA/ }), "63"); await place(u); await accept(u);
     await u.click(screen.getByRole("button", { name: /Pointing 1/ }));
     expect(document.querySelector(".pointing-science")).toHaveTextContent("Target-access envelope");
     expect(document.querySelector(".pointing-science")).toHaveTextContent("Not observed coverage");
     await select(u, "survey:sami-dr1-seven-position");
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("Manual target centers + 7-exposure sequence")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Complete coverage/ })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Efficient coverage/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Measure area/ })).toBeEnabled();
+    expect(screen.getByText(/not a regional tiling policy/)).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");
     await u.selectOptions(screen.getByRole("combobox", { name: "Geometry and export basis" }), "single_exposure");
     await place(u); await accept(u); session.width = 0.3;
     await u.click(screen.getByRole("button", { name: "Scientific region" }));
     await screen.findByText("Coverage unavailable at required resolution");
     await select(u, "survey:splus-t80-south");
+    expect(within(screen.getByLabelText("Active survey summary")).getByText("Automatic region tiling + manual pointings")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Select area/ })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeEnabled();
     expect(screen.queryByText("Proposal preview")).toBeNull(); expect(screen.queryByRole("spinbutton")).toBeNull();
+    expect(screen.queryByText("4 vertices · finalized")).toBeNull();
     expect(document.querySelector(".scientific-coverage")).toBeNull();
     await select(u, "survey:sami-dr1-seven-position");
     expect(screen.getByRole("combobox", { name: "Geometry and export basis" })).toHaveValue("effective_sequence");

@@ -2,15 +2,18 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { RegionPlanResponse } from "./types";
+import type { CatalogueResponse, RegionPlanResponse, TileRecord } from "./types";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import { planRegion as planRegionLocal } from "./science/planner";
 import { readCsv } from "./science/catalogue";
 import smallJson from "./profiles/fixtures/small-camera.json";
 
-const session = vi.hoisted(() => ({ registry: null as ProfileRegistry | null }));
-const apiSession = vi.hoisted(() => ({ planRegion: vi.fn() }));
+const session = vi.hoisted(() => ({
+  registry: null as ProfileRegistry | null,
+  map: null as { tiles: TileRecord[]; selectedTileId: string | null } | null,
+}));
+const apiSession = vi.hoisted(() => ({ loadReferenceCatalogue: vi.fn(), planRegion: vi.fn() }));
 vi.mock("./profiles", async (importOriginal) => {
   const original = await importOriginal<typeof import("./profiles")>();
   const { resolvePlanningProfile } = await import("./profiles/planning");
@@ -24,23 +27,27 @@ vi.mock("./profiles", async (importOriginal) => {
 });
 vi.mock("./api", async (importOriginal) => {
   const original = await importOriginal<typeof import("./api")>();
-  return { ...original, planRegion: apiSession.planRegion };
+  return { ...original, loadReferenceCatalogue: apiSession.loadReferenceCatalogue, planRegion: apiSession.planRegion };
 });
 vi.mock("./AladinMap", async () => {
   const React = await import("react");
   return {
     default: (props: {
+      tiles: TileRecord[];
+      selectedTileId: string | null;
       onRegionSelect: (polygon: { vertices: Array<{ ra_deg: number; dec_deg: number }> }) => void;
       onSkyClick: (ra: number, dec: number) => void;
-    }) =>
-      React.createElement("div", { "aria-label": "Sky map" }, React.createElement("button", {
+    }) => {
+      session.map = props;
+      return React.createElement("div", { "aria-label": "Sky map" }, React.createElement("button", {
         onClick: () => props.onRegionSelect({ vertices: [
           { ra_deg: 120, dec_deg: -61 }, { ra_deg: 135, dec_deg: -61 },
           { ra_deg: 135, dec_deg: -57 }, { ra_deg: 120, dec_deg: -57 },
         ] }),
       }, "Mock select region"), React.createElement("button", {
         onClick: () => props.onSkyClick(150.5, -24.25),
-      }, "Mock place tile")),
+      }, "Mock place tile"));
+    }
   };
 });
 
@@ -61,6 +68,15 @@ const regionPlan: RegionPlanResponse = {
     remaining_uncovered_fraction: 0, remaining_uncovered_area_deg2: 0,
     redundant_coverage: 0, outside_region_coverage_deg2: 0, sample_step_deg: 0.01,
   },
+};
+
+const referenceTile: TileRecord = {
+  id: "reference-tile-1", name: "SPLUS-d512", ra_deg: 150.5, dec_deg: -24.25,
+  source: "original", generation_method: null, original_values: { PID: "SPLUS" }, metadata: {},
+};
+const referenceCatalogue: CatalogueResponse = {
+  filename: "tiles_nc.csv", instrument_profile_id: "t80-south", row_count: 1,
+  tiles: [referenceTile], warnings: [],
 };
 
 function jsonFile(text: string, name = "profile.json"): File {
@@ -130,6 +146,8 @@ function captureFileDownloads(filename: string) {
 describe("minimal browser profile file controls", () => {
   beforeEach(() => {
     session.registry = createBundledProfileRegistry();
+    session.map = null;
+    apiSession.loadReferenceCatalogue.mockReset().mockResolvedValue(referenceCatalogue);
     apiSession.planRegion.mockReset().mockResolvedValue(regionPlan);
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -216,9 +234,13 @@ describe("minimal browser profile file controls", () => {
         .filter((instrument) => instrument.schema_version === 3)
         .map((instrument) => `instrument:${instrument.id}`).sort(),
     );
-    expect(instrumentOptions.some((option) => option.textContent?.includes("exact observed area"))).toBe(true);
-    expect(instrumentOptions.some((option) => option.textContent?.includes("approximate nominal envelope"))).toBe(true);
-    expect(instrumentOptions.some((option) => option.textContent?.includes("approximate target access"))).toBe(true);
+    expect(instrumentOptions.some((option) => option.textContent?.includes("Instrument · Manual pointings"))).toBe(true);
+    expect(instrumentOptions.some((option) => option.textContent?.includes("Manual target-access centers · PA required"))).toBe(true);
+    const user = userEvent.setup();
+    await user.selectOptions(selector, "instrument:keck-kcwi-small");
+    expect(screen.getByLabelText("Active instrument summary")).toHaveTextContent("Exact observed-area geometry");
+    await user.selectOptions(selector, "instrument:vlt-muse-wfm");
+    expect(screen.getByLabelText("Active instrument summary")).toHaveTextContent("Nominal envelope · Approximate");
   });
 
   it("places manual and pasted centers without a catalogue and downloads generic standalone coordinates", async () => {
@@ -657,8 +679,8 @@ describe("minimal browser profile file controls", () => {
     await user.selectOptions(selector, "survey:manual-survey");
     expect(screen.getByText("Manual coverage")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Mock select region" }));
-    expect(screen.getByRole("button", { name: "Generate plan" })).toBeDisabled();
-    expect(screen.getByText("Manual strategy: select a region to measure the declared geometry.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Generate plan" })).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.");
     expect(screen.getByRole("button", { name: "Measure selected geometry" })).toBeEnabled();
     expect(apiSession.planRegion).not.toHaveBeenCalled();
   });
@@ -874,6 +896,203 @@ describe("minimal browser profile file controls", () => {
     expect(await screen.findByText(/no declared camera position angle required by 'camera_pa'/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Download new_tiles.csv/ })).toBeDisabled();
     expect(downloads.click).not.toHaveBeenCalled(); expect(downloads.blobs).toEqual([]);
+  });
+
+  it("starts an empty project immediately while preserving the active instrument, theme, and imported profiles", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(smallJson)));
+    await screen.findByText(/Imported survey profile: Small oblique survey/);
+    const selector = screen.getByRole("combobox", { name: "Output profile" });
+    await user.selectOptions(selector, "instrument:vlt-muse-wfm");
+    if (document.querySelector(".app-shell")?.getAttribute("data-theme") !== "light") {
+      await user.click(screen.getByRole("button", { name: "Switch to light mode" }));
+    }
+    expect(document.querySelector(".app-shell")).toHaveAttribute("data-theme", "light");
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+
+    expect(screen.queryByRole("alertdialog", { name: "Discard this project?" })).toBeNull();
+    expect(selector).toHaveValue("instrument:vlt-muse-wfm");
+    expect(screen.getByLabelText("Active instrument summary")).toHaveTextContent("VLT / MUSE Wide Field Mode");
+    expect(screen.getByRole("status")).toHaveTextContent("New empty project started with VLT / MUSE Wide Field Mode.");
+    expect(document.querySelector(".app-shell")).toHaveAttribute("data-theme", "light");
+    expect(within(selector).getByRole("option", { name: /Small oblique survey/ })).toBeTruthy();
+  });
+
+  it("confirms a New project reset with active instrument input and keeps that context", async () => {
+    const user = userEvent.setup(); render(<App />);
+    const selector = screen.getByRole("combobox", { name: "Output profile" });
+    await user.selectOptions(selector, "instrument:vlt-muse-wfm");
+    const pa = screen.getByRole("spinbutton", { name: /Required pointing PA/ });
+    await user.type(pa, "37");
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    expect(screen.getByRole("alertdialog", { name: "Discard this project?" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
+
+    expect(selector).toHaveValue("instrument:vlt-muse-wfm");
+    expect(screen.getByRole("spinbutton", { name: /Required pointing PA/ })).toHaveValue(null);
+    expect(screen.getByRole("status")).toHaveTextContent("New empty project started with VLT / MUSE Wide Field Mode.");
+  });
+
+  it("keeps region-selection mode when New project confirmation is cancelled", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: /^Select area/ }));
+    expect(screen.getByText("CLICK POLYGON VERTICES")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText("CLICK POLYGON VERTICES")).toBeVisible();
+  });
+
+  it("confirms destructive reset, preserves state on cancel, then clears the project without losing its session profiles", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(smallJson)));
+    await screen.findByText(/Imported survey profile: Small oblique survey/);
+    if (document.querySelector(".app-shell")?.getAttribute("data-theme") !== "light") {
+      await user.click(screen.getByRole("button", { name: "Switch to light mode" }));
+    }
+    await user.click(screen.getByRole("button", { name: /Load reference/i }));
+    const sourceAssignment = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    expect(sourceAssignment).toHaveValue("t80-south");
+    const selector = screen.getByRole("combobox", { name: "Output profile" });
+    await user.selectOptions(selector, "instrument:keck-kcwi-small");
+    expect(sourceAssignment).toHaveValue("t80-south");
+    await user.selectOptions(selector, "survey:splus-t80-south");
+
+    const csvInput = screen.getByLabelText("Choose catalogue CSV");
+    await user.upload(csvInput, csvFile("X,Y\n1,2\n", "mapping.csv"));
+    await screen.findByText("Map coordinates in mapping.csv");
+    await user.click(screen.getByRole("button", { name: /^Select area/ }));
+    await user.click(screen.getByRole("button", { name: "Mock select region" }));
+    await user.click(screen.getByRole("radio", { name: /Efficient coverage/ }));
+    expect(screen.getByRole("radio", { name: /Efficient coverage/ })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
+    await screen.findByText("Proposal preview");
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    await screen.findByRole("button", { name: /PROPOSED_0001/ });
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
+    expect(screen.getByRole("button", { name: /PROPOSED_0001/ })).toHaveClass("is-disabled");
+    await user.click(screen.getByRole("button", { name: "Restore all" }));
+    expect(screen.getByRole("button", { name: /PROPOSED_0001/ })).not.toHaveClass("is-disabled");
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
+    await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+    await screen.findByText("Proposal preview");
+    const centersInput = screen.getByLabelText("RA and DEC pairs");
+    await user.type(centersInput, "150, -30");
+    await user.click(screen.getByRole("button", { name: "Validate and preview" }));
+    await screen.findByText("1 centers parsed");
+    await user.click(screen.getByRole("button", { name: /PROPOSED_0001/ }));
+    await user.click(screen.getByRole("button", { name: /^Single tile/ }));
+    expect(screen.getByText("PLACE TILE · CLICK SKY")).toBeVisible();
+    expect(screen.getByText("4 vertices · finalized")).toBeVisible();
+    expect(document.querySelector(".scientific-coverage")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    expect(screen.getByRole("alertdialog", { name: "Discard this project?" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog", { name: "Discard this project?" })).toBeNull();
+    expect(sourceAssignment).toHaveValue("t80-south");
+    expect(screen.getByText("Map coordinates in mapping.csv")).toBeVisible();
+    expect(screen.getByText("Proposal preview")).toBeVisible();
+    expect(screen.getByText("PLACE TILE · CLICK SKY")).toBeVisible();
+    expect(screen.getByText("4 vertices · finalized")).toBeVisible();
+    expect(screen.getByRole("radio", { name: /Efficient coverage/ })).toBeChecked();
+    expect(centersInput).toHaveValue("150, -30");
+    expect(screen.getByRole("button", { name: /PROPOSED_0001/ })).toHaveClass("is-disabled");
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
+
+    expect(selector).toHaveValue("survey:splus-t80-south");
+    expect(screen.getByRole("status")).toHaveTextContent("New empty project started with S-PLUS / T80-South.");
+    expect(screen.queryByText("Map coordinates in mapping.csv")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" })).toBeNull();
+    expect(document.querySelector(".catalogue-summary .summary-number")).toHaveTextContent("0");
+    expect(screen.queryByRole("button", { name: /PROPOSED_0001/ })).toBeNull();
+    expect(session.map!.tiles).toEqual([]);
+    expect(session.map!.selectedTileId).toBeNull();
+    expect(screen.queryByText("Proposal preview")).toBeNull();
+    expect(screen.queryByText("4 vertices · finalized")).toBeNull();
+    expect(document.querySelector(".scientific-coverage")).toBeNull();
+    expect(screen.getByLabelText("RA and DEC pairs")).toHaveValue("");
+    expect(screen.getByText("PAN · ZOOM · INSPECT")).toBeVisible();
+    expect(screen.getByRole("radio", { name: /Complete coverage/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Efficient coverage/ })).not.toBeChecked();
+    expect(screen.getByText("Inspector")).toBeVisible();
+    expect(document.querySelector(".app-shell")).toHaveAttribute("data-theme", "light");
+    expect(within(selector).getByRole("option", { name: /Small oblique survey/ })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    expect(screen.queryByRole("alertdialog", { name: "Discard this project?" })).toBeNull();
+  });
+
+  it("focuses the safe confirmation action and cancels with Escape without changing the project", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: /^Single tile/ }));
+    await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+    await screen.findByText("Proposal preview");
+    const preview = structuredClone(session.map!.tiles);
+    const newProject = screen.getByRole("button", { name: "New project" });
+    await user.click(newProject);
+    expect(screen.getByRole("alertdialog", { name: "Discard this project?" })).toHaveAccessibleDescription("Catalogues, pointings, and planning state will be cleared.");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(newProject).toHaveFocus();
+    expect(session.map!.tiles).toEqual(preview);
+    expect(screen.getByText("Proposal preview")).toBeVisible();
+  });
+
+  it("resets the project export epoch while retaining the imported strategy document", async () => {
+    const user = userEvent.setup(); const downloads = captureFileDownloads("small-survey.profile.json");
+    const imported = { ...smallJson, survey: { ...smallJson.survey, export: { ...smallJson.survey.export,
+      epoch: { column: "EPOCH", default: "2000", allowed: ["2000", "2016"] },
+    } } };
+    render(<App />);
+    await user.upload(screen.getByLabelText("Profile JSON file"), jsonFile(JSON.stringify(imported)));
+    await screen.findByText(/Imported survey profile:/);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Output profile" }), "survey:small-survey");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Export epoch" }), "2016");
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
+    expect(screen.getByRole("combobox", { name: "Export epoch" })).toHaveValue("2000");
+    await user.click(screen.getByRole("button", { name: "Export survey JSON" }));
+    await waitFor(() => expect(downloads.blobs).toHaveLength(1));
+    expect(parseProfileJsonV2(await blobText(downloads.blobs[0]))).toEqual(imported);
+  });
+
+  it("keeps source rows and assignments across every release context, then clears pointings in all contexts", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole("button", { name: /Load reference/ }));
+    const assignment = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    const sources = structuredClone(session.map!.tiles);
+    const selector = screen.getByRole("combobox", { name: "Output profile" });
+    const contexts = ["survey:splus-t80-south", "instrument:keck-kcwi-small", "instrument:vlt-muse-wfm",
+      "instrument:subaru-pfs-target-access", "survey:sami-dr1-seven-position"];
+    for (const context of contexts) {
+      await user.selectOptions(selector, context);
+      expect(assignment).toHaveValue("t80-south");
+      expect(session.map!.tiles.filter((tile) => tile.source === "original")).toEqual(sources);
+      const pa = screen.queryByRole("spinbutton", { name: /Required pointing PA/ });
+      if (pa) await user.type(pa, "32");
+      await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+      await screen.findByText("Proposal preview");
+      await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+      expect(session.map!.tiles.filter((tile) => tile.source === "proposed")).toHaveLength(1);
+    }
+    await user.click(screen.getByRole("button", { name: "New project" }));
+    await user.click(screen.getByRole("button", { name: "Discard and start new" }));
+    expect(selector).toHaveValue("survey:sami-dr1-seven-position");
+    expect(screen.queryByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" })).toBeNull();
+    for (const context of contexts) {
+      await user.selectOptions(selector, context);
+      expect(session.map!.tiles).toEqual([]);
+    }
+    await user.click(screen.getByRole("button", { name: "Mock place tile" }));
+    await screen.findByText("Proposal preview");
+    await user.click(screen.getByRole("button", { name: "Accept proposal" }));
+    expect(session.map!.tiles[0].id).toMatch(/^proposal-1-/);
   });
 
 });

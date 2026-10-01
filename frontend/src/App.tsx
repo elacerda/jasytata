@@ -12,6 +12,7 @@ import { resolveFootprintForTile } from "./profiles/footprints";
 import { CoverageUnavailableError } from "./science/coverage";
 import { CoverageReadout as MetricsPanel, PointingAngle, PointingScience, ScientificDetails } from "./ScientificReadouts";
 import { footprintSummary, formatDegrees } from "./profiles/presentation";
+import { automaticRegionUnavailableMessage, derivePlanningCapabilities, emptyPlanningStateMessage, planningModeLabel } from "./profiles/planning-capabilities";
 import type { AnyInstrumentProfile, AnySurveyProfile } from "./profiles/registry";
 import type {
   CenterInput,
@@ -68,18 +69,17 @@ function roleSummary(instrument: AnyInstrumentProfile): string {
 }
 
 function instrumentChoiceLabel(instrument: AnyInstrumentProfile): string {
-  if (instrument.schema_version !== 3) return `${instrument.display_name} · Legacy v2`;
-  const fidelity = instrument.footprint_semantics.fidelity === "exact" ? "exact" : "approximate";
-  const role = instrument.footprint_semantics.role.replaceAll("_", " ");
-  return `${instrument.display_name} · ${fidelity} ${role}`;
+  const capabilities = derivePlanningCapabilities(instrument, null);
+  return `${instrument.display_name} · Instrument · ${planningModeLabel(capabilities)}`;
 }
 
 function surveyChoiceLabel(survey: AnySurveyProfile): string {
   const instrument = profileRegistry.resolveInstrumentProfile(survey.instrument_id);
-  const sequence = survey.schema_version === 3 && survey.observing_sequence
-    ? ` · ${survey.observing_sequence.exposures.length} ordered exposures`
-    : "";
-  return `${survey.display_name} · ${instrument.display_name}${sequence}`;
+  const capabilities = derivePlanningCapabilities(instrument, survey);
+  const description = capabilities.observingSequenceExposureCount !== null
+    ? `${capabilities.observingSequenceExposureCount}-exposure sequence`
+    : capabilities.supportsAutomaticRegionPlanning ? "automatic region tiling" : "manual pointings";
+  return `${survey.display_name} · Strategy · ${description}`;
 }
 
 function tilingSummary(tiling: SurveyProfileV2["tiling"]): string {
@@ -134,9 +134,12 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmingNewProject, setConfirmingNewProject] = useState(false);
   const [debugRequestJson, setDebugRequestJson] = useState("");
   const profileFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const newProjectButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelNewProjectRef = useRef<HTMLButtonElement>(null);
   const importRef = useRef<HTMLElement>(null);
   const proposalBatchRef = useRef(0);
   const regionRevisionRef = useRef(0);
@@ -178,11 +181,11 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const paMode = activeInstrument?.schema_version === 3 ? activeInstrument.position_angle.mode : null;
   const profilePa = activeInstrument && "position_angle_deg" in activeInstrument.footprint ? activeInstrument.footprint.position_angle_deg : undefined;
   const observingSequence = activeSurvey?.schema_version === 3 ? activeSurvey.observing_sequence : undefined;
+  const planningCapabilities = derivePlanningCapabilities(activeInstrument, activeSurvey);
   const geometryBasis = observingSequence && activeSurvey?.schema_version === 3 ? sequenceBasis ?? activeSurvey.coverage_basis_default : "single_exposure";
   const outputStrategyId = activeSurvey?.id ?? null;
   const outputInstrumentId = activeInstrument?.id ?? null;
-  const requiredPositionAngle = activeInstrument?.schema_version === 3 && activeInstrument.position_angle.required &&
-    (activeInstrument.position_angle.mode === "per_pointing" || activeInstrument.position_angle.mode === "user_selected");
+  const requiredPositionAngle = planningCapabilities.requiresUserPositionAngle;
   const parsedManualPositionAngle = manualPositionAngle.trim() ? Number(manualPositionAngle) : undefined;
   const validManualPositionAngle = parsedManualPositionAngle !== undefined && Number.isFinite(parsedManualPositionAngle);
   const unresolvedDataset = useMemo(() => datasets.find((dataset) => {
@@ -201,10 +204,18 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
         ? `Catalogue “${unresolvedDataset.filename}” references an unavailable instrument. Choose a registered instrument profile before planning.`
         : `Choose an instrument profile for “${unresolvedDataset.filename}” before planning.`
       : null)
-    ?? (!activeSurvey ? "Standalone instrument mode supports manual or imported centers only; select a real strategy for automatic region planning." : null)
-    ?? (activeSurvey?.tiling.type === "manual" ? "This strategy uses manual coverage and does not support automatic region planning." : null);
+    ?? (!planningCapabilities.supportsAutomaticRegionPlanning
+      ? automaticRegionUnavailableMessage(planningCapabilities)
+      : null);
 
   const hasCatalogue = datasets.length > 0;
+  const defaultManualPositionAngle = paMode === "user_selected" && profilePa !== undefined ? String(profilePa) : "";
+  const hasProjectContent = Boolean(
+    datasets.length || columnMapping || proposals.length || pending || proposalContext || regionPolygon ||
+    importText.trim() || parsedCenters || activeMetrics || scientificRefusal || selectedTileId ||
+    mapMode !== "idle" || selectingRegion || manualPositionAngle !== defaultManualPositionAngle || exportEpoch !== undefined ||
+    sequenceBasis !== null || coverageStrategy !== "complete" || debugRequestJson,
+  );
   const outputGeometryContext = useMemo<PointingGeometryContext>(() => ({
     coverageBasis: geometryBasis,
     ...(activeInstrument?.schema_version === 3 ? { measurementBasis: activeInstrument.footprint_semantics.role } : {}),
@@ -316,8 +327,17 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   }, [regionPolygon, activeSurvey, profile, activeOutputProposals, originalTiles, unresolvedDataset, activeResolution.error, activePointingGeometryContext]);
 
   useEffect(() => {
+    if (confirmingNewProject) cancelNewProjectRef.current?.focus();
+  }, [confirmingNewProject]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (confirmingNewProject) {
+          setConfirmingNewProject(false);
+          newProjectButtonRef.current?.focus();
+          return;
+        }
         setMapMode("idle");
         setSelectingRegion(false);
         setNotice(null);
@@ -325,7 +345,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [confirmingNewProject]);
 
   async function runBusy<T>(work: () => Promise<T>, success?: (result: T) => void) {
     setBusy(true);
@@ -648,7 +668,50 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setError(null);
   }
 
+  /** Clear project data and drafts in place; retain output context, registry and display preferences. */
+  function startNewProject() {
+    if (busy) return;
+    const contextName = activeSurvey?.display_name ?? activeInstrument?.display_name ?? "the selected output";
+    regionRevisionRef.current += 1;
+    proposalBatchRef.current = 0;
+    setDatasets([]);
+    setColumnMapping(null);
+    setProposals([]);
+    setPending(null);
+    setProposalContext(null);
+    setActiveMetrics(null);
+    setScientificRefusal(null);
+    setSelectedTileId(null);
+    setRegionPolygon(null);
+    setMapMode("idle");
+    setSelectingRegion(false);
+    setImportText("");
+    setParsedCenters(null);
+    setApplyBatchPa(false);
+    setCoverageStrategy("complete");
+    setSequenceBasis(null);
+    setExportEpoch(undefined);
+    setManualPositionAngle(defaultManualPositionAngle);
+    setDebugRequestJson("");
+    setConfirmingNewProject(false);
+    setError(null);
+    setNotice(`New empty project started with ${contextName}.`);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (profileFileInputRef.current) profileFileInputRef.current.value = "";
+    newProjectButtonRef.current?.focus();
+  }
+
+  function requestNewProject() {
+    if (busy) return;
+    if (hasProjectContent) {
+      setConfirmingNewProject(true);
+      return;
+    }
+    startNewProject();
+  }
+
   function beginRegionSelection() {
+    if (!(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)) return;
     setScientificRefusal(null);
     regionRevisionRef.current += 1;
     setMapMode("idle");
@@ -658,7 +721,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     setActiveMetrics(null);
     setSelectingRegion(true);
     setSelectionRequest((previous) => previous + 1);
-    setNotice("Click successive sky points, then double-click to close the polygon.");
+    setNotice(planningCapabilities.supportsAutomaticRegionPlanning
+      ? "Click successive sky points, then double-click to close the polygon."
+      : "Select an area for geometry diagnostics; this strategy does not place regional pointings.");
   }
 
   function clearRegionSelection() {
@@ -719,6 +784,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             <Icon name={theme === "dark" ? "sun" : "moon"} />
             <span className="theme-toggle-label">{theme === "dark" ? "Light" : "Dark"}</span>
           </button>
+          <button ref={newProjectButtonRef} className="button button-quiet new-project-button" type="button" onClick={requestNewProject} disabled={busy}>
+            New project
+          </button>
           <button className="button button-quiet" onClick={() => void runBusy(loadReferenceCatalogue, applyCatalogue)} disabled={busy}>
             <Icon name="sample" /> Load reference
           </button>
@@ -735,6 +803,19 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           />
         </div>
       </header>
+
+      {confirmingNewProject && (
+        <div className="message-bar is-notice new-project-confirmation" role="alertdialog" aria-labelledby="new-project-confirmation-title" aria-describedby="new-project-confirmation-description">
+          <span><strong id="new-project-confirmation-title">Discard this project?</strong> <span id="new-project-confirmation-description">Catalogues, pointings, and planning state will be cleared.</span></span>
+          <div className="new-project-confirmation-actions">
+            <button ref={cancelNewProjectRef} className="button button-outline" type="button" onClick={() => {
+              setConfirmingNewProject(false);
+              newProjectButtonRef.current?.focus();
+            }}>Cancel</button>
+            <button className="button button-danger" type="button" onClick={startNewProject} disabled={busy}>Discard and start new</button>
+          </div>
+        </div>
+      )}
 
       {(error || notice) && (
         <div className={`message-bar ${error ? "is-error" : "is-notice"}`} role={error ? "alert" : "status"}>
@@ -834,6 +915,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             {activeInstrument && (
               <div className="profile-readout scientific-profile" aria-label={activeSurvey ? "Active survey summary" : "Active instrument summary"}>
                 <span>Output mode <strong>{activeSurvey ? "Survey strategy" : "Standalone instrument"}</strong></span>
+                <span>Planning mode <strong>{planningModeLabel(planningCapabilities)}</strong></span>
                 {activeSurvey && <span>Strategy <strong>{activeSurvey.display_name}</strong></span>}
                 {activeSurvey && <span>Stable strategy ID <strong>{activeSurvey.id}</strong></span>}
                 <span>Instrument <strong>{activeInstrument.display_name}</strong></span>
@@ -889,13 +971,13 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                   setMapMode("add-tile");
                   setNotice("Click a position on the sky to preview one new tile.");
                 }}
-                disabled={busy || !activeInstrument || (requiredPositionAngle && !validManualPositionAngle)}
+                disabled={busy || !planningCapabilities.canPlaceManualPointing || (requiredPositionAngle && !validManualPositionAngle)}
               >
                 <span className="mode-icon"><Icon name="crosshair" /></span>
                 <span><strong>Single tile</strong><small>Click a sky position</small></span>
                 <Icon name="chevron" />
               </button>
-              <button className="mode-button" onClick={() => { setSelectingRegion(false); setMapMode("idle"); setParsedCenters(null); importRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" }); }} disabled={busy}>
+              <button className="mode-button" onClick={() => { setSelectingRegion(false); setMapMode("idle"); setParsedCenters(null); importRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" }); }} disabled={busy || !planningCapabilities.canImportCenters}>
                 <span className="mode-icon"><Icon name="list" /></span>
                 <span><strong>Import centers</strong><small>Paste RA / DEC pairs</small></span>
                 <Icon name="chevron" />
@@ -903,25 +985,39 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               <button
                 className="mode-button"
                 onClick={beginRegionSelection}
-                disabled={busy || !activeSurvey}
+                disabled={busy || !(planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry)}
               >
                 <span className="mode-icon"><Icon name="region" /></span>
-                <span><strong>Select area</strong><small>Click polygon vertices on the sky</small></span>
+                <span><strong>{planningCapabilities.supportsAutomaticRegionPlanning ? "Select area" : planningCapabilities.canMeasureSelectedGeometry ? "Measure area" : "Select area"}</strong>
+                  <small>{planningCapabilities.supportsAutomaticRegionPlanning
+                    ? "Click polygon vertices on the sky"
+                    : planningCapabilities.canMeasureSelectedGeometry
+                      ? "Select a region for geometry diagnostics"
+                      : "Automatic region planning is unavailable"}</small></span>
                 <Icon name="chevron" />
               </button>
             </div>
+            {!planningCapabilities.supportsAutomaticRegionPlanning &&
+              <p className="planning-capability-message">{automaticRegionUnavailableMessage(planningCapabilities)}</p>}
+            {!hasCatalogue && proposals.length === 0 && !pending &&
+              <p className="planning-empty-state">{emptyPlanningStateMessage(planningCapabilities)}</p>}
           </section>
 
           <section className="panel-section planning-section">
-            <SectionHeading title="Region plan" trailing={regionPolygon ? "AREA SET" : undefined} />
-            {regionPolygon ? (
+            <SectionHeading title={planningCapabilities.supportsAutomaticRegionPlanning ? "Region plan" : planningCapabilities.canMeasureSelectedGeometry ? "Region diagnostics" : "Region plan"}
+              trailing={regionPolygon ? "AREA SET" : undefined} />
+            {!planningCapabilities.supportsAutomaticRegionPlanning &&
+              <p className="panel-copy planning-capability-message">{planningCapabilities.canMeasureSelectedGeometry
+                ? "Area selection measures declared geometry only; it does not generate regional pointings."
+                : "Area selection is unavailable for this output context."}</p>}
+            {regionPolygon && (planningCapabilities.supportsAutomaticRegionPlanning || planningCapabilities.canMeasureSelectedGeometry) ? (
               <div className="region-summary">
                 <div className="coordinate-row"><span>Selected polygon</span><strong>{regionPolygon.vertices.length} vertices · finalized</strong></div>
                 <div className="region-actions">
-                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy || !activeSurvey}>Redraw polygon</button>
+                  <button className="button button-outline" onClick={beginRegionSelection} disabled={busy}>{planningCapabilities.supportsAutomaticRegionPlanning ? "Redraw polygon" : "Redraw area"}</button>
                   <button className="button button-quiet" onClick={clearRegionSelection}>Clear selection</button>
                 </div>
-                {import.meta.env.DEV && <details className="development-plan-input">
+                {import.meta.env.DEV && planningCapabilities.supportsAutomaticRegionPlanning && <details className="development-plan-input">
                   <summary>Development: plan input</summary>
                   <pre>{JSON.stringify(regionPolygon.vertices, null, 2)}</pre>
                   <button className="text-button" disabled={!debugRequestJson} onClick={() => {
@@ -931,28 +1027,28 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                   }}>Copy last plan request JSON</button>
                 </details>}
               </div>
-            ) : (
-              <p className="panel-copy">{activeSurvey
-                ? "Select a sky polygon to plan with the active strategy and assigned catalogue pointings."
-                : "Standalone instruments accept manual or pasted centers. Select a real strategy to enable automatic region planning."}</p>
-            )}
-            {activeSurvey && activeSurvey.tiling.type !== "manual" ? <fieldset className="coverage-strategy">
+            ) : planningCapabilities.supportsAutomaticRegionPlanning ? (
+              <p className="panel-copy">Select a sky polygon to plan with the active strategy and assigned catalogue pointings.</p>
+            ) : planningCapabilities.canMeasureSelectedGeometry ? (
+              <p className="panel-copy">{regionPolygon ? "Measure the declared geometry in this area; no regional pointings will be generated." : "Select an area only to measure declared geometry. Add target centers manually or import centers for this strategy."}</p>
+            ) : null}
+            {planningCapabilities.supportsAutomaticRegionPlanning && activeSurvey ? <fieldset className="coverage-strategy">
               <legend>Coverage strategy</legend>
               <label><input type="radio" name="coverage-strategy" value="complete" checked={coverageStrategy === "complete"} onChange={() => changeCoverageStrategy("complete")} />
                 <span><strong>Complete coverage (default)</strong><small>Attempts to cover every sampled point in the selected region.</small></span></label>
               <label><input type="radio" name="coverage-strategy" value="efficient" checked={coverageStrategy === "efficient"} onChange={() => changeCoverageStrategy("efficient")} />
                 <span><strong>Efficient coverage</strong><small>Uses the same planner and candidate order; may stop when the selected strategy's coverage floor is met and new physical area falls below its marginal-efficiency threshold. Requires an Efficient policy.</small></span></label>
               <p className="fine-print">Efficient can leave small residual gaps to save exposures; it does not assess their topology or scientific importance. Choose Complete for exhaustive sampled coverage.</p>
-            </fieldset> : <p className="fine-print">{activeSurvey ? "Manual strategy: select a region to measure the declared geometry." : "Automatic region tiling and survey coverage metrics are unavailable for this output profile."}</p>}
-            {planningUnavailableReason && activeSurvey && activeSurvey.tiling.type !== "manual" &&
+            </fieldset> : null}
+            {planningUnavailableReason && planningCapabilities.supportsAutomaticRegionPlanning &&
               <p className="profile-validation-error" role="alert">{planningUnavailableReason}</p>}
-            {activeSurvey?.tiling.type === "manual" && <button className="button button-outline button-full" disabled={busy || !regionPolygon || Boolean(unresolvedDataset)} onClick={() => void handleMeasureGeometry()}>Measure selected geometry</button>}
-            <button className="button button-plan" onClick={() => void handlePlanRegion()}
+            {planningCapabilities.canMeasureSelectedGeometry && <button className="button button-outline button-full" disabled={busy || !regionPolygon || Boolean(unresolvedDataset)} onClick={() => void handleMeasureGeometry()}>Measure selected geometry</button>}
+            {planningCapabilities.supportsAutomaticRegionPlanning && <button className="button button-plan" onClick={() => void handlePlanRegion()}
               disabled={!regionPolygon || !profile || !activeSurvey || !activeInstrument || Boolean(planningUnavailableReason) || busy}>
               {busy ? <span className="spinner" /> : <Icon name="spark" />}Generate plan
-            </button>
-            <p className="fine-print">{activeSurvey ? `Active strategy: ${activeSurvey.display_name}` : `Standalone instrument: ${activeInstrument?.display_name ?? "unavailable"}`}{activeInstrument ? ` · mode: ${activeInstrument.id}` : ""}</p>
-            {activeSurvey && activeSurvey.tiling.type !== "manual" &&
+            </button>}
+            {planningCapabilities.supportsAutomaticRegionPlanning && <p className="fine-print">Active strategy: {activeSurvey?.display_name}{activeInstrument ? ` · instrument: ${activeInstrument.display_name}` : ""}</p>}
+            {planningCapabilities.supportsAutomaticRegionPlanning && activeSurvey &&
               <p className="fine-print">Tiles can extend beyond the selected area when that preserves the local grid.</p>}
           </section>
 
@@ -1109,7 +1205,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
               setProposalContext(null);
               setActiveMetrics(null);
               setScientificRefusal(null);
-              setNotice("Sky polygon finalized. Generate a plan when ready.");
+              setNotice(planningCapabilities.supportsAutomaticRegionPlanning
+                ? "Sky polygon finalized. Generate a plan when ready."
+                : "Sky area selected. Measure declared geometry when ready; no regional pointings will be generated.");
             }}
             onCancelRegion={() => { setSelectingRegion(false); setNotice("Polygon drawing cancelled."); }}
             onError={setError}

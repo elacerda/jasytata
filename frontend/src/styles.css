@@ -55,6 +55,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
 .topbar .button-quiet { color: #d2deee; }
 .topbar .button-quiet:hover:not(:disabled) { background: #152743; color: #fff; }
+.new-project-button { white-space: nowrap; }
+.new-project-confirmation { justify-content: space-between; gap: 12px; min-height: 46px; }
+.new-project-confirmation > span { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.new-project-confirmation > span strong { font-weight: 720; }
+.new-project-confirmation-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.new-project-confirmation-actions .button { min-height: 29px; }
 .theme-toggle { color: #edf4fc; background: #112341; border-color: #2d4261; }
 .theme-toggle:hover:not(:disabled) { background: #1b3150; border-color: #456183; }
 .theme-toggle .icon { width: 14px; height: 14px; }
@@ -99,6 +105,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .summary-number { color: #243e44; font: 23px var(--mono); letter-spacing: -.06em; }
 .summary-label { color: #788b90; font-size: 10px; }
 .panel-copy { margin: 0; color: #72848a; font-size: 10.5px; line-height: 1.5; }
+.planning-capability-message { margin-top: 9px; }
+.planning-empty-state { margin: 10px 0 0; padding-top: 9px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; line-height: 1.5; }
 .column-mapping { display: grid; gap: 9px; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: #fff; font-size: 10px; }
 .column-mapping label { display: grid; gap: 4px; color: var(--ink-soft); }
 .column-mapping select { width: 100%; min-height: 30px; border: 1px solid var(--line-strong); border-radius: 4px; background: #fff; color: var(--ink); font-size: 10px; }
@@ -341,6 +349,9 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
   .topbar-actions .button { min-height: 32px; padding: 0 8px; font-size: 9px; }
   .theme-toggle-label { display: none; }
   .topbar-actions .button-quiet { display: none; }
+  .topbar-actions .new-project-button { display: inline-flex; }
+  .new-project-confirmation { align-items: flex-start; flex-wrap: wrap; padding: 8px 11px; }
+  .new-project-confirmation-actions { width: 100%; justify-content: flex-end; }
   .topbar-actions .button-primary .icon { width: 13px; height: 13px; }
   .message-bar { padding-left: 11px; font-size: 10px; }
   .workspace { display: flex; flex-direction: column; }
