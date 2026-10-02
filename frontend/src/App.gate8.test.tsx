@@ -16,7 +16,7 @@ import { tileFootprintBoundaries } from "./sky";
 import type { CatalogueDataset, SkyPolygon, TileRecord, TilingProfile } from "./types";
 import golden from "./data/golden.json";
 import plannerContract from "./data/planner-contract.json";
-import referenceCsv from "../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./science/fixtures/tiles_nc.csv?raw";
 
 interface MapModel {
   tiles: TileRecord[];
@@ -238,17 +238,18 @@ describe("Gate 8 real App workflow matrix", () => {
     expect(await blobText(downloads.at(-1)!)).toBe(buildExportCsv(expected.tiles, fixture.document.survey));
   }, 20000);
 
-  it("T80 default/reference browser workflow retains frozen holdout coverage and export ordering", async () => {
+  it("T80 user-upload browser workflow retains frozen holdout coverage and export ordering", async () => {
     const fixture = golden.historical_holdout;
-    // Real reference loader and CSV parser; remove held-out rows from the input file.
+    // Upload the S-PLUS regression fixture as a user file, excluding held-out rows.
     const referenceRows = readCsv(referenceCsv);
     const names = new Set(fixture.surrounding_names);
     const subset = [referenceRows[0], ...referenceRows.slice(1).filter((row) => names.has(row[1]))].map((row) => row.join(",")).join("\n");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(subset)));
     session.region = fixture.polygon;
     const user = userEvent.setup(); render(<App />);
-    await user.click(screen.getByRole("button", { name: /Load reference/ }));
-    await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), inputFile(subset, "tiles_nc.csv"));
+    const assignment = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    await user.selectOptions(assignment, "t80-south");
+    expect(assignment).toHaveValue("t80-south");
     const sources = structuredClone(session.map!.tiles);
     await user.click(screen.getByRole("button", { name: "Select G8 region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));

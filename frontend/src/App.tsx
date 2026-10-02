@@ -7,7 +7,7 @@ import { RegionAuthoring } from "./RegionAuthoring";
 import { ReferenceCoordinate } from "./ReferenceCoordinate";
 import { ProjectLatticeAuthoring } from "./ProjectLatticeAuthoring";
 import { validatePolygon } from "./science/geometry";
-import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, downloadProfileDocument, uploadProfileFile, loadReferenceCatalogue, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, downloadProfileDocument, uploadProfileFile, measureCoverage, parseCenters, planRegion, proposeCenters, uploadCatalogue } from "./api";
 import { createDataset } from "./datasets";
 import { DEFAULT_PROFILE, loadProfile, profileRegistry } from "./profiles";
 import type { AnyProfileDocument, ProfileDocument } from "./profiles/document";
@@ -153,6 +153,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
   const [selectionRequest, setSelectionRequest] = useState(0);
   const [selectingRegion, setSelectingRegion] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
+  const [regionFocusRequest, setRegionFocusRequest] = useState(0);
   const [planningLayers, setPlanningLayers] = useState({
     proposals: true, region: true, anchors: false, lattice: false,
   });
@@ -514,7 +515,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     if (result.needs_mapping) return;
     setColumnMapping(null);
     setDatasets((previous) => [...previous, createDataset(result, previous.length, crypto.randomUUID())]);
-    setFocusRequest((previous) => previous + 1);
+    if (!regionPolygon) setFocusRequest((previous) => previous + 1);
     setPending(null);
     setProposalContext(null);
     setActiveMetrics(null);
@@ -907,6 +908,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
     if (region) validatePolygon(region);
     regionRevisionRef.current += 1;
     setRegionPolygon(region);
+    if (region) setRegionFocusRequest((previous) => previous + 1);
     setProjectLatticePreview(null);
     setSelectingRegion(false);
     setMapMode("idle");
@@ -1091,6 +1093,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
       setSelectedTileId(null);
       setReferenceMarker(null);
       setRegionPolygon(manifest.project.region);
+      if (manifest.project.region) setRegionFocusRequest((previous) => previous + 1);
       setProjectPlanningMode(manifest.project.planning_mode);
       setProjectPlacement(manifest.project.placement);
       setProjectPlacementDirty(false);
@@ -1159,8 +1162,10 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           </span>
         </div>
         <div className="topbar-state">
-          <span className={`status-dot ${activeInstrument ? "is-ready" : ""}`} />
-          <span>{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : activeSurvey ? "Survey strategy active · no catalogue loaded" : activeInstrument ? usesProjectRegionSource ? "Standalone instrument · Regional mosaic" : "Standalone instrument · manual centers" : "Resolving output profile"}</span>
+          <span className="topbar-state-copy">
+            <span className={`status-dot ${activeInstrument ? "is-ready" : ""}`} />
+            <span className="topbar-state-label">{datasets.length === 1 ? datasets[0].filename : datasets.length ? `${datasets.length} catalogues loaded` : activeSurvey ? "Survey strategy active · no catalogue loaded" : activeInstrument ? usesProjectRegionSource ? "Standalone instrument · Regional mosaic" : "Standalone instrument · manual centers" : "Resolving output profile"}</span>
+          </span>
           {hasCatalogue && <span className="topbar-count">{originalTiles.length.toLocaleString()} original tiles</span>}
         </div>
         <div className="topbar-actions">
@@ -1186,9 +1191,6 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
           </button>
           <button ref={newProjectButtonRef} className="button button-quiet new-project-button" type="button" onClick={requestNewProject} disabled={busy && !planningActive}>
             New project
-          </button>
-          <button className="button button-quiet" onClick={() => void runBusy(loadReferenceCatalogue, applyCatalogue)} disabled={busy}>
-            <Icon name="sample" /> Load reference
           </button>
           <button className="button button-primary" onClick={() => fileInputRef.current?.click()} disabled={busy}>
             <Icon name="upload" /> Load catalogue
@@ -1524,9 +1526,9 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                   <span title={dataset.filename}>{dataset.filename}</span>
                   <strong>{dataset.tiles.length.toLocaleString()}</strong>
                 </label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "4px 0 12px 30px" }}>
-                  <label style={{ display: "grid", gap: 4 }}>
-                <span className="fine-print">Catalogue instrument</span>
+                <div className="catalogue-settings">
+                  <label>
+                    <span className="fine-print">Catalogue instrument</span>
                     <select
                       aria-label={`Catalogue instrument for ${dataset.filename}`}
                       value={dataset.instrument_profile_id ?? ""}
@@ -1541,7 +1543,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
                       ))}
                     </select>
                   </label>
-                  <label style={{ display: "grid", gap: 4 }}>
+                  <label>
                     <span className="fine-print">Inference participation</span>
                     <select
                       aria-label={`Inference participation for ${dataset.filename}`}
@@ -1614,6 +1616,7 @@ export default function App({ pointingGeometryContext }: { pointingGeometryConte
             selectingRegion={selectingRegion}
             selectionRequest={selectionRequest}
             focusRequest={focusRequest}
+            regionFocusRequest={regionFocusRequest}
             selectedTileId={selectedTileId}
             selectedPolygon={regionPolygon}
             referenceMarker={referenceMarker}
@@ -1795,10 +1798,9 @@ function DetailField({ label, value }: { label: string; value: string }) {
   return <div className="detail-field"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function Icon({ name }: { name: "upload" | "sample" | "crosshair" | "list" | "region" | "chevron" | "spark" | "check" | "undo" | "trash" | "download" | "target" | "sun" | "moon" }) {
+function Icon({ name }: { name: "upload" | "crosshair" | "list" | "region" | "chevron" | "spark" | "check" | "undo" | "trash" | "download" | "target" | "sun" | "moon" }) {
   const paths: Record<string, ReactNode> = {
     upload: <><path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5" /><path d="M5 14v5h14v-5" /></>,
-    sample: <><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5a13 13 0 0 1 0 17M12 3.5a13 13 0 0 0 0 17" /></>,
     crosshair: <><circle cx="12" cy="12" r="7" /><path d="M12 2v5m0 10v5M2 12h5m10 0h5" /></>,
     list: <><path d="M8 6h12M8 12h12M8 18h12" /><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></>,
     region: <><rect x="4" y="5" width="16" height="14" rx="1" strokeDasharray="3 2" /><path d="M8 9h.01M16 15h.01" /></>,

@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { CatalogueResponse, RegionPlanResponse, TileRecord } from "./types";
+import type { RegionPlanResponse, TileRecord } from "./types";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import { planRegion as planRegionLocal } from "./science/planner";
@@ -13,7 +13,7 @@ const session = vi.hoisted(() => ({
   registry: null as ProfileRegistry | null,
   map: null as { tiles: TileRecord[]; selectedTileId: string | null } | null,
 }));
-const apiSession = vi.hoisted(() => ({ loadReferenceCatalogue: vi.fn(), planRegion: vi.fn() }));
+const apiSession = vi.hoisted(() => ({ planRegion: vi.fn() }));
 vi.mock("./profiles", async (importOriginal) => {
   const original = await importOriginal<typeof import("./profiles")>();
   const { resolvePlanningProfile } = await import("./profiles/planning");
@@ -27,7 +27,7 @@ vi.mock("./profiles", async (importOriginal) => {
 });
 vi.mock("./api", async (importOriginal) => {
   const original = await importOriginal<typeof import("./api")>();
-  return { ...original, loadReferenceCatalogue: apiSession.loadReferenceCatalogue, planRegion: apiSession.planRegion };
+  return { ...original, planRegion: apiSession.planRegion };
 });
 vi.mock("./AladinMap", async () => {
   const React = await import("react");
@@ -68,15 +68,6 @@ const regionPlan: RegionPlanResponse = {
     remaining_uncovered_fraction: 0, remaining_uncovered_area_deg2: 0,
     redundant_coverage: 0, outside_region_coverage_deg2: 0, sample_step_deg: 0.01,
   },
-};
-
-const referenceTile: TileRecord = {
-  id: "reference-tile-1", name: "SPLUS-d512", ra_deg: 150.5, dec_deg: -24.25,
-  source: "original", generation_method: null, original_values: { PID: "SPLUS" }, metadata: {},
-};
-const referenceCatalogue: CatalogueResponse = {
-  filename: "tiles_nc.csv", instrument_profile_id: "t80-south", row_count: 1,
-  tiles: [referenceTile], warnings: [],
 };
 
 function jsonFile(text: string, name = "profile.json"): File {
@@ -147,7 +138,6 @@ describe("minimal browser profile file controls", () => {
   beforeEach(() => {
     session.registry = createBundledProfileRegistry();
     session.map = null;
-    apiSession.loadReferenceCatalogue.mockReset().mockResolvedValue(referenceCatalogue);
     apiSession.planRegion.mockReset().mockResolvedValue(regionPlan);
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -185,9 +175,10 @@ describe("minimal browser profile file controls", () => {
     await user.selectOptions(selector, "survey:splus-t80-south");
     expect(screen.queryByText("Proposal preview")).toBeNull();
     expect(screen.getByText("T80-South camera")).toBeTruthy();
-    fetchMock.mockResolvedValue(new Response("RA,DEC\n150,-30\n"));
-    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n150,-30\n", "tiles_nc.csv"));
     const instrumentSelector = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    expect(instrumentSelector).toHaveValue("");
+    await user.selectOptions(instrumentSelector, "t80-south");
     expect(instrumentSelector).toHaveValue("t80-south");
     expect(within(instrumentSelector).getByRole("option", { name: /Small circular camera/ })).toBeTruthy();
   });
@@ -954,8 +945,10 @@ describe("minimal browser profile file controls", () => {
     if (document.querySelector(".app-shell")?.getAttribute("data-theme") !== "light") {
       await user.click(screen.getByRole("button", { name: "Switch to light mode" }));
     }
-    await user.click(screen.getByRole("button", { name: /Load reference/i }));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n120.875,-58.0064\n", "tiles_nc.csv"));
     const sourceAssignment = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    expect(sourceAssignment).toHaveValue("");
+    await user.selectOptions(sourceAssignment, "t80-south");
     expect(sourceAssignment).toHaveValue("t80-south");
     const selector = screen.getByRole("combobox", { name: "Output profile" });
     await user.selectOptions(selector, "instrument:keck-kcwi-small");
@@ -1066,8 +1059,10 @@ describe("minimal browser profile file controls", () => {
 
   it("keeps source rows and assignments across every release context, then clears pointings in all contexts", async () => {
     const user = userEvent.setup(); render(<App />);
-    await user.click(screen.getByRole("button", { name: /Load reference/ }));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), csvFile("RA,DEC\n120.875,-58.0064\n", "tiles_nc.csv"));
     const assignment = await screen.findByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    expect(assignment).toHaveValue("");
+    await user.selectOptions(assignment, "t80-south");
     const sources = structuredClone(session.map!.tiles);
     const selector = screen.getByRole("combobox", { name: "Output profile" });
     const contexts = ["survey:splus-t80-south", "instrument:keck-kcwi-small", "instrument:vlt-muse-wfm",

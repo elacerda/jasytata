@@ -20,7 +20,7 @@ Aplicação pública:
 
 O planejamento, a cobertura e a exportação são executados no navegador. Não é necessário iniciar um servidor. O mapa Aladin Lite e as imagens astronômicas podem acessar serviços externos.
 
-O perfil de referência S-PLUS/T80-South vem incluído e selecionado por padrão.
+O perfil padrão S-PLUS/T80-South vem incluído e selecionado por padrão.
 Ao abrir a página, o survey deve aparecer como:
 
 **S-PLUS / T80-South**
@@ -39,7 +39,7 @@ Para continuar um projeto, clique em:
 
 **Load catalogue**
 
-e escolha o arquivo CSV com os apontamentos já existentes. Para começar um projeto novo pelo perfil, não carregue um catálogo nem use **Load reference**.
+e escolha seu arquivo CSV com os apontamentos existentes. Para começar um projeto novo usando o perfil, deixe o catálogo vazio.
 
 O Jasytata procura automaticamente as colunas de **RA** e **DEC**.
 
@@ -55,11 +55,7 @@ Depois clique em:
 
 O catálogo aparecerá sobre o mapa do céu e será considerado no planejamento. Os tiles originais não são alterados.
 
-Cada catálogo tem seu próprio seletor **Catalogue instrument**, que define a geometria usada para interpretar seus apontamentos. O catálogo de referência do T80-South já recebe o instrumento **T80-South camera**. Em uma sessão com vários instrumentos disponíveis, escolha explicitamente o instrumento de cada catálogo enviado; a geometria não é inferida pelo nome do arquivo. O seletor **Inference participation** controla apenas se o catálogo pode ajudar a inferir uma grade: **Exclude** retira o catálogo da inferência, mas seus footprints continuam contribuindo para a cobertura.
-
-### Para testes
-
-O botão **Load reference** carrega o catálogo de exemplo para explorar a ferramenta. Ele não é necessário para iniciar um projeto sem catálogo.
+Cada catálogo carregado pelo usuário tem seu próprio seletor **Catalogue instrument**, que define a geometria usada para interpretar os apontamentos. Em uma sessão com vários instrumentos disponíveis, escolha o instrumento de cada catálogo enviado; a geometria não é inferida pelo nome do arquivo. O perfil S-PLUS/T80-South continua disponível no seletor **Output profile** e como associação de instrumento do catálogo. O seletor **Inference participation** controla apenas se o catálogo pode ajudar a inferir uma grade: **Exclude** retira o catálogo da inferência, mas seus footprints continuam contribuindo para a cobertura.
 
 ---
 

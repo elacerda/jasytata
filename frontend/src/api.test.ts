@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, getProfiles, loadDefaultProfile, loadReferenceCatalogue, planRegion, uploadCatalogue, uploadProfileFile } from "./api";
+import { buildRegionPlanRequest, downloadCatalogue, downloadInstrumentCoordinates, downloadInstrumentProfileJson, getProfiles, loadDefaultProfile, planRegion, uploadCatalogue, uploadProfileFile } from "./api";
 import { ProfileRegistry, createBundledProfileRegistry } from "./profiles/registry";
 import { parseProfileJsonV2, serializeProfile } from "./profiles/document";
 import golden from "./data/golden.json";
@@ -98,14 +98,6 @@ describe("local facade and download", () => {
     expect(result.tiles[0].ra_deg).toBe(150.77);
     expect(result.tiles[0].metadata.RA).toBe("10:03:05");
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("loads the bundled CSV from a static asset URL", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("RA,DEC\n150,-24\n"));
-    vi.stubGlobal("fetch", fetchMock);
-    const result = await loadReferenceCatalogue();
-    expect(result.row_count).toBe(1);
-    expect(fetchMock.mock.calls[0][0]).toMatch(/data\/tiles_nc\.csv$/);
   });
 
   it("creates and revokes a named Blob download locally", async () => {

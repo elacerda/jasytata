@@ -9,7 +9,7 @@
 **Jasytata is a browser-based telescope/survey pointing and coverage planner.**
 
 Extend an existing pointing catalogue or start a **new project with no initial
-catalogue**. S-PLUS/T80-South is the bundled reference/default profile;
+catalogue**. S-PLUS/T80-South remains the bundled default profile;
 user-defined instrument and survey profiles supply other geometries and policies.
 
 The v0.4.0 release candidate includes 22 selected Schema v3 instrument profiles
@@ -45,7 +45,7 @@ Jasytata takes its name from a Kaiowá word recorded for “star”.
 ## Typical workflow
 
 1. Use the bundled profile, **Import profile**, or **Create profile**.
-2. Optionally **Load catalogue** (or **Load reference** for the bundled T80 example).
+2. Optionally **Load catalogue** with a CSV file. Assign its source instrument in the catalogue controls when multiple profiles are available.
 3. Assign each catalogue's instrument and choose its inference participation.
 4. Select the **Active survey** for output.
 5. **Select area**, draw the region, and choose Complete or Efficient.

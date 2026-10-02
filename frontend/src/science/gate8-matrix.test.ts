@@ -4,7 +4,7 @@ import { cases, cameraPa, localRegion, matrixRegistry } from "../data/gate8/fixt
 import golden from "../data/golden.json";
 import contract from "../data/planner-contract.json";
 import results from "../data/gate8/results.json";
-import referenceCsv from "../../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./fixtures/tiles_nc.csv?raw";
 import { createDataset } from "../datasets";
 import { parseProfileJsonV2, serializeProfile } from "../profiles/document";
 import { resolvePlanningProfile } from "../profiles/planning";
@@ -300,7 +300,7 @@ describe("Gate 8 scientific workflow matrix", () => {
     }
   });
 
-  it("T80 reference catalogue holdout → frozen historical centers → Complete → decimal/sexagesimal export", () => {
+  it("T80 S-PLUS CSV fixture holdout → frozen historical centers → Complete → decimal/sexagesimal export", () => {
     const registry = matrixRegistry(), document = cases[0].document;
     const dataset = createDataset(parseCatalogueCsv(new TextEncoder().encode(referenceCsv), "tiles_nc.csv"), 0, "reference", document.instrument.id, registry);
     expect(dataset.tiles).toHaveLength(4774);

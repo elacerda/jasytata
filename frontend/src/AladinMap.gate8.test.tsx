@@ -2,11 +2,13 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
 import { cases, cameraPa, matrixRegistry } from "./data/gate8/fixtures";
+import referenceCsv from "./science/fixtures/tiles_nc.csv?raw";
 import { resolvePlanningProfile } from "./profiles/planning";
 import { createBundledProfileRegistry, type ProfileRegistry } from "./profiles/registry";
 import { createDataset } from "./datasets";
 import { makeCenterProposals, parseCatalogueCsv } from "./science/catalogue";
 import { coverageGeometryContext } from "./science/coverage-semantics";
+import { planningGeometryContext } from "./science/planning-operation";
 import { planRegion } from "./science/planner";
 import { resolvePointingGeometries } from "./science/pointing-geometry";
 import { tileFootprintBoundaries } from "./sky";
@@ -52,7 +54,7 @@ describe("Gate 8 native Aladin render integration", () => {
     const dataset = createDataset(parsed, 0, fixture.key, fixture.document.instrument.id, registry);
     const onRegionSelect = vi.fn<(region: SkyPolygon) => void>();
     const base = { profile, datasets: [dataset], tiles: [], mode: "idle" as const, selectingRegion: false,
-      selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+      selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, selectedPolygon: null,
       anchorTileIds: [], candidateCenters: [], planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect, onCancelRegion: vi.fn(), onError: vi.fn() };
     const view = render(<AladinMap {...base} />);
@@ -135,7 +137,7 @@ describe("Gate 8 native Aladin render integration", () => {
       ));
       const base = {
         profile, datasets: [], tiles: [tile], mode: "idle" as const, selectingRegion: false,
-        selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+        selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, selectedPolygon: null,
         anchorTileIds: [], candidateCenters: [], planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
         onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
         ...(context ? { pointingGeometryContext: context } : {}),
@@ -149,4 +151,37 @@ describe("Gate 8 native Aladin render integration", () => {
       view.unmount();
     }
   }, 15000);
+
+  it("renders uploaded S-PLUS rows in the S-PLUS/T80 context without a spurious PA error", async () => {
+    const registry = createBundledProfileRegistry();
+    native.registry = registry;
+    const profile = resolvePlanningProfile("splus-t80-south", undefined, registry).profile;
+    const parsed = parseCatalogueCsv(new TextEncoder().encode(referenceCsv), "tiles_nc.csv");
+    const dataset = createDataset(parsed, 0, "uploaded-splus", "t80-south", registry);
+    const tile: TileRecord = {
+      ...dataset.tiles[0],
+      instrument_profile_id: dataset.instrument_profile_id!,
+      inference_role: dataset.inference_role,
+    };
+    native.instance.getRaDec.mockReturnValue([tile.ra_deg, tile.dec_deg]);
+    const context = planningGeometryContext({
+      coverageBasis: "single_exposure",
+      outputInstrumentId: "t80-south",
+      outputStrategyId: "splus-t80-south",
+    }, registry);
+    const onError = vi.fn();
+
+    render(<AladinMap profile={profile} datasets={[dataset]} tiles={[tile]} mode="idle" selectingRegion={false}
+      selectionRequest={0} focusRequest={0} regionFocusRequest={0} selectedTileId={null} selectedPolygon={null} anchorTileIds={[]}
+      candidateCenters={[]} planningLayers={{ proposals: true, region: true, anchors: false, lattice: false }}
+      pointingGeometryContext={context} onSkyClick={vi.fn()} onTileSelect={vi.fn()} onRegionSelect={vi.fn()}
+      onCancelRegion={vi.fn()} onError={onError} />);
+
+    await waitFor(() => expect(native.overlays).toHaveLength(8));
+    const uploadedTileBoundary = tileFootprintBoundaries(
+      tile, registry.resolveInstrumentProfile("t80-south").footprint,
+    )[0];
+    await waitFor(() => expect(native.overlays[7].shapes).toContainEqual(uploadedTileBoundary));
+    expect(onError).not.toHaveBeenCalled();
+  });
 });

@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import referenceCsv from "../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./science/fixtures/tiles_nc.csv?raw";
 import App from "./App";
 import type { CenterInput, SkyPolygon, TileRecord } from "./types";
 
@@ -37,6 +37,12 @@ vi.mock("./AladinMap", () => ({
     </div>
   ),
 }));
+
+function inputFile(text: string, name: string): File {
+  const file = new File([text], name, { type: "text/csv" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(text).buffer });
+  return file;
+}
 
 afterEach(() => {
   cleanup();
@@ -119,17 +125,20 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
     }
   }, 30000);
 
-  it("loads the static reference, plans and measures overlap, then exports without a backend", async () => {
+  it("uploads the S-PLUS CSV fixture, plans and measures overlap, then exports without a backend", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue(new Response(referenceCsv, { status: 200 }));
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:jasytata-smoke") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: /load reference/i }));
+    await user.upload(screen.getByLabelText("Choose catalogue CSV"), inputFile(referenceCsv, "tiles_nc.csv"));
     expect(await screen.findByText(/^4[,.]774 original tiles$/)).toBeTruthy();
+    const assignment = screen.getByRole("combobox", { name: "Catalogue instrument for tiles_nc.csv" });
+    await user.selectOptions(assignment, "t80-south");
+    expect(assignment).toHaveValue("t80-south");
     await user.click(screen.getByRole("button", { name: "Select overlap region" }));
     await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(await screen.findByText("Existing grid extended", {}, { timeout: 10000 })).toBeTruthy();
@@ -138,8 +147,7 @@ describe("v0.2.0 T80-South browser-only compatibility workflow", () => {
     await waitFor(() => expect([...document.querySelectorAll(".metric-row")].map((row) => row.textContent)).toContain("Legacy survey coverage99.7%"), { timeout: 10000 });
     await user.click(screen.getByRole("button", { name: /Download new_tiles.csv/i }));
     expect(click).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toMatch(/data\/tiles_nc\.csv$/);
+    expect(fetchMock).not.toHaveBeenCalled();
   }, 20000);
 
   it("parses an uploaded catalogue and stages pasted centers locally", async () => {

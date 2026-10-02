@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import golden from "../data/golden.json";
-import referenceCsv from "../../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./fixtures/tiles_nc.csv?raw";
 import { createDataset } from "../datasets";
-import { createBundledProfileRegistry, profileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
+import { createBundledProfileRegistry, SPLUS_SURVEY_V2, T80_SOUTH_INSTRUMENT_V2 } from "../profiles";
 import { ProfileRegistry } from "../profiles/registry";
-import { loadReferenceCatalogue } from "../api";
 import { parseCatalogueCsv } from "./catalogue";
 import { contributingTileCountForTiles, coveredMask, measureActiveCoverage, tileMask, type CoverageGrid } from "./coverage";
 import { planRegion } from "./planner";
@@ -93,23 +92,6 @@ const expectedMixedCoverage = [1, 1, 0, 1, 1];
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Gate 2 dataset and instrument separation", () => {
-  it("associates the bundled reference catalogue with T80-South automatically", async () => {
-    const csv = new TextEncoder().encode("RA,DEC\n10,0\n");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => csv.buffer,
-    }));
-
-    const result = await loadReferenceCatalogue();
-    const dataset = createDataset(result, 0, "bundled-reference");
-
-    expect(result.instrument_profile_id).toBe("t80-south");
-    expect(dataset.instrument_profile_id).toBe("t80-south");
-    expect(dataset.inference_role).toBe("auto");
-    expect(profileRegistry.resolveInstrumentProfile(dataset.instrument_profile_id!)).toEqual(T80_SOUTH_INSTRUMENT_V2);
-    expect("survey_profile_id" in dataset).toBe(false);
-  });
-
   it("keeps the single-instrument convenience default but requires a choice when imports make it ambiguous", () => {
     const source = sourceTile("uploaded-row", 359.8, 0, "t80-south");
     source.original_values = { RA: "359.8", DEC: "0" };

@@ -2,7 +2,7 @@ import { measureResolvedCoverage } from "./test-support/resolved-coverage";
 import { describe, expect, it } from "vitest";
 import golden from "../data/golden.json";
 import currentContract from "../data/planner-contract.json";
-import referenceCsv from "../../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./fixtures/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
 import { sampleRegion, type CoverageGrid } from "./coverage";
 import { contributingTileCount, angularSeparationDeg } from "./geometry";

@@ -11,6 +11,7 @@ import type { CatalogueDataset, CenterInput, SkyPolygon, TileRecord, TilingProfi
 import { skyPolygonFromVertices, tileFootprintBoundaries } from "./sky";
 import { resolvePointingGeometries, type PointingGeometry, type PointingGeometryContext } from "./science/pointing-geometry";
 import { profileRegistry } from "./profiles/registry";
+import { regionViewport } from "./region-viewport";
 
 /** Map click behavior: normal inspection/pan or single-center placement. */
 export type MapMode = "idle" | "add-tile";
@@ -23,6 +24,7 @@ interface AladinMapProps {
   selectingRegion: boolean;
   selectionRequest: number;
   focusRequest: number;
+  regionFocusRequest: number;
   selectedTileId: string | null;
   selectedPolygon: SkyPolygon | null;
   /** Independent visual coordinate; never included in tile/science layers. */
@@ -65,6 +67,7 @@ export default function AladinMap(props: AladinMapProps) {
   const propsRef = useRef(props);
   const cataloguesRef = useRef<Map<string, AladinLiteCatalogue>>(new Map());
   const datasetFootprintsRef = useRef<Map<string, AladinLiteOverlay>>(new Map());
+  const datasetSourcesRef = useRef<Map<string, AladinLiteSource[]>>(new Map());
   const proposalCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const referenceCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
   const disabledCatalogueRef = useRef<AladinLiteCatalogue | null>(null);
@@ -117,13 +120,14 @@ export default function AladinMap(props: AladinMapProps) {
         resizeObserver = new ResizeObserver(() => redrawRef.current());
         resizeObserver.observe(containerRef.current);
         rebuildOverlays(instance, overlaysRef);
-        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, propsRef.current.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
+        syncCatalogues(instance, propsRef.current.datasets, propsRef.current.tiles, propsRef.current.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, datasetSourcesRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
         redrawRef.current();
-        if (propsRef.current.referenceMarker) {
-          instance.gotoRaDec(propsRef.current.referenceMarker.ra_deg, propsRef.current.referenceMarker.dec_deg);
-        }
-        if (propsRef.current.focusRequest > 0) {
+        if (propsRef.current.regionFocusRequest > 0 && propsRef.current.selectedPolygon) {
+          focusOnRegion(instance, propsRef.current.selectedPolygon);
+        } else if (propsRef.current.focusRequest > 0) {
           focusOnCatalogue(instance, propsRef.current.tiles);
+        } else if (propsRef.current.referenceMarker) {
+          instance.gotoRaDec(propsRef.current.referenceMarker.ra_deg, propsRef.current.referenceMarker.dec_deg);
         }
         if (propsRef.current.selectionRequest > selectionTokenRef.current) {
           selectionHandlerRef.current(instance, propsRef.current.selectionRequest);
@@ -158,7 +162,7 @@ export default function AladinMap(props: AladinMapProps) {
   useEffect(() => {
     const instance = aladinRef.current;
     if (!instance) return;
-    syncCatalogues(instance, props.datasets, props.tiles, props.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
+    syncCatalogues(instance, props.datasets, props.tiles, props.planningLayers.proposals, cataloguesRef.current, datasetFootprintsRef.current, datasetSourcesRef.current, proposalCatalogueRef, disabledCatalogueRef, sourceLookupRef.current);
     redrawRef.current();
   }, [props.tiles, props.datasets, props.planningLayers.proposals]);
 
@@ -179,6 +183,13 @@ export default function AladinMap(props: AladinMapProps) {
     if (!instance) return;
     focusOnCatalogue(instance, tiles);
   }, [props.focusRequest]);
+
+  useEffect(() => {
+    const region = props.selectedPolygon;
+    if (!props.regionFocusRequest || !region) return;
+    const instance = aladinRef.current;
+    if (instance) focusOnRegion(instance, region);
+  }, [props.regionFocusRequest, props.selectedPolygon]);
 
   useEffect(() => {
     if (props.selectingRegion || !selectionActiveRef.current) return;
@@ -390,6 +401,7 @@ export default function AladinMap(props: AladinMapProps) {
  * @param showProposals - Whether proposal markers should be shown.
  * @param catalogues - Persistent imported catalogue handles by dataset ID.
  * @param footprints - Persistent detailed-footprint overlays by dataset ID.
+ * @param datasetSources - Native imported sources by dataset ID, used to invalidate click lookups.
  * @param proposalRef - Native proposal catalogue handle.
  * @param disabledRef - Native cross-marker catalogue for inactive proposals.
  * @param lookup - Native source to full application pointing index.
@@ -401,10 +413,27 @@ function syncCatalogues(
   showProposals: boolean,
   catalogues: Map<string, AladinLiteCatalogue>,
   footprints: Map<string, AladinLiteOverlay>,
+  datasetSources: Map<string, AladinLiteSource[]>,
   proposalRef: { current: AladinLiteCatalogue | null },
   disabledRef: { current: AladinLiteCatalogue | null },
   lookup: WeakMap<AladinLiteSource, TileRecord>,
 ) {
+  const currentIds = new Set(datasets.map(({ id }) => id));
+  for (const [id, catalogue] of catalogues) {
+    if (currentIds.has(id)) continue;
+    for (const source of datasetSources.get(id) ?? []) lookup.delete(source);
+    catalogue.removeAll();
+    instance.removeOverlay(catalogue);
+    catalogues.delete(id);
+    datasetSources.delete(id);
+    const footprint = footprints.get(id);
+    if (footprint) {
+      footprint.removeAll();
+      footprint.reportChange();
+      instance.removeOverlay(footprint);
+      footprints.delete(id);
+    }
+  }
   for (const dataset of datasets) {
     let catalogue = catalogues.get(dataset.id);
     if (!catalogue) {
@@ -415,7 +444,7 @@ function syncCatalogues(
         shape: "circle",
         displayLabel: false,
       });
-      catalogue.addSources(dataset.tiles.map((tile) => {
+      const sources = dataset.tiles.map((tile) => {
         const source = A.source(tile.ra_deg, tile.dec_deg, {
           ...tile.metadata,
           RA: tile.ra_deg.toFixed(6),
@@ -424,7 +453,9 @@ function syncCatalogues(
         });
         lookup.set(source, tile);
         return source;
-      }));
+      });
+      catalogue.addSources(sources);
+      datasetSources.set(dataset.id, sources);
       instance.addCatalog(catalogue);
       catalogues.set(dataset.id, catalogue);
       const overlay = A.graphicOverlay({ name: `${dataset.filename} footprints`, color: dataset.color, lineWidth: 1 });
@@ -557,4 +588,11 @@ function focusOnCatalogue(instance: AladinLiteInstance, tiles: TileRecord[]) {
   const fov = Math.max(4, Math.min(180, Math.max(width, height) * 1.2));
   instance.gotoRaDec(centerRa, centerDec);
   instance.setFoV(fov);
+}
+
+/** Focus the Aladin viewport on the canonical selected ICRS region. */
+function focusOnRegion(instance: AladinLiteInstance, region: SkyPolygon) {
+  const viewport = regionViewport(region);
+  instance.gotoRaDec(viewport.centerRaDeg, viewport.centerDecDeg);
+  instance.setFoV(viewport.fieldOfViewDeg);
 }

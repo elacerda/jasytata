@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import golden from "../data/golden.json";
-import referenceCsv from "../../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./fixtures/tiles_nc.csv?raw";
 import { makeCenterProposals, parseCatalogueCsv, parseCenterText } from "./catalogue";
 import { formatDecDegrees, formatRaDegrees, normalizeRa, parseDecDegrees, parseRaDegrees, type RaUnit } from "./coordinates";
 import { buildExportCsv } from "./export";
@@ -123,7 +123,7 @@ describe("v0.2.0 T80-South compatibility: coordinate geometry", () => {
     }
   });
 
-  it("keeps compact holdout and overlap inputs tied to the static reference catalogue", () => {
+  it("keeps compact holdout and overlap inputs tied to the S-PLUS regression CSV fixture", () => {
     const names = new Set(parseCatalogueCsv(bytes(referenceCsv)).tiles.map((tile) => tile.name));
     expect(golden.historical_holdout.hidden_names.every((name) => names.has(name))).toBe(true);
     expect(golden.historical_holdout.surrounding_names.every((name) => names.has(name))).toBe(true);

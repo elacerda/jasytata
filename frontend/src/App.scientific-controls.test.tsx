@@ -8,6 +8,8 @@ import { CoverageReadout, PointingScience } from "./ScientificReadouts";
 import type { InstrumentProfileV3, SkyPolygon, SurveyProfileV3, TileRecord } from "./types";
 import { readCsv } from "./science/catalogue";
 
+const formatNumber = (value: number) => new Intl.NumberFormat().format(value);
+
 interface MapModel {
   tiles: TileRecord[];
   pointingGeometryContext: PointingGeometryContext;
@@ -217,7 +219,7 @@ describe("Gate 7B scientific browser controls", () => {
     await screen.findByText("Coverage unavailable at required resolution");
     const readout = document.querySelector(".scientific-coverage")!;
     expect(readout).toHaveTextContent("No authoritative coverage percentage");
-    expect(readout).toHaveTextContent("maximum budget: 1,000");
+    expect(readout).toHaveTextContent(`maximum budget: ${formatNumber(1000)}`);
     expect(readout.textContent).not.toMatch(/\d%|NaN%|--%/);
     expect(screen.queryByText("Proposal preview")).toBeNull();
     await u.click(screen.getByText("Sampling details"));

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { installMapWheelPolicy } from "./map-wheel";
 
 describe("native map wheel capture policy", () => {
-  it("keeps plain wheel default scrolling without reaching native map listeners", () => {
+  it("does not zoom or cancel a plain wheel event over the map", () => {
     const container = document.createElement("div"); const canvas = document.createElement("canvas");
     container.append(canvas);
     const native = vi.fn((event: WheelEvent) => event.preventDefault());

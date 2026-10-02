@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import baseline from "../data/v0.5.0-gate4-splus-regression.json";
-import referenceCsv from "../../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./fixtures/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
 import { planRegion } from "./planner";
 

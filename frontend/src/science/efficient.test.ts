@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import golden from "../data/golden.json";
 import contract from "../data/efficient-contract.json";
-import referenceCsv from "../../public/data/tiles_nc.csv?raw";
+import referenceCsv from "./fixtures/tiles_nc.csv?raw";
 import { parseCatalogueCsv } from "./catalogue";
 import { coveredMask, greedyChoose, sampleRegion, tileMask, type CoverageGrid } from "./coverage";
 import { planRegion } from "./planner";

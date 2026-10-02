@@ -53,7 +53,7 @@ const makeDataset = (tiles: TileRecord[]): CatalogueDataset => ({
 function mapProps(tiles: TileRecord[], pointingGeometryContext?: PointingGeometryContext) {
   return {
     tiles, datasets: [makeDataset(tiles)], profile, mode: "idle" as const,
-    selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+    selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, selectedPolygon: null,
     planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
     anchorTileIds: [], candidateCenters: [], pointingGeometryContext,
     onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),

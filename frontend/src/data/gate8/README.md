@@ -2,7 +2,7 @@
 
 These are test documents, not bundled presets. T80 uses the actual
 `profiles/splus-t80-south.json` and the frozen `golden.json`,
-`planner-contract.json`, and `public/data/tiles_nc.csv` data.
+`planner-contract.json`, and `src/science/fixtures/tiles_nc.csv` data.
 
 Every document is parsed with `parseProfileJson`, canonically serialized,
 reparsed, and registered through `registerProfileDocument`. B is additionally

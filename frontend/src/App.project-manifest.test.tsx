@@ -18,6 +18,7 @@ vi.mock("./AladinMap", () => ({ default: (props: {
   onRegionSelect: (region: SkyPolygon) => void;
   tiles: TileRecord[];
   projectCandidateCenters: unknown[];
+  regionFocusRequest: number;
 }) => <div>
   <button onClick={() => props.onRegionSelect({ vertices: [
     { ra_deg: 149.9825, dec_deg: -0.0175 }, { ra_deg: 150.0175, dec_deg: -0.0175 },
@@ -25,6 +26,7 @@ vi.mock("./AladinMap", () => ({ default: (props: {
   ] })}>Set project region</button>
   <output data-testid="pointings">{JSON.stringify(props.tiles)}</output>
   <output data-testid="candidate-sites">{props.projectCandidateCenters.length}</output>
+  <output data-testid="map-region-focus">{props.regionFocusRequest}</output>
 </div> }));
 
 afterEach(() => {
@@ -214,6 +216,7 @@ describe("Gate 7 integrated project workflow", () => {
 
     await uploadManifest(user);
     expect(await screen.findByText(/Project imported\. Candidate preview and plan are empty/)).toBeTruthy();
+    expect(screen.getByTestId("map-region-focus")).toHaveTextContent("2");
     expect(screen.queryByText("Proposal preview")).toBeNull();
     expect(screen.getByTestId("candidate-sites")).toHaveTextContent("0");
     expect(screen.getByTestId("pointings")).toHaveTextContent("[]");

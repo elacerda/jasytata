@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AladinMap from "./AladinMap";
@@ -6,6 +6,7 @@ import A from "aladin-lite";
 import { profileRegistry, T80_SOUTH_INSTRUMENT_V2 } from "./profiles";
 import type { CatalogueDataset, TileRecord, TilingProfile } from "./types";
 import { tileFootprintBoundaries } from "./sky";
+import { regionViewport } from "./region-viewport";
 
 const aladinMocks = vi.hoisted(() => {
   const handlers = new Map<string, (value: unknown) => void>();
@@ -13,7 +14,7 @@ const aladinMocks = vi.hoisted(() => {
   const overlays: Array<{ add: ReturnType<typeof vi.fn>; removeAll: ReturnType<typeof vi.fn>; reportChange: ReturnType<typeof vi.fn>; shapes: unknown[]; painted: unknown[] }> = [];
   const instance = {
     on: vi.fn((event: string, handler: (value: unknown) => void) => handlers.set(event, handler)),
-    off: vi.fn(), addCatalog: vi.fn(), addOverlay: vi.fn(), remove: vi.fn(),
+    off: vi.fn(), addCatalog: vi.fn(), addOverlay: vi.fn(), removeOverlay: vi.fn(), remove: vi.fn(),
     getRaDec: vi.fn(() => [150, -30]), getFoV: vi.fn(() => [100, 80]),
     gotoRaDec: vi.fn(), setFoV: vi.fn(), select: vi.fn(), pix2world: vi.fn((x: number, y: number) => [x, y]),
     fire: vi.fn(), view: { selector: { dispatch: vi.fn() } },
@@ -69,13 +70,47 @@ describe("native Aladin catalogue layers", () => {
   beforeEach(() => {
     aladinMocks.catalogues.length = 0;
     aladinMocks.overlays.length = 0;
+    aladinMocks.instance.addCatalog.mockClear();
+    aladinMocks.instance.addOverlay.mockClear();
+    aladinMocks.instance.removeOverlay.mockClear();
     aladinMocks.handlers.clear();
     vi.stubGlobal("ResizeObserver", class {
       observe() { /* Aladin reacts to viewport changes in the browser. */ }
       disconnect() { /* No observer state in this test. */ }
     });
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("fits a narrow region across the RA zero boundary", () => {
+    const fit = regionViewport({ vertices: [
+      { ra_deg: 359.5, dec_deg: -1 }, { ra_deg: 0.5, dec_deg: -1 },
+      { ra_deg: 0.5, dec_deg: 1 }, { ra_deg: 359.5, dec_deg: 1 },
+    ] });
+    expect(fit.centerRaDeg).toBeCloseTo(0, 10);
+    expect(fit.centerDecDeg).toBe(0);
+    expect(fit.fieldOfViewDeg).toBeCloseTo(2.8, 1);
+  });
+
+  it("focuses only a finalized selected region when its request changes", async () => {
+    const region = { vertices: [
+      { ra_deg: 359.5, dec_deg: -1 }, { ra_deg: 0.5, dec_deg: -1 },
+      { ra_deg: 0.5, dec_deg: 1 }, { ra_deg: 359.5, dec_deg: 1 },
+    ] };
+    const base = {
+      tiles: [], datasets: [], profile: null, mode: "idle" as const, selectingRegion: false,
+      selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null,
+      selectedPolygon: region, anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    const view = render(<AladinMap {...base} />);
+    await waitFor(() => expect(A.aladin).toHaveBeenCalled());
+    aladinMocks.instance.gotoRaDec.mockClear();
+    aladinMocks.instance.setFoV.mockClear();
+    view.rerender(<AladinMap {...base} regionFocusRequest={1} />);
+    await waitFor(() => expect(aladinMocks.instance.gotoRaDec).toHaveBeenCalledWith(0, 0));
+    expect(aladinMocks.instance.setFoV).toHaveBeenCalledWith(expect.closeTo(2.8, 1));
+  });
 
   it("keeps datasets independent, toggles native visibility, and resolves source metadata", async () => {
     const onTileSelect = vi.fn();
@@ -83,7 +118,7 @@ describe("native Aladin catalogue layers", () => {
     const second = dataset("b", "second.csv");
     const base = {
       tiles: [...first.tiles, ...second.tiles], profile, mode: "idle" as const, selectingRegion: false,
-      selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+      selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, selectedPolygon: null,
       anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
@@ -105,6 +140,90 @@ describe("native Aladin catalogue layers", () => {
     expect(aladinMocks.catalogues[1].show).toHaveBeenCalled();
   });
 
+  it("detaches removed imported catalogue and footprint without affecting remaining datasets", async () => {
+    const first = dataset("a", "first.csv");
+    const second = dataset("b", "second.csv");
+    const base = {
+      tiles: [...first.tiles, ...second.tiles], datasets: [first, second], profile, mode: "idle" as const,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0,
+      selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    const view = render(<AladinMap {...base} />);
+    await waitFor(() => expect(aladinMocks.instance.addCatalog).toHaveBeenCalledTimes(2));
+    const staleCatalogue = aladinMocks.catalogues[0];
+    const staleOverlay = aladinMocks.overlays[7];
+    const preservedCatalogue = aladinMocks.catalogues[1];
+
+    view.rerender(<AladinMap {...base} tiles={second.tiles} datasets={[second]} />);
+
+    expect(staleCatalogue.removeAll).toHaveBeenCalled();
+    expect(aladinMocks.instance.removeOverlay).toHaveBeenCalledWith(staleCatalogue);
+    expect(staleOverlay.removeAll).toHaveBeenCalled();
+    expect(staleOverlay.reportChange).toHaveBeenCalled();
+    expect(aladinMocks.instance.removeOverlay).toHaveBeenCalledWith(staleOverlay);
+    expect(preservedCatalogue.removeAll).not.toHaveBeenCalled();
+    expect(preservedCatalogue.show).toHaveBeenCalled();
+  });
+
+  it("clears all imported native layers on reset and creates one clean layer on reload", async () => {
+    const first = dataset("a", "tiles_nc.csv");
+    const base = {
+      tiles: first.tiles, datasets: [first], profile, mode: "idle" as const,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0,
+      selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [],
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    const view = render(<AladinMap {...base} />);
+    await waitFor(() => expect(aladinMocks.instance.addCatalog).toHaveBeenCalledTimes(1));
+    const oldCatalogue = aladinMocks.catalogues[0];
+    const oldOverlay = aladinMocks.overlays[7];
+
+    view.rerender(<AladinMap {...base} tiles={[]} datasets={[]} />);
+    expect(oldCatalogue.removeAll).toHaveBeenCalled();
+    expect(aladinMocks.instance.removeOverlay).toHaveBeenCalledWith(oldCatalogue);
+    expect(oldOverlay.removeAll).toHaveBeenCalled();
+    expect(aladinMocks.instance.removeOverlay).toHaveBeenCalledWith(oldOverlay);
+
+    const reloaded = dataset("a-reloaded", "tiles_nc.csv");
+    view.rerender(<AladinMap {...base} tiles={reloaded.tiles} datasets={[reloaded]} />);
+    expect(aladinMocks.instance.addCatalog).toHaveBeenCalledTimes(2);
+    expect(aladinMocks.catalogues).toHaveLength(2);
+    expect(aladinMocks.catalogues[1].addSources).toHaveBeenCalledTimes(1);
+    expect(aladinMocks.catalogues[1].addSources.mock.calls[0][0]).toHaveLength(1);
+  });
+
+  it("does not detach proposal, reference, or candidate layers while removing an import", async () => {
+    const imported = dataset("a", "import.csv");
+    const proposed: TileRecord = {
+      ...imported.tiles[0], id: "proposal:1", source: "proposed", generation_method: "manual",
+      dataset_id: undefined, dataset_name: undefined,
+    };
+    const base = {
+      tiles: [...imported.tiles, proposed], datasets: [imported], profile, mode: "idle" as const,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0,
+      selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [{ ra_deg: 151, dec_deg: -30 }],
+      referenceMarker: { ra_deg: 152, dec_deg: -30 },
+      planningLayers: { proposals: true, region: true, anchors: false, lattice: true },
+      onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
+    };
+    const view = render(<AladinMap {...base} />);
+    await waitFor(() => expect(aladinMocks.catalogues).toHaveLength(3));
+    const proposalCatalogue = aladinMocks.catalogues[1];
+    const referenceCatalogue = aladinMocks.catalogues[2];
+    const candidateLayer = aladinMocks.overlays[4];
+
+    view.rerender(<AladinMap {...base} tiles={[]} datasets={[]} />);
+
+    expect(aladinMocks.instance.removeOverlay).toHaveBeenCalledTimes(2);
+    expect(aladinMocks.instance.removeOverlay).not.toHaveBeenCalledWith(proposalCatalogue);
+    expect(aladinMocks.instance.removeOverlay).not.toHaveBeenCalledWith(referenceCatalogue);
+    expect(aladinMocks.instance.removeOverlay).not.toHaveBeenCalledWith(candidateLayer);
+    cleanup();
+  });
+
   it("renders each dataset with its associated instrument footprint", async () => {
     aladinMocks.instance.getFoV.mockReturnValue([30, 20]);
     const instrumentProfileId = "aladin-circle-test-camera";
@@ -117,7 +236,7 @@ describe("native Aladin catalogue layers", () => {
     const circular = dataset("circle", "circle.csv", true, instrumentProfileId);
     const base = {
       tiles: circular.tiles, datasets: [circular], profile, mode: "idle" as const,
-      selectingRegion: false, selectionRequest: 0, focusRequest: 0,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0,
       selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
@@ -134,7 +253,7 @@ describe("native Aladin catalogue layers", () => {
     const source = dataset("kcwi-source", "kcwi-source.csv", true, "keck-kcwi-small");
     const base = {
       tiles: source.tiles, datasets: [source], profile: null, mode: "idle" as const,
-      selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null,
       selectedPolygon: null, anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
@@ -156,7 +275,7 @@ describe("native Aladin catalogue layers", () => {
     };
     render(<AladinMap
       tiles={[tile]} datasets={[]} profile={null} mode="idle" selectingRegion={false}
-      selectionRequest={0} focusRequest={0} selectedTileId={null} selectedPolygon={null}
+      selectionRequest={0} focusRequest={0} regionFocusRequest={0} selectedTileId={null} selectedPolygon={null}
       anchorTileIds={[]} candidateCenters={[]}
       planningLayers={{ proposals: true, region: true, anchors: false, lattice: false }}
       pointingGeometryContext={{ orientationPolicyForTile: () => ({ policy: "fixed", required: true }) }}
@@ -174,7 +293,7 @@ describe("native Aladin catalogue layers", () => {
     const first = dataset("a", "first.csv");
     const base = {
       tiles: first.tiles, datasets: [first], profile, mode: "idle" as const, selectingRegion: false,
-      focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+      focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, selectedPolygon: null,
       anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect, onCancelRegion: vi.fn(), onError: vi.fn(),
@@ -217,7 +336,7 @@ describe("native Aladin catalogue layers", () => {
     ] };
     const base = {
       tiles: first.tiles, datasets: [first], profile, mode: "idle" as const,
-      focusRequest: 0, selectedTileId: null, anchorTileIds: [], candidateCenters: [],
+      focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, anchorTileIds: [], candidateCenters: [],
       planningLayers: { proposals: true, region: true, anchors: false, lattice: false },
       onSkyClick: vi.fn(), onTileSelect: vi.fn(), onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
     };
@@ -241,7 +360,7 @@ describe("native Aladin catalogue layers", () => {
   it("batches candidate repaint while retaining full input and visual culling", async () => {
     aladinMocks.instance.getFoV.mockReturnValue([20, 20]);
     const candidates = Array.from({ length: 1500 }, (_, i) => ({ ra_deg: 150 + i / 10000, dec_deg: -30 }));
-    const base = { datasets: [], tiles: [], profile, mode: "idle" as const, selectingRegion: false, focusRequest: 0,
+    const base = { datasets: [], tiles: [], profile, mode: "idle" as const, selectingRegion: false, focusRequest: 0, regionFocusRequest: 0,
       selectedTileId: null, selectedPolygon: null, anchorTileIds: [], candidateCenters: [], projectCandidateCenters: candidates,
       planningLayers: { proposals: false, region: false, anchors: false, lattice: true },
       onTileSelect: vi.fn(), onSkyClick: vi.fn(), onRegionSelect: vi.fn(), onError: vi.fn(), onCancelRegion: vi.fn(), selectionRequest: 0 };
@@ -270,7 +389,7 @@ describe("native Aladin catalogue layers", () => {
     ] };
     const base = {
       tiles: [...first.tiles, proposed], datasets: [first], profile, mode: "idle" as const,
-      selectingRegion: false, selectionRequest: 0, focusRequest: 0, selectedTileId: null,
+      selectingRegion: false, selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null,
       selectedPolygon: polygon, anchorTileIds: [first.tiles[0].id],
       candidateCenters: [{ ra_deg: 150, dec_deg: -30 }],
       projectCandidateCenters: [{ ra_deg: 150.1, dec_deg: -30.1 }],
@@ -306,7 +425,7 @@ it("renders the reference in a dedicated labelled plus catalogue, independently 
   const onTileSelect = vi.fn();
   const base = {
     tiles: [], datasets: [], profile, mode: "idle" as const, selectingRegion: false,
-    selectionRequest: 0, focusRequest: 0, selectedTileId: null, selectedPolygon: null,
+    selectionRequest: 0, focusRequest: 0, regionFocusRequest: 0, selectedTileId: null, selectedPolygon: null,
     anchorTileIds: [], candidateCenters: [], planningLayers: { proposals: false, region: false, anchors: false, lattice: false },
     onSkyClick: vi.fn(), onTileSelect, onRegionSelect: vi.fn(), onCancelRegion: vi.fn(), onError: vi.fn(),
   };

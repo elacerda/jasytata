@@ -35,8 +35,8 @@ declare module "aladin-lite" {
     off?(event: string): void;
     addCatalog(catalogue: AladinLiteCatalogue): void;
     addOverlay(overlay: AladinLiteOverlay): void;
-    removeCatalog?(catalogue: AladinLiteCatalogue): void;
-    removeOverlay(overlay: AladinLiteOverlay): void;
+    /** Detach a catalogue or graphic overlay from the live map and layer list. */
+    removeOverlay(layer: AladinLiteCatalogue | AladinLiteOverlay): void;
     /** Convert top-left-origin viewport pixels to ICRS [RA, DEC] degrees. */
     pix2world(x: number, y: number): [number, number] | undefined;
     /** Return current ICRS center coordinates in degrees. */

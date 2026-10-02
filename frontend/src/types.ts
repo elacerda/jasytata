@@ -92,7 +92,7 @@ export interface CatalogueResponse {
   ra_column?: string | null;
   dec_column?: string | null;
   needs_mapping?: boolean;
-  /** Instrument profile known for a bundled/reference catalogue, when available. */
+  /** Instrument profile supplied by the catalogue or importer, when available. */
   instrument_profile_id?: string;
 }
 
